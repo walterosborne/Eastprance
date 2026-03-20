@@ -1,0 +1,205 @@
+:root {
+  --navy-950: #071629;
+  --navy-900: #102847;
+  --navy-800: #17375d;
+  --navy-700: #345272;
+  --grey-300: #c8d1dc;
+  --grey-200: #dde3ea;
+  --grey-100: #edf1f5;
+  --white: #f8fbff;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--navy-950);
+  background:
+    radial-gradient(circle at top left, rgba(117, 147, 184, 0.28), transparent 34%),
+    linear-gradient(145deg, #071629 0%, #102847 56%, #17375d 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.panel {
+  width: min(1080px, 100%);
+  padding: 3rem;
+  border-radius: 28px;
+  background: rgba(248, 251, 255, 0.92);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 24px 60px rgba(7, 22, 41, 0.3);
+}
+
+.chart-layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.chart-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.chart-eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--navy-700);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 3.6rem);
+  line-height: 1;
+}
+
+.chart-source {
+  margin: 0;
+  padding: 0.65rem 0.95rem;
+  border-radius: 999px;
+  background: rgba(23, 55, 93, 0.08);
+  color: var(--navy-800);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.filter-panel {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.4rem;
+  border-radius: 24px;
+  background: linear-gradient(180deg, var(--navy-950), var(--navy-900));
+  color: var(--white);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.filter-panel-header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.filter-heading {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(248, 251, 255, 0.76);
+}
+
+.filter-copy {
+  margin: 0;
+  line-height: 1.6;
+  color: rgba(248, 251, 255, 0.88);
+}
+
+.filter-fields {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.filter-group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.filter-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: rgba(248, 251, 255, 0.82);
+}
+
+.filter-summary {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(248, 251, 255, 0.12);
+  color: rgba(248, 251, 255, 0.76);
+  line-height: 1.5;
+}
+
+.visual-column {
+  display: grid;
+  gap: 1rem;
+}
+
+.chart-host {
+  display: grid;
+  place-items: center;
+  min-height: 420px;
+  padding: 1rem;
+  border-radius: 24px;
+  background: linear-gradient(180deg, var(--white), var(--grey-100));
+  border: 1px solid rgba(16, 40, 71, 0.1);
+  overflow: hidden;
+}
+
+.chart-message {
+  margin: 0;
+  color: var(--navy-700);
+  font-size: 1rem;
+}
+
+.chart-message-error {
+  color: #8e2a36;
+}
+
+.chart-footer {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  background: rgba(221, 227, 234, 0.42);
+}
+
+.chart-note {
+  margin: 0;
+  color: var(--navy-800);
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .panel {
+    padding: 2rem;
+  }
+
+  .chart-header {
+    flex-direction: column;
+  }
+
+  .chart-source {
+    white-space: normal;
+  }
+
+  .chart-host {
+    min-height: 360px;
+    padding: 0.5rem;
+  }
+}

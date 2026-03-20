@@ -9,20 +9,27 @@ import {
 import { LineChart } from '@mui/x-charts/LineChart';
 
 const ALL_FILTER_VALUE = '__all__';
+const DATE_FIELD_OPTIONS = [
+  { value: 'START_DATE', label: 'Start date' },
+  { value: 'END_DATE', label: 'End date' }
+];
 
 const VIEW_CONFIG = {
   monthly: {
     label: 'Monthly',
+    titleLabel: 'Monthly',
     divisor: 12,
     seriesLabel: 'Monthly expense'
   },
   quarterly: {
     label: 'Quarterly',
+    titleLabel: 'Quarterly',
     divisor: 4,
     seriesLabel: 'Quarterly expense'
   },
   yearly: {
     label: 'Yearly',
+    titleLabel: 'Yearly',
     divisor: 1,
     seriesLabel: 'Yearly expense'
   }
@@ -94,19 +101,19 @@ function getBucket(startDate, viewMode) {
   };
 }
 
-function buildChartData(rows, viewMode) {
+function buildChartData(rows, viewMode, dateField) {
   const buckets = new Map();
   const divisor = VIEW_CONFIG[viewMode].divisor;
 
   rows.forEach((row) => {
     const annualAmount = Number(row.ANNUAL_AMT);
-    const startDate = new Date(row.START_DATE);
+    const referenceDate = new Date(row[dateField]);
 
-    if (!Number.isFinite(annualAmount) || Number.isNaN(startDate.getTime())) {
+    if (!Number.isFinite(annualAmount) || Number.isNaN(referenceDate.getTime())) {
       return;
     }
 
-    const bucket = getBucket(startDate, viewMode);
+    const bucket = getBucket(referenceDate, viewMode);
     const currentValue = buckets.get(bucket.key) ?? {
       label: bucket.label,
       sortValue: bucket.sortValue,
@@ -127,7 +134,15 @@ function buildChartData(rows, viewMode) {
 
 export default function App() {
   const [payments, setPayments] = useState([]);
+  const [themeMode, setThemeMode] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 'light';
+    }
+
+    return window.localStorage.getItem('expense-theme-mode') === 'dark' ? 'dark' : 'light';
+  });
   const [viewMode, setViewMode] = useState('monthly');
+  const [selectedDateField, setSelectedDateField] = useState('START_DATE');
   const [selectedPaymentType, setSelectedPaymentType] = useState(ALL_FILTER_VALUE);
   const [selectedPaymentCategory, setSelectedPaymentCategory] = useState(ALL_FILTER_VALUE);
   const [loading, setLoading] = useState(true);
@@ -149,6 +164,7 @@ export default function App() {
 
         setPayments(Array.isArray(data.rows) ? data.rows : []);
         setSource(data.source === 'mssql' ? 'SQL Server data' : '');
+        setSelectedDateField('START_DATE');
         setSelectedPaymentType(ALL_FILTER_VALUE);
         setSelectedPaymentCategory(ALL_FILTER_VALUE);
         setError('');
@@ -163,6 +179,11 @@ export default function App() {
 
     loadPayments();
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', themeMode);
+    window.localStorage.setItem('expense-theme-mode', themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     const chartHost = chartHostRef.current;
@@ -210,8 +231,11 @@ export default function App() {
 
     return paymentTypeMatches && paymentCategoryMatches;
   });
-  const chartData = buildChartData(filteredPayments, viewMode);
+  const chartData = buildChartData(filteredPayments, viewMode, selectedDateField);
   const viewConfig = VIEW_CONFIG[viewMode];
+  const selectedDateFieldLabel =
+    DATE_FIELD_OPTIONS.find((option) => option.value === selectedDateField)?.label ?? 'Start date';
+  const chartTitle = `${viewConfig.titleLabel} Costs by ${selectedDateFieldLabel}`;
 
   return (
     <main className="app-shell">
@@ -220,9 +244,20 @@ export default function App() {
           <div className="chart-header">
             <div>
               <p className="chart-eyebrow">Expense trend</p>
-              <h1>Annualized expense by start date</h1>
+              <h1>{chartTitle}</h1>
             </div>
-            {source && <p className="chart-source">{source}</p>}
+            <div className="header-actions">
+              {source && <p className="chart-source">{source}</p>}
+              <button
+                type="button"
+                className="theme-toggle"
+                onClick={() => {
+                  setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
+                }}
+              >
+                {themeMode === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
+            </div>
           </div>
 
           <div className="dashboard-grid">
@@ -235,6 +270,28 @@ export default function App() {
               </div>
 
               <div className="filter-fields">
+                <div className="filter-group">
+                  <label className="filter-label" htmlFor="date-field-filter">
+                    Display by
+                  </label>
+                  <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                    <Select
+                      id="date-field-filter"
+                      value={selectedDateField}
+                      onChange={(event) => {
+                        setSelectedDateField(event.target.value);
+                      }}
+                      MenuProps={selectMenuProps}
+                    >
+                      {DATE_FIELD_OPTIONS.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </div>
+
                 <div className="filter-group">
                   <label className="filter-label" htmlFor="payment-type-filter">
                     Payment type
@@ -329,12 +386,23 @@ export default function App() {
                       {
                         data: chartData.map((bucket) => bucket.total),
                         label: `${viewConfig.seriesLabel} from ANNUAL_AMT`,
-                        color: '#17375d',
+                        color: 'var(--chart-line)',
                         valueFormatter: formatCurrency,
                         showMark: false
                       }
                     ]}
                     grid={{ horizontal: true }}
+                    sx={{
+                      '& .MuiChartsAxis-line, & .MuiChartsAxis-tick': {
+                        stroke: 'var(--chart-grid)'
+                      },
+                      '& .MuiChartsGrid-line': {
+                        stroke: 'var(--chart-grid)'
+                      },
+                      '& .MuiChartsAxis-tickLabel, & .MuiChartsLegend-label': {
+                        fill: 'var(--chart-text)'
+                      }
+                    }}
                   />
                 )}
               </div>
@@ -350,7 +418,8 @@ export default function App() {
                     }
                   }}
                   sx={{
-                    backgroundColor: 'rgba(23, 55, 93, 0.08)',
+                    backgroundColor: 'var(--surface-muted)',
+                    border: '1px solid var(--border)',
                     borderRadius: '18px',
                     padding: '0.25rem'
                   }}
@@ -362,15 +431,15 @@ export default function App() {
                       sx={{
                         border: 0,
                         borderRadius: '14px !important',
-                        color: '#17375d',
+                        color: 'var(--text-primary)',
                         fontWeight: 600,
                         textTransform: 'none',
                         '&.Mui-selected': {
-                          backgroundColor: '#17375d',
-                          color: '#f8fbff'
+                          backgroundColor: 'var(--selected-bg)',
+                          color: 'var(--selected-text)'
                         },
                         '&.Mui-selected:hover': {
-                          backgroundColor: '#102847'
+                          backgroundColor: 'var(--selected-bg)'
                         }
                       }}
                     >
@@ -392,8 +461,10 @@ const selectMenuProps = {
     sx: {
       mt: 1,
       borderRadius: '18px',
-      border: '1px solid rgba(16, 40, 71, 0.08)',
-      boxShadow: '0 18px 40px rgba(7, 22, 41, 0.16)'
+      border: '1px solid var(--border)',
+      backgroundColor: 'var(--input-bg)',
+      color: 'var(--input-text)',
+      boxShadow: '0 12px 28px rgba(0, 0, 0, 0.08)'
     }
   }
 };
@@ -402,23 +473,23 @@ const filterSelectStyles = {
   '& .MuiOutlinedInput-root': {
     minHeight: 52,
     borderRadius: '16px',
-    color: '#17375d',
-    backgroundColor: '#f8fbff'
+    color: 'var(--input-text)',
+    backgroundColor: 'var(--input-bg)'
   },
   '& .MuiSelect-select': {
     padding: '14px 16px',
     fontWeight: 600
   },
   '& .MuiOutlinedInput-notchedOutline': {
-    borderColor: 'rgba(16, 40, 71, 0.12)'
+    borderColor: 'var(--input-border)'
   },
   '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
-    borderColor: 'rgba(16, 40, 71, 0.28)'
+    borderColor: 'var(--text-primary)'
   },
   '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
-    borderColor: '#17375d'
+    borderColor: 'var(--text-primary)'
   },
   '& .MuiSvgIcon-root': {
-    color: '#17375d'
+    color: 'var(--input-text)'
   }
 };

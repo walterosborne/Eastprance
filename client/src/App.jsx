@@ -9,7 +9,21 @@ import {
 import { LineChart } from '@mui/x-charts/LineChart';
 
 const ALL_FILTER_VALUE = '__all__';
-const MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const OTD_MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const LABOR_MONTH_COLUMNS = [
+  { key: 'JAN', label: 'Jan' },
+  { key: 'FEB', label: 'Feb' },
+  { key: 'MAR', label: 'Mar' },
+  { key: 'APR', label: 'Apr' },
+  { key: 'MAY', label: 'May' },
+  { key: 'JUN', label: 'Jun' },
+  { key: 'JUL', label: 'Jul' },
+  { key: 'AUG', label: 'Aug' },
+  { key: 'SEP', label: 'Sep' },
+  { key: 'OCT', label: 'Oct' },
+  { key: 'NOV', label: 'Nov' },
+  { key: 'DEC', label: 'Dec' }
+];
 const DATE_FIELD_OPTIONS = [
   { value: 'START_DATE', label: 'Start date' },
   { value: 'END_DATE', label: 'End date' }
@@ -155,8 +169,8 @@ function buildCostChartData(rows, viewMode, dateField) {
 }
 
 function buildOtdChartData(rows) {
-  const contractTotals = MONTH_COLUMNS.map(() => 0);
-  const deliveredTotals = MONTH_COLUMNS.map(() => 0);
+  const contractTotals = OTD_MONTH_COLUMNS.map(() => 0);
+  const deliveredTotals = OTD_MONTH_COLUMNS.map(() => 0);
 
   rows.forEach((row) => {
     const targetSeries =
@@ -170,7 +184,7 @@ function buildOtdChartData(rows) {
       return;
     }
 
-    MONTH_COLUMNS.forEach((month, index) => {
+    OTD_MONTH_COLUMNS.forEach((month, index) => {
       const value = Number(row[month]);
 
       if (Number.isFinite(value)) {
@@ -180,9 +194,58 @@ function buildOtdChartData(rows) {
   });
 
   return {
-    labels: MONTH_COLUMNS,
+    labels: OTD_MONTH_COLUMNS,
     contract: contractTotals.map((value) => Number(value.toFixed(2))),
     delivered: deliveredTotals.map((value) => Number(value.toFixed(2)))
+  };
+}
+
+function getLaborCategoryGroup(laborCategory) {
+  const normalizedValue = String(laborCategory ?? '').toLowerCase();
+
+  if (normalizedValue.includes('labor direct')) {
+    return 'direct';
+  }
+
+  if (normalizedValue.includes('labor indirect')) {
+    return 'indirect';
+  }
+
+  return 'other';
+}
+
+function buildLaborUtilizationChartData(rows) {
+  const monthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
+  let directRowCount = 0;
+  let annualTotal = 0;
+
+  rows.forEach((row) => {
+    if (getLaborCategoryGroup(row.labor_category) !== 'direct') {
+      return;
+    }
+
+    directRowCount += 1;
+
+    const total2026 = Number(row.total_2026);
+
+    if (Number.isFinite(total2026)) {
+      annualTotal += total2026;
+    }
+
+    LABOR_MONTH_COLUMNS.forEach(({ key }, index) => {
+      const value = Number(row[key]);
+
+      if (Number.isFinite(value)) {
+        monthlyTotals[index] += value;
+      }
+    });
+  });
+
+  return {
+    labels: LABOR_MONTH_COLUMNS.map((month) => month.label),
+    totals: monthlyTotals.map((value) => Number(value.toFixed(2))),
+    directRowCount,
+    annualTotal: Number(annualTotal.toFixed(2))
   };
 }
 
@@ -253,6 +316,12 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [laborState, setLaborState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
   const [viewMode, setViewMode] = useState('monthly');
   const [selectedDateField, setSelectedDateField] = useState('START_DATE');
   const [selectedPaymentType, setSelectedPaymentType] = useState(ALL_FILTER_VALUE);
@@ -260,16 +329,23 @@ export default function App() {
   const [selectedProgram, setSelectedProgram] = useState(ALL_FILTER_VALUE);
   const [selectedSite, setSelectedSite] = useState(ALL_FILTER_VALUE);
   const [selectedOtdType, setSelectedOtdType] = useState(ALL_FILTER_VALUE);
+  const [selectedForecastedCc, setSelectedForecastedCc] = useState(ALL_FILTER_VALUE);
+  const [selectedPool, setSelectedPool] = useState(ALL_FILTER_VALUE);
+  const [selectedUnionType, setSelectedUnionType] = useState(ALL_FILTER_VALUE);
+  const [selectedWorkerType, setSelectedWorkerType] = useState(ALL_FILTER_VALUE);
+  const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
   const { chartHostRef: costChartHostRef, chartWidth: costChartWidth } = useChartWidth(280);
   const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth(280);
+  const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth(280);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadDashboardData() {
-      const [paymentsResult, otdResult] = await Promise.allSettled([
+      const [paymentsResult, otdResult, laborResult] = await Promise.allSettled([
         fetchJson('/api/payments'),
-        fetchJson('/api/otd')
+        fetchJson('/api/otd'),
+        fetchJson('/api/labor-utilization')
       ]);
 
       if (!isMounted) {
@@ -310,6 +386,27 @@ export default function App() {
           rows: [],
           loading: false,
           error: otdResult.reason.message || 'Unable to load the OTD workbook.',
+          source: ''
+        });
+      }
+
+      if (laborResult.status === 'fulfilled') {
+        setLaborState({
+          rows: Array.isArray(laborResult.value.rows) ? laborResult.value.rows : [],
+          loading: false,
+          error: '',
+          source: laborResult.value.fileName || 'Excel data'
+        });
+        setSelectedForecastedCc(ALL_FILTER_VALUE);
+        setSelectedPool(ALL_FILTER_VALUE);
+        setSelectedUnionType(ALL_FILTER_VALUE);
+        setSelectedWorkerType(ALL_FILTER_VALUE);
+        setSelectedTimeType(ALL_FILTER_VALUE);
+      } else {
+        setLaborState({
+          rows: [],
+          loading: false,
+          error: laborResult.reason.message || 'Unable to load the labor workbook.',
           source: ''
         });
       }
@@ -363,6 +460,37 @@ export default function App() {
   });
   const otdChartData = buildOtdChartData(filteredOtdRows);
 
+  const forecastedCcOptions = getFilterOptions(laborState.rows, 'forecasted_cc');
+  const poolOptions = getFilterOptions(laborState.rows, 'pool');
+  const unionTypeOptions = getFilterOptions(laborState.rows, 'union_type');
+  const workerTypeOptions = getFilterOptions(laborState.rows, 'worker_type');
+  const timeTypeOptions = getFilterOptions(laborState.rows, 'time_type');
+  const activeForecastedCc = normalizeFilterValue(selectedForecastedCc, forecastedCcOptions);
+  const activePool = normalizeFilterValue(selectedPool, poolOptions);
+  const activeUnionType = normalizeFilterValue(selectedUnionType, unionTypeOptions);
+  const activeWorkerType = normalizeFilterValue(selectedWorkerType, workerTypeOptions);
+  const activeTimeType = normalizeFilterValue(selectedTimeType, timeTypeOptions);
+  const filteredLaborRows = laborState.rows.filter((row) => {
+    const facilityMatches =
+      activeForecastedCc === ALL_FILTER_VALUE || row.forecasted_cc === activeForecastedCc;
+    const poolMatches = activePool === ALL_FILTER_VALUE || row.pool === activePool;
+    const unionTypeMatches =
+      activeUnionType === ALL_FILTER_VALUE || row.union_type === activeUnionType;
+    const workerTypeMatches =
+      activeWorkerType === ALL_FILTER_VALUE || row.worker_type === activeWorkerType;
+    const timeTypeMatches =
+      activeTimeType === ALL_FILTER_VALUE || row.time_type === activeTimeType;
+
+    return (
+      facilityMatches &&
+      poolMatches &&
+      unionTypeMatches &&
+      workerTypeMatches &&
+      timeTypeMatches
+    );
+  });
+  const laborChartData = buildLaborUtilizationChartData(filteredLaborRows);
+
   return (
     <main className="app-shell">
       <section className="panel">
@@ -370,7 +498,7 @@ export default function App() {
           <div className="page-header">
             <div>
               <p className="chart-eyebrow">Dashboard</p>
-              <h1 className="page-title">Costs and Delivery</h1>
+              <h1 className="page-title">Costs, Delivery, and Labor</h1>
             </div>
             <button
               type="button"
@@ -745,8 +873,236 @@ export default function App() {
 
                   <div className="chart-footer">
                     <p className="chart-note">
-                      Monthly totals from the OTD workbook for Contract Commitment and Actual
-                      Delivered.
+                      Monthly totals from the Beatles-themed OTD workbook for Contract Commitment
+                      and Actual Delivered.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article className="analytics-card">
+              <div className="card-header">
+                <div>
+                  <p className="card-kicker">Labor trend</p>
+                  <h2 className="card-title">Direct Labor Utilization</h2>
+                </div>
+                {laborState.source && <p className="chart-source">{laborState.source}</p>}
+              </div>
+
+              <div className="dashboard-grid">
+                <aside className="filter-panel">
+                  <div className="filter-panel-header">
+                    <p className="filter-heading">Filters</p>
+                    <p className="filter-copy">
+                      Narrow the direct labor chart by facility, pool, union status, worker type,
+                      and time type.
+                    </p>
+                  </div>
+
+                  <div className="filter-fields">
+                    <div className="filter-group">
+                      <label className="filter-label" htmlFor="forecasted-cc-filter">
+                        Forecasted CC
+                      </label>
+                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                        <Select
+                          id="forecasted-cc-filter"
+                          value={activeForecastedCc}
+                          displayEmpty
+                          onChange={(event) => {
+                            setSelectedForecastedCc(event.target.value);
+                          }}
+                          renderValue={(value) =>
+                            value === ALL_FILTER_VALUE ? 'All facilities' : value
+                          }
+                          MenuProps={selectMenuProps}
+                        >
+                          <MenuItem value={ALL_FILTER_VALUE}>All facilities</MenuItem>
+                          {forecastedCcOptions.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </div>
+
+                    <div className="filter-group">
+                      <label className="filter-label" htmlFor="pool-filter">
+                        Pool
+                      </label>
+                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                        <Select
+                          id="pool-filter"
+                          value={activePool}
+                          displayEmpty
+                          onChange={(event) => {
+                            setSelectedPool(event.target.value);
+                          }}
+                          renderValue={(value) => (value === ALL_FILTER_VALUE ? 'All pools' : value)}
+                          MenuProps={selectMenuProps}
+                        >
+                          <MenuItem value={ALL_FILTER_VALUE}>All pools</MenuItem>
+                          {poolOptions.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </div>
+
+                    <div className="filter-group">
+                      <label className="filter-label" htmlFor="union-type-filter">
+                        Union type
+                      </label>
+                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                        <Select
+                          id="union-type-filter"
+                          value={activeUnionType}
+                          displayEmpty
+                          onChange={(event) => {
+                            setSelectedUnionType(event.target.value);
+                          }}
+                          renderValue={(value) =>
+                            value === ALL_FILTER_VALUE ? 'All union types' : value
+                          }
+                          MenuProps={selectMenuProps}
+                        >
+                          <MenuItem value={ALL_FILTER_VALUE}>All union types</MenuItem>
+                          {unionTypeOptions.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </div>
+
+                    <div className="filter-group">
+                      <label className="filter-label" htmlFor="worker-type-filter">
+                        Worker type
+                      </label>
+                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                        <Select
+                          id="worker-type-filter"
+                          value={activeWorkerType}
+                          displayEmpty
+                          onChange={(event) => {
+                            setSelectedWorkerType(event.target.value);
+                          }}
+                          renderValue={(value) =>
+                            value === ALL_FILTER_VALUE ? 'All worker types' : value
+                          }
+                          MenuProps={selectMenuProps}
+                        >
+                          <MenuItem value={ALL_FILTER_VALUE}>All worker types</MenuItem>
+                          {workerTypeOptions.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </div>
+
+                    <div className="filter-group">
+                      <label className="filter-label" htmlFor="time-type-filter">
+                        Time type
+                      </label>
+                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                        <Select
+                          id="time-type-filter"
+                          value={activeTimeType}
+                          displayEmpty
+                          onChange={(event) => {
+                            setSelectedTimeType(event.target.value);
+                          }}
+                          renderValue={(value) =>
+                            value === ALL_FILTER_VALUE ? 'All time types' : value
+                          }
+                          MenuProps={selectMenuProps}
+                        >
+                          <MenuItem value={ALL_FILTER_VALUE}>All time types</MenuItem>
+                          {timeTypeOptions.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </div>
+                  </div>
+
+                  <p className="filter-summary">
+                    Using {laborChartData.directRowCount} direct rows from {filteredLaborRows.length}{' '}
+                    filtered labor rows.
+                  </p>
+                </aside>
+
+                <div className="visual-column">
+                  <div ref={laborChartHostRef} className="chart-host">
+                    {laborState.loading && (
+                      <p className="chart-message">Loading labor utilization data...</p>
+                    )}
+
+                    {!laborState.loading && laborState.error && (
+                      <p className="chart-message chart-message-error">{laborState.error}</p>
+                    )}
+
+                    {!laborState.loading &&
+                      !laborState.error &&
+                      filteredLaborRows.length === 0 && (
+                        <p className="chart-message">No labor rows match the selected filters.</p>
+                      )}
+
+                    {!laborState.loading &&
+                      !laborState.error &&
+                      filteredLaborRows.length > 0 &&
+                      laborChartData.directRowCount === 0 && (
+                        <p className="chart-message">
+                          No filtered rows qualify as direct labor based on Labor Category.
+                        </p>
+                      )}
+
+                    {!laborState.loading &&
+                      !laborState.error &&
+                      laborChartData.directRowCount > 0 && (
+                        <LineChart
+                          width={laborChartWidth}
+                          height={360}
+                          margin={{ top: 24, right: 24, bottom: 36, left: 72 }}
+                          xAxis={[
+                            {
+                              scaleType: 'point',
+                              data: laborChartData.labels
+                            }
+                          ]}
+                          yAxis={[
+                            {
+                              valueFormatter: formatNumber
+                            }
+                          ]}
+                          series={[
+                            {
+                              data: laborChartData.totals,
+                              label: 'Direct labor hours',
+                              color: 'var(--chart-line)',
+                              valueFormatter: formatNumber,
+                              showMark: false
+                            }
+                          ]}
+                          grid={{ horizontal: true }}
+                          sx={sharedChartSx}
+                        />
+                      )}
+                  </div>
+
+                  <div className="chart-footer">
+                    <p className="chart-note">
+                      Only rows whose Labor Category contains "Labor Direct" feed this chart. 2026
+                      hours in view: {formatNumber(laborChartData.annualTotal)}.
                     </p>
                   </div>
                 </div>

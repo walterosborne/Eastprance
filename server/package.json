@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "generate:data": "node generateDummyWorkbooks.js",
     "dev": "node --watch index.js",
     "start": "NODE_ENV=production node index.js"
   },

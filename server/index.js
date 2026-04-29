@@ -3,11 +3,16 @@ import cors from 'cors';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  getWildcardApiHost,
+  resolveApiHostConfig,
+  shouldFallbackToWildcardHost
+} from '../shared/apiHost.mjs';
+import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
 import { closePaymentsConnection, readPayments } from './paymentsRepository.js';
 
 const app = express();
-const port = Number(process.env.PORT || process.env.API_PORT || 3002);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
@@ -46,6 +51,18 @@ app.get('/api/otd', async (_request, response) => {
   }
 });
 
+app.get('/api/labor-utilization', async (_request, response) => {
+  try {
+    const laborUtilizationData = await readLaborUtilizationData();
+    response.json(laborUtilizationData);
+  } catch (error) {
+    response.status(500).json({
+      message: 'Unable to read labor utilization data.',
+      error: error.message
+    });
+  }
+});
+
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(clientDistPath));
 
@@ -59,11 +76,11 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-const server = app.listen(port, () => {
-  console.log(`Server listening on http://localhost:${port}`);
-});
+const { port, preferredHost, bindHost, connectHost, usingFallback, reason } =
+  await resolveApiHostConfig();
+const wildcardHost = getWildcardApiHost();
 
-server.on('error', (error) => {
+function handleStartupError(error) {
   if (error.code === 'EADDRINUSE') {
     console.error(
       `Port ${port} is already in use. Run \`API_PORT=<open-port> npm run dev\` or stop the process using that port.`
@@ -72,7 +89,64 @@ server.on('error', (error) => {
   }
 
   throw error;
-});
+}
+
+function listen(host) {
+  return new Promise((resolve, reject) => {
+    const candidateServer = app.listen(port, host);
+
+    const onError = (error) => {
+      candidateServer.off('listening', onListening);
+      reject(error);
+    };
+
+    const onListening = () => {
+      candidateServer.off('error', onError);
+      resolve(candidateServer);
+    };
+
+    candidateServer.once('error', onError);
+    candidateServer.once('listening', onListening);
+  });
+}
+
+async function startServer() {
+  if (usingFallback) {
+    console.warn(`${reason} Falling back to ${wildcardHost}.`);
+  }
+
+  try {
+    return {
+      server: await listen(bindHost),
+      boundHost: bindHost
+    };
+  } catch (error) {
+    if (bindHost !== wildcardHost && shouldFallbackToWildcardHost(error)) {
+      console.warn(
+        `Unable to bind to hostname "${preferredHost}" (${error.code}). Falling back to ${wildcardHost}.`
+      );
+
+      try {
+        return {
+          server: await listen(wildcardHost),
+          boundHost: wildcardHost
+        };
+      } catch (fallbackError) {
+        handleStartupError(fallbackError);
+      }
+    }
+
+    handleStartupError(error);
+  }
+}
+
+const { server, boundHost } = await startServer();
+const announcedHost = boundHost === wildcardHost ? connectHost : preferredHost;
+const boundWithFallback = boundHost === wildcardHost;
+
+console.log(
+  `Server listening on http://${announcedHost}:${port}${boundWithFallback ? ` (bound to ${wildcardHost})` : ''}`
+);
 
 async function shutdown() {
   try {

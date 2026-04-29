@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   FormControl,
   MenuItem,
@@ -14,7 +14,20 @@ import {
 } from '@mui/x-charts/ChartsTooltip';
 
 const ALL_FILTER_VALUE = '__all__';
-const OTD_MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const OTD_MONTH_COLUMNS = [
+  { key: 'JAN', label: 'Jan' },
+  { key: 'FEB', label: 'Feb' },
+  { key: 'MAR', label: 'Mar' },
+  { key: 'APR', label: 'Apr' },
+  { key: 'MAY', label: 'May' },
+  { key: 'JUN', label: 'Jun' },
+  { key: 'JUL', label: 'Jul' },
+  { key: 'AUG', label: 'Aug' },
+  { key: 'SEP', label: 'Sep' },
+  { key: 'OCT', label: 'Oct' },
+  { key: 'NOV', label: 'Nov' },
+  { key: 'DEC', label: 'Dec' }
+];
 const LABOR_MONTH_COLUMNS = [
   { key: 'JAN', label: 'Jan' },
   { key: 'FEB', label: 'Feb' },
@@ -55,6 +68,24 @@ const VIEW_CONFIG = {
   }
 };
 
+const OTD_VIEW_CONFIG = {
+  monthly: {
+    label: 'Monthly'
+  },
+  quarterly: {
+    label: 'Quarterly'
+  },
+  yearly: {
+    label: 'Annual'
+  }
+};
+
+const CARD_CHIP_OPTIONS = [
+  { key: 'costs', label: 'Monthly Costs' },
+  { key: 'otd', label: 'On Time Delivery (OTD)' },
+  { key: 'labor', label: 'Direct Labor Utilization' }
+];
+
 const LABOR_VIEW_CONFIG = {
   monthly: {
     label: 'Monthly',
@@ -73,8 +104,30 @@ const LABOR_VIEW_CONFIG = {
   }
 };
 
-const DEFAULT_CHART_MARGIN = { top: 24, right: 24, bottom: 36, left: 88 };
-const LABOR_CHART_MARGIN = { top: 24, right: 24, bottom: 36, left: 96 };
+const DEFAULT_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
+const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
+const CHART_HEIGHT = 332;
+const COST_Y_AXIS = [
+  {
+    width: 52,
+    valueFormatter: formatCurrency,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+const OTD_Y_AXIS = [
+  {
+    width: 66,
+    valueFormatter: formatCompactCurrency,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+const LABOR_Y_AXIS = [
+  {
+    width: 64,
+    valueFormatter: formatCompactHoursAxis,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -86,6 +139,16 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 const numberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2
+});
+
+const wholeNumberFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0
+});
+
+const compactNumberFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 1
 });
 
 const monthLabelFormatter = new Intl.DateTimeFormat('en-US', {
@@ -106,12 +169,101 @@ const sharedChartSx = {
   }
 };
 
+const timelineToggleGroupSx = {
+  width: '100%',
+  minWidth: 0,
+  maxWidth: '100%',
+  display: 'flex',
+  alignItems: 'stretch',
+  backgroundColor: 'var(--surface-muted)',
+  border: '1px solid var(--border)',
+  borderRadius: '18px',
+  padding: '0.25rem',
+  overflow: 'hidden',
+  '& .MuiToggleButtonGroup-grouped': {
+    flex: 1,
+    minWidth: 0,
+    margin: 0,
+    border: 0
+  }
+};
+
+const timelineToggleButtonSx = {
+  width: '100%',
+  minWidth: 0,
+  border: 0,
+  borderRadius: '14px !important',
+  color: 'var(--text-primary)',
+  fontSize: '0.82rem',
+  fontWeight: 600,
+  lineHeight: 1.1,
+  px: 0.6,
+  py: 0.55,
+  textTransform: 'none',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  '&.Mui-selected': {
+    backgroundColor: 'var(--selected-bg)',
+    color: 'var(--selected-text)'
+  },
+  '&.Mui-selected:hover': {
+    backgroundColor: 'var(--selected-bg)'
+  }
+};
+
 function formatCurrency(value) {
   return currencyFormatter.format(value ?? 0);
 }
 
 function formatNumber(value) {
   return numberFormatter.format(value ?? 0);
+}
+
+function formatCompactNumber(value) {
+  const numericValue = Number(value ?? 0);
+
+  if (Math.abs(numericValue) >= 1000) {
+    return `${compactNumberFormatter.format(numericValue / 1000)}k`;
+  }
+
+  return numberFormatter.format(numericValue);
+}
+
+function formatCompactCurrency(value) {
+  const numericValue = Number(value ?? 0);
+
+  if (Math.abs(numericValue) >= 1000) {
+    const sign = numericValue < 0 ? '-' : '';
+
+    return `${sign}$${formatCompactNumber(Math.abs(numericValue))}`;
+  }
+
+  return currencyFormatter.format(numericValue);
+}
+
+function formatCompactWholeNumber(value) {
+  const roundedValue = Math.round(Number(value ?? 0));
+  const sign = roundedValue < 0 ? '-' : '';
+  const absoluteValue = Math.abs(roundedValue);
+
+  if (absoluteValue >= 1000) {
+    return `${sign}${wholeNumberFormatter.format(Math.round(absoluteValue / 1000))}k`;
+  }
+
+  return `${sign}${wholeNumberFormatter.format(absoluteValue)}`;
+}
+
+function formatHours(value) {
+  return `${wholeNumberFormatter.format(Math.round(Number(value ?? 0)))} hours`;
+}
+
+function formatCompactHours(value) {
+  return `${formatCompactWholeNumber(value)} hours`;
+}
+
+function formatCompactHoursAxis(value) {
+  return `${formatCompactWholeNumber(value)} hrs`;
 }
 
 function formatDebugDuration(durationMs) {
@@ -221,7 +373,30 @@ function buildCostChartData(rows, viewMode, dateField) {
     }));
 }
 
-function buildOtdChartData(rows) {
+function getOtdBuckets(viewMode) {
+  if (viewMode === 'monthly') {
+    return OTD_MONTH_COLUMNS.map(({ label }, index) => ({
+      label,
+      monthIndices: [index]
+    }));
+  }
+
+  if (viewMode === 'quarterly') {
+    return [0, 3, 6, 9].map((startIndex, quarterIndex) => ({
+      label: `Q${quarterIndex + 1} 2026`,
+      monthIndices: [startIndex, startIndex + 1, startIndex + 2]
+    }));
+  }
+
+  return [
+    {
+      label: '2026',
+      monthIndices: OTD_MONTH_COLUMNS.map((_month, index) => index)
+    }
+  ];
+}
+
+function buildOtdChartData(rows, viewMode) {
   const contractTotals = OTD_MONTH_COLUMNS.map(() => 0);
   const deliveredTotals = OTD_MONTH_COLUMNS.map(() => 0);
 
@@ -237,8 +412,8 @@ function buildOtdChartData(rows) {
       return;
     }
 
-    OTD_MONTH_COLUMNS.forEach((month, index) => {
-      const value = Number(row[month]);
+    OTD_MONTH_COLUMNS.forEach(({ key }, index) => {
+      const value = Number(row[key]);
 
       if (Number.isFinite(value)) {
         targetSeries[index] += value;
@@ -246,10 +421,24 @@ function buildOtdChartData(rows) {
     });
   });
 
+  const buckets = getOtdBuckets(viewMode);
+
   return {
-    labels: OTD_MONTH_COLUMNS,
-    contract: contractTotals.map((value) => Number(value.toFixed(2))),
-    delivered: deliveredTotals.map((value) => Number(value.toFixed(2)))
+    labels: buckets.map((bucket) => bucket.label),
+    contract: buckets.map((bucket) =>
+      Number(
+        bucket.monthIndices
+          .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0)
+          .toFixed(2)
+      )
+    ),
+    delivered: buckets.map((bucket) =>
+      Number(
+        bucket.monthIndices
+          .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0)
+          .toFixed(2)
+      )
+    )
   };
 }
 
@@ -338,7 +527,7 @@ function buildLaborUtilizationChartData(rows, viewMode) {
       (sum, monthIndex) => sum + directMonthlyTotals[monthIndex],
       0
     );
-    const normalizedTotal = Number(total.toFixed(2));
+    const normalizedTotal = Math.round(total);
 
     tooltipLookup[label] = {
       ...(tooltipLookup[label] || {}),
@@ -353,7 +542,7 @@ function buildLaborUtilizationChartData(rows, viewMode) {
       (sum, monthIndex) => sum + indirectMonthlyTotals[monthIndex],
       0
     );
-    const normalizedTotal = Number(total.toFixed(2));
+    const normalizedTotal = Math.round(total);
 
     tooltipLookup[label] = {
       ...(tooltipLookup[label] || {}),
@@ -368,7 +557,7 @@ function buildLaborUtilizationChartData(rows, viewMode) {
       (sum, monthIndex) => sum + otherMonthlyTotals[monthIndex],
       0
     );
-    const normalizedTotal = Number(total.toFixed(2));
+    const normalizedTotal = Math.round(total);
 
     tooltipLookup[label] = {
       ...(tooltipLookup[label] || {}),
@@ -379,7 +568,7 @@ function buildLaborUtilizationChartData(rows, viewMode) {
   });
 
   const totals = buckets.map(({ label }, index) => {
-    const total = Number((direct[index] + indirect[index] + other[index]).toFixed(2));
+    const total = Math.round(direct[index] + indirect[index] + other[index]);
 
     tooltipLookup[label] = {
       ...tooltipLookup[label],
@@ -398,7 +587,7 @@ function buildLaborUtilizationChartData(rows, viewMode) {
     directRowCount,
     indirectRowCount,
     otherRowCount,
-    annualTotal: Number(totals.reduce((sum, value) => sum + value, 0).toFixed(2)),
+    annualTotal: Math.round(totals.reduce((sum, value) => sum + value, 0)),
     tooltipLookup
   };
 }
@@ -417,6 +606,116 @@ function TooltipMark({ color }) {
         verticalAlign: 'middle'
       }}
     />
+  );
+}
+
+function renderTooltipTable({ axisId, bucketLabel, seriesItems, extraRows = [] }) {
+  return (
+    <table
+      key={axisId}
+      style={{
+        borderCollapse: 'collapse',
+        borderSpacing: 0,
+        minWidth: 220
+      }}
+    >
+      <caption
+        style={{
+          padding: '8px 12px',
+          textAlign: 'left',
+          borderBottom: '1px solid var(--border)',
+          color: 'var(--input-text)',
+          fontWeight: 600
+        }}
+      >
+        {bucketLabel}
+      </caption>
+      <tbody>
+        {seriesItems
+          .filter((seriesItem) => seriesItem.formattedValue != null)
+          .map((seriesItem) => (
+            <tr key={seriesItem.seriesId}>
+              <th
+                style={{
+                  padding: '8px 12px',
+                  textAlign: 'left',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <TooltipMark color={seriesItem.color} />
+                {seriesItem.formattedLabel || ''}
+              </th>
+              <td
+                style={{
+                  padding: '8px 12px',
+                  textAlign: 'right',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {seriesItem.formattedValue}
+              </td>
+            </tr>
+          ))}
+        {extraRows.map((row) => (
+          <tr key={row.label}>
+            <th
+              style={{
+                padding: '8px 12px',
+                textAlign: 'left',
+                fontWeight: 500,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <TooltipMark color={row.color} />
+              {row.label}
+            </th>
+            <td
+              style={{
+                padding: '8px 12px',
+                textAlign: 'right',
+                fontWeight: 600,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {row.formattedValue}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function StandardChartTooltip(props) {
+  const tooltipData = useAxesTooltip();
+
+  if (!tooltipData?.length) {
+    return null;
+  }
+
+  return (
+    <ChartsTooltipContainer {...props}>
+      <Paper
+        elevation={6}
+        sx={{
+          overflow: 'hidden',
+          borderRadius: '16px',
+          border: '1px solid var(--border)',
+          backgroundColor: 'var(--input-bg)',
+          color: 'var(--input-text)'
+        }}
+      >
+        {tooltipData.map(({ axisId, axisFormattedValue, seriesItems }) =>
+          renderTooltipTable({
+            axisId,
+            bucketLabel: String(axisFormattedValue),
+            seriesItems
+          })
+        )}
+      </Paper>
+    </ChartsTooltipContainer>
   );
 }
 
@@ -444,107 +743,56 @@ function LaborChartTooltip(props) {
           const bucketLabel = String(axisFormattedValue);
           const bucketValues = chartData.tooltipLookup[bucketLabel];
 
-          return (
-            <table
-              key={axisId}
-              style={{
-                borderCollapse: 'collapse',
-                borderSpacing: 0,
-                minWidth: 220
-              }}
-            >
-              <caption
-                style={{
-                  padding: '8px 12px',
-                  textAlign: 'left',
-                  borderBottom: '1px solid var(--border)',
-                  color: 'var(--input-text)',
-                  fontWeight: 600
-                }}
-              >
-                {bucketLabel}
-              </caption>
-              <tbody>
-                {seriesItems
-                  .filter((seriesItem) => seriesItem.formattedValue != null)
-                  .map((seriesItem) => (
-                    <tr key={seriesItem.seriesId}>
-                      <th
-                        style={{
-                          padding: '8px 12px',
-                          textAlign: 'left',
-                          fontWeight: 500,
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        <TooltipMark color={seriesItem.color} />
-                        {seriesItem.formattedLabel || ''}
-                      </th>
-                      <td
-                        style={{
-                          padding: '8px 12px',
-                          textAlign: 'right',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        {seriesItem.formattedValue}
-                      </td>
-                    </tr>
-                  ))}
-                {bucketValues && (
-                  <tr>
-                    <th
-                      style={{
-                        padding: '8px 12px',
-                        textAlign: 'left',
-                        fontWeight: 500,
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      <TooltipMark color="var(--chart-tertiary-line)" />
-                      Other
-                    </th>
-                    <td
-                      style={{
-                        padding: '8px 12px',
-                        textAlign: 'right',
-                        fontWeight: 600,
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {formatNumber(bucketValues.other)}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          );
+          return renderTooltipTable({
+            axisId,
+            bucketLabel,
+            seriesItems,
+            extraRows: bucketValues
+              ? [
+                {
+                  label: 'Other',
+                  color: 'var(--chart-tertiary-line)',
+                  formattedValue: formatHours(bucketValues.other)
+                }
+              ]
+              : []
+          });
         })}
       </Paper>
     </ChartsTooltipContainer>
   );
 }
 
-function useChartWidth(minWidth = 320) {
-  const chartHostRef = useRef(null);
-  const [chartWidth, setChartWidth] = useState(minWidth);
+function useChartWidth() {
+  const [chartHost, setChartHost] = useState(null);
+  const [chartWidth, setChartWidth] = useState(0);
 
   useEffect(() => {
-    const chartHost = chartHostRef.current;
-
     if (!chartHost) {
       return undefined;
     }
 
     const updateChartWidth = (width) => {
-      setChartWidth(Math.max(minWidth, Math.floor(width)));
+      setChartWidth(Math.max(0, Math.floor(width)));
     };
 
-    updateChartWidth(chartHost.getBoundingClientRect().width);
+    const measureChartWidth = () => {
+      updateChartWidth(chartHost.clientWidth);
+    };
+
+    measureChartWidth();
+
+    const frameId =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame(measureChartWidth)
+        : null;
 
     if (typeof ResizeObserver === 'undefined') {
-      return undefined;
+      return () => {
+        if (frameId != null && typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(frameId);
+        }
+      };
     }
 
     const observer = new ResizeObserver((entries) => {
@@ -557,10 +805,16 @@ function useChartWidth(minWidth = 320) {
 
     observer.observe(chartHost);
 
-    return () => observer.disconnect();
-  }, [minWidth]);
+    return () => {
+      observer.disconnect();
 
-  return { chartHostRef, chartWidth };
+      if (frameId != null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [chartHost]);
+
+  return { chartHostRef: setChartHost, chartWidth };
 }
 
 async function fetchJson(scope, url) {
@@ -628,15 +882,24 @@ export default function App() {
   const [selectedProgram, setSelectedProgram] = useState(ALL_FILTER_VALUE);
   const [selectedSite, setSelectedSite] = useState(ALL_FILTER_VALUE);
   const [selectedOtdType, setSelectedOtdType] = useState(ALL_FILTER_VALUE);
+  const [otdViewMode, setOtdViewMode] = useState('monthly');
   const [selectedForecastedCc, setSelectedForecastedCc] = useState(ALL_FILTER_VALUE);
   const [selectedPool, setSelectedPool] = useState(ALL_FILTER_VALUE);
   const [selectedUnionType, setSelectedUnionType] = useState(ALL_FILTER_VALUE);
   const [selectedWorkerType, setSelectedWorkerType] = useState(ALL_FILTER_VALUE);
   const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
   const [laborViewMode, setLaborViewMode] = useState('monthly');
-  const { chartHostRef: costChartHostRef, chartWidth: costChartWidth } = useChartWidth(280);
-  const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth(280);
-  const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth(280);
+  const [visibleCards, setVisibleCards] = useState({
+    costs: true,
+    otd: true,
+    labor: true
+  });
+  const [isCostFiltersOpen, setIsCostFiltersOpen] = useState(false);
+  const [isOtdFiltersOpen, setIsOtdFiltersOpen] = useState(false);
+  const [isLaborFiltersOpen, setIsLaborFiltersOpen] = useState(false);
+  const { chartHostRef: costChartHostRef, chartWidth: costChartWidth } = useChartWidth();
+  const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth();
+  const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth();
 
   useEffect(() => {
     let isMounted = true;
@@ -709,6 +972,7 @@ export default function App() {
         setSelectedProgram(ALL_FILTER_VALUE);
         setSelectedSite(ALL_FILTER_VALUE);
         setSelectedOtdType(ALL_FILTER_VALUE);
+        setOtdViewMode('monthly');
 
         logClientDebug('otd', 'OTD state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -822,9 +1086,7 @@ export default function App() {
     return paymentTypeMatches && paymentCategoryMatches;
   });
   const costChartData = buildCostChartData(filteredPayments, viewMode, selectedDateField);
-  const selectedDateFieldLabel =
-    DATE_FIELD_OPTIONS.find((option) => option.value === selectedDateField)?.label ?? 'Start date';
-  const costTitle = `${VIEW_CONFIG[viewMode].titleLabel} Costs by ${selectedDateFieldLabel}`;
+  const costTitle = `${VIEW_CONFIG[viewMode].titleLabel} Costs`;
 
   const programOptions = getFilterOptions(otdState.rows, 'program');
   const siteOptions = getFilterOptions(otdState.rows, 'site');
@@ -839,7 +1101,7 @@ export default function App() {
 
     return programMatches && siteMatches && typeMatches;
   });
-  const otdChartData = buildOtdChartData(filteredOtdRows);
+  const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode);
 
   const forecastedCcOptions = getFilterOptions(laborState.rows, 'forecasted_cc');
   const poolOptions = getFilterOptions(laborState.rows, 'pool');
@@ -871,6 +1133,7 @@ export default function App() {
     );
   });
   const laborChartData = buildLaborUtilizationChartData(filteredLaborRows, laborViewMode);
+  const hasVisibleCards = Object.values(visibleCards).some(Boolean);
 
   return (
     <main className="app-shell">
@@ -878,667 +1141,762 @@ export default function App() {
         <div className="page-layout">
           <div className="page-header">
             <div>
-              <p className="chart-eyebrow">Dashboard</p>
-              <h1 className="page-title">Costs, Delivery, and Labor</h1>
+              <h1 className="page-title">Metrics Project</h1>
             </div>
-            <button
-              type="button"
-              className="theme-toggle"
-              onClick={() => {
-                setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
-              }}
-            >
-              {themeMode === 'light' ? 'Dark mode' : 'Light mode'}
-            </button>
+            <div className="page-actions">
+              <div className="card-chip-panel">
+                {CARD_CHIP_OPTIONS.map((card) => (
+                  <button
+                    key={card.key}
+                    type="button"
+                    className={`card-chip${visibleCards[card.key] ? ' card-chip-active' : ''}`}
+                    aria-pressed={visibleCards[card.key]}
+                    onClick={() => {
+                      setVisibleCards((currentValue) => ({
+                        ...currentValue,
+                        [card.key]: !currentValue[card.key]
+                      }));
+                    }}
+                  >
+                    {card.label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="theme-toggle"
+                onClick={() => {
+                  setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
+                }}
+              >
+                {themeMode === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
+            </div>
           </div>
 
           <div className="cards-grid">
-            <article className="analytics-card">
-              <div className="card-header">
-                <div>
-                  <p className="card-kicker">Expense trend</p>
-                  <h2 className="card-title">{costTitle}</h2>
+            {visibleCards.costs && (
+              <article className="analytics-card">
+                <div className="card-header">
+                  <div>
+                    <p className="card-kicker">Expense trend</p>
+                    <h2 className="card-title">{costTitle}</h2>
+                  </div>
                 </div>
-                {paymentsState.source && <p className="chart-source">{paymentsState.source}</p>}
-              </div>
 
-              <div className="dashboard-grid">
-                <aside className="filter-panel">
-                  <div className="filter-panel-header">
-                    <p className="filter-heading">Filters</p>
-                    <p className="filter-copy">
-                      Narrow the cost chart by date basis, payment type, and payment category.
-                    </p>
-                  </div>
-
-                  <div className="filter-fields">
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="date-field-filter">
-                        Display by
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="date-field-filter"
-                          value={selectedDateField}
-                          onChange={(event) => {
-                            setSelectedDateField(event.target.value);
+                <div className="dashboard-grid">
+                  <aside
+                    className={`filter-panel${isCostFiltersOpen ? '' : ' filter-panel-collapsed'}`}
+                  >
+                    <div className="filter-panel-header">
+                      <div className="filter-panel-title-row">
+                        <p className="filter-heading">Filters</p>
+                        <button
+                          type="button"
+                          className="filter-toggle"
+                          onClick={() => {
+                            setIsCostFiltersOpen((currentValue) => !currentValue);
                           }}
-                          MenuProps={selectMenuProps}
                         >
-                          {DATE_FIELD_OPTIONS.map((option) => (
-                            <MenuItem key={option.value} value={option.value}>
-                              {option.label}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
+                          {isCostFiltersOpen ? 'Hide filters' : 'Show filters'}
+                        </button>
+                      </div>
 
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="payment-type-filter">
-                        Payment type
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="payment-type-filter"
-                          value={activePaymentType}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedPaymentType(event.target.value);
-                          }}
-                          renderValue={(value) =>
-                            value === ALL_FILTER_VALUE ? 'All payment types' : value
-                          }
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All payment types</MenuItem>
-                          {paymentTypeOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
-
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="payment-category-filter">
-                        Payment category
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="payment-category-filter"
-                          value={activePaymentCategory}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedPaymentCategory(event.target.value);
-                          }}
-                          renderValue={(value) =>
-                            value === ALL_FILTER_VALUE ? 'All payment categories' : value
-                          }
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All payment categories</MenuItem>
-                          {paymentCategoryOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
-                  </div>
-
-                  <p className="filter-summary">
-                    Showing {filteredPayments.length} of {paymentsState.rows.length} payment rows.
-                  </p>
-                </aside>
-
-                <div className="visual-column">
-                  <div ref={costChartHostRef} className="chart-host">
-                    {paymentsState.loading && <p className="chart-message">Loading cost data...</p>}
-
-                    {!paymentsState.loading && paymentsState.error && (
-                      <p className="chart-message chart-message-error">{paymentsState.error}</p>
-                    )}
-
-                    {!paymentsState.loading &&
-                      !paymentsState.error &&
-                      costChartData.length === 0 && (
-                        <p className="chart-message">
-                          {paymentsState.rows.length === 0
-                            ? 'No payment rows are available for charting.'
-                            : 'No payment rows match the selected filters.'}
+                      {isCostFiltersOpen && (
+                        <p className="filter-copy">
+                          Narrow the cost chart by date basis, payment type, and payment category.
                         </p>
                       )}
-
-                    {!paymentsState.loading &&
-                      !paymentsState.error &&
-                      costChartData.length > 0 && (
-                        <LineChart
-                          width={costChartWidth}
-                          height={360}
-                          margin={DEFAULT_CHART_MARGIN}
-                          xAxis={[
-                            {
-                              scaleType: 'point',
-                              data: costChartData.map((bucket) => bucket.label)
-                            }
-                          ]}
-                          yAxis={[
-                            {
-                              valueFormatter: formatCurrency
-                            }
-                          ]}
-                          series={[
-                            {
-                              data: costChartData.map((bucket) => bucket.total),
-                              label: `${VIEW_CONFIG[viewMode].seriesLabel} from ANNUAL_AMT`,
-                              color: 'var(--chart-line)',
-                              valueFormatter: formatCurrency,
-                              showMark: false
-                            }
-                          ]}
-                          grid={{ horizontal: true }}
-                          sx={sharedChartSx}
-                        />
-                      )}
-                  </div>
-
-                  <div className="chart-footer">
-                    <p className="chart-note">
-                      Values are derived from ANNUAL_AMT and normalized to the selected cadence.
-                    </p>
-
-                    <ToggleButtonGroup
-                      value={viewMode}
-                      exclusive
-                      fullWidth
-                      onChange={(_event, nextMode) => {
-                        if (nextMode) {
-                          setViewMode(nextMode);
-                        }
-                      }}
-                      sx={{
-                        backgroundColor: 'var(--surface-muted)',
-                        border: '1px solid var(--border)',
-                        borderRadius: '18px',
-                        padding: '0.25rem'
-                      }}
-                    >
-                      {Object.entries(VIEW_CONFIG).map(([mode, config]) => (
-                        <ToggleButton
-                          key={mode}
-                          value={mode}
-                          sx={{
-                            border: 0,
-                            borderRadius: '14px !important',
-                            color: 'var(--text-primary)',
-                            fontWeight: 600,
-                            textTransform: 'none',
-                            '&.Mui-selected': {
-                              backgroundColor: 'var(--selected-bg)',
-                              color: 'var(--selected-text)'
-                            },
-                            '&.Mui-selected:hover': {
-                              backgroundColor: 'var(--selected-bg)'
-                            }
-                          }}
-                        >
-                          {config.label}
-                        </ToggleButton>
-                      ))}
-                    </ToggleButtonGroup>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article className="analytics-card">
-              <div className="card-header">
-                <div>
-                  <p className="card-kicker">Delivery trend</p>
-                  <h2 className="card-title">On Time Delivery (OTD)</h2>
-                </div>
-                {otdState.source && <p className="chart-source">{otdState.source}</p>}
-              </div>
-
-              <div className="dashboard-grid">
-                <aside className="filter-panel">
-                  <div className="filter-panel-header">
-                    <p className="filter-heading">Filters</p>
-                    <p className="filter-copy">
-                      Narrow the OTD chart by program, site, and type.
-                    </p>
-                  </div>
-
-                  <div className="filter-fields">
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="program-filter">
-                        Program
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="program-filter"
-                          value={activeProgram}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedProgram(event.target.value);
-                          }}
-                          renderValue={(value) => (value === ALL_FILTER_VALUE ? 'All programs' : value)}
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All programs</MenuItem>
-                          {programOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
                     </div>
 
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="site-filter">
-                        Site
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="site-filter"
-                          value={activeSite}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedSite(event.target.value);
-                          }}
-                          renderValue={(value) => (value === ALL_FILTER_VALUE ? 'All sites' : value)}
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All sites</MenuItem>
-                          {siteOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
+                    {isCostFiltersOpen && (
+                      <div className="filter-panel-body">
+                        <div className="filter-fields">
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="date-field-filter">
+                              Display by
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="date-field-filter"
+                                value={selectedDateField}
+                                onChange={(event) => {
+                                  setSelectedDateField(event.target.value);
+                                }}
+                                MenuProps={selectMenuProps}
+                              >
+                                {DATE_FIELD_OPTIONS.map((option) => (
+                                  <MenuItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
 
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="otd-type-filter">
-                        Type
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="otd-type-filter"
-                          value={activeOtdType}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedOtdType(event.target.value);
-                          }}
-                          renderValue={(value) => (value === ALL_FILTER_VALUE ? 'All types' : value)}
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All types</MenuItem>
-                          {otdTypeOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
-                  </div>
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="payment-type-filter">
+                              Payment type
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="payment-type-filter"
+                                value={activePaymentType}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedPaymentType(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All payment types' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All payment types</MenuItem>
+                                {paymentTypeOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
 
-                  <p className="filter-summary">
-                    Showing {filteredOtdRows.length} of {otdState.rows.length} OTD rows.
-                  </p>
-                </aside>
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="payment-category-filter">
+                              Payment category
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="payment-category-filter"
+                                value={activePaymentCategory}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedPaymentCategory(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All payment categories' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All payment categories</MenuItem>
+                                {paymentCategoryOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+                        </div>
 
-                <div className="visual-column">
-                  <div ref={otdChartHostRef} className="chart-host">
-                    {otdState.loading && <p className="chart-message">Loading OTD data...</p>}
-
-                    {!otdState.loading && otdState.error && (
-                      <p className="chart-message chart-message-error">{otdState.error}</p>
+                        <p className="filter-summary">
+                          Showing {filteredPayments.length} of {paymentsState.rows.length} payment
+                          rows.
+                        </p>
+                      </div>
                     )}
+                  </aside>
 
-                    {!otdState.loading &&
-                      !otdState.error &&
-                      filteredOtdRows.length === 0 && (
-                        <p className="chart-message">
-                          {otdState.rows.length === 0
-                            ? 'No OTD rows are available for charting.'
-                            : 'No OTD rows match the selected filters.'}
+                  <div className="visual-column">
+                    <div ref={costChartHostRef} className="chart-host">
+                      {paymentsState.loading && <p className="chart-message">Loading cost data...</p>}
+
+                      {!paymentsState.loading && paymentsState.error && (
+                        <p className="chart-message chart-message-error">{paymentsState.error}</p>
+                      )}
+
+                      {!paymentsState.loading &&
+                        !paymentsState.error &&
+                        costChartData.length === 0 && (
+                          <p className="chart-message">
+                            {paymentsState.rows.length === 0
+                              ? 'No payment rows are available for charting.'
+                              : 'No payment rows match the selected filters.'}
+                          </p>
+                        )}
+
+                      {!paymentsState.loading &&
+                        !paymentsState.error &&
+                        costChartData.length > 0 &&
+                        costChartWidth > 0 && (
+                          <LineChart
+                            width={costChartWidth}
+                            height={CHART_HEIGHT}
+                            margin={DEFAULT_CHART_MARGIN}
+                            xAxis={[
+                              {
+                                scaleType: 'point',
+                                height: 28,
+                                data: costChartData.map((bucket) => bucket.label)
+                              }
+                            ]}
+                            yAxis={COST_Y_AXIS}
+                            series={[
+                              {
+                                data: costChartData.map((bucket) => bucket.total),
+                                label: `${VIEW_CONFIG[viewMode].seriesLabel} from ANNUAL_AMT`,
+                                color: 'var(--chart-line)',
+                                valueFormatter: formatCurrency,
+                                showMark: false
+                              }
+                            ]}
+                            grid={{ horizontal: true }}
+                            sx={sharedChartSx}
+                            slots={{
+                              tooltip: StandardChartTooltip
+                            }}
+                            slotProps={{
+                              tooltip: {
+                                trigger: 'axis'
+                              }
+                            }}
+                          />
+                        )}
+                    </div>
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <div className="chart-note-shell">
+                        <p className="chart-note">
+                          Values are derived from ANNUAL_AMT and normalized to the selected cadence.
+                        </p>
+                      </div>
+
+                      <ToggleButtonGroup
+                        value={viewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {visibleCards.otd && (
+              <article className="analytics-card">
+                <div className="card-header">
+                  <div>
+                    <p className="card-kicker">Delivery trend</p>
+                    <h2 className="card-title">On Time Delivery (OTD)</h2>
+                  </div>
+                </div>
+
+                <div className="dashboard-grid">
+                  <aside
+                    className={`filter-panel${isOtdFiltersOpen ? '' : ' filter-panel-collapsed'}`}
+                  >
+                    <div className="filter-panel-header">
+                      <div className="filter-panel-title-row">
+                        <p className="filter-heading">Filters</p>
+                        <button
+                          type="button"
+                          className="filter-toggle"
+                          onClick={() => {
+                            setIsOtdFiltersOpen((currentValue) => !currentValue);
+                          }}
+                        >
+                          {isOtdFiltersOpen ? 'Hide filters' : 'Show filters'}
+                        </button>
+                      </div>
+
+                      {isOtdFiltersOpen && (
+                        <p className="filter-copy">
+                          Narrow the OTD chart by program, site, and type.
                         </p>
                       )}
-
-                    {!otdState.loading &&
-                      !otdState.error &&
-                      filteredOtdRows.length > 0 && (
-                        <LineChart
-                          width={otdChartWidth}
-                          height={360}
-                          margin={DEFAULT_CHART_MARGIN}
-                          xAxis={[
-                            {
-                              scaleType: 'point',
-                              data: otdChartData.labels
-                            }
-                          ]}
-                          yAxis={[
-                            {
-                              valueFormatter: formatNumber
-                            }
-                          ]}
-                          series={[
-                            {
-                              data: otdChartData.contract,
-                              label: 'Contract Commitment',
-                              color: 'var(--chart-line)',
-                              valueFormatter: formatNumber,
-                              showMark: false
-                            },
-                            {
-                              data: otdChartData.delivered,
-                              label: 'Actual Delivered',
-                              color: 'var(--chart-secondary-line)',
-                              valueFormatter: formatNumber,
-                              showMark: false
-                            }
-                          ]}
-                          grid={{ horizontal: true }}
-                          sx={sharedChartSx}
-                        />
-                      )}
-                  </div>
-
-                  <div className="chart-footer">
-                    <p className="chart-note">
-                      Monthly totals for Contract Commitment and Actual Delivered.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article className="analytics-card">
-              <div className="card-header">
-                <div>
-                  <p className="card-kicker">Labor trend</p>
-                  <h2 className="card-title">Direct Labor Utilization</h2>
-                </div>
-                {laborState.source && <p className="chart-source">{laborState.source}</p>}
-              </div>
-
-              <div className="dashboard-grid">
-                <aside className="filter-panel">
-                  <div className="filter-panel-header">
-                    <p className="filter-heading">Filters</p>
-                    <p className="filter-copy">
-                      Narrow the labor utilization chart by facility, pool, union status, worker
-                      type, and time type.
-                    </p>
-                  </div>
-
-                  <div className="filter-fields">
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="forecasted-cc-filter">
-                        Forecasted CC
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="forecasted-cc-filter"
-                          value={activeForecastedCc}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedForecastedCc(event.target.value);
-                          }}
-                          renderValue={(value) =>
-                            value === ALL_FILTER_VALUE ? 'All facilities' : value
-                          }
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All facilities</MenuItem>
-                          {forecastedCcOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
                     </div>
 
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="pool-filter">
-                        Pool
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="pool-filter"
-                          value={activePool}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedPool(event.target.value);
-                          }}
-                          renderValue={(value) => (value === ALL_FILTER_VALUE ? 'All pools' : value)}
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All pools</MenuItem>
-                          {poolOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
+                    {isOtdFiltersOpen && (
+                      <div className="filter-panel-body">
+                        <div className="filter-fields">
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="program-filter">
+                              Program
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="program-filter"
+                                value={activeProgram}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedProgram(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All programs' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All programs</MenuItem>
+                                {programOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
 
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="union-type-filter">
-                        Union type
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="union-type-filter"
-                          value={activeUnionType}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedUnionType(event.target.value);
-                          }}
-                          renderValue={(value) =>
-                            value === ALL_FILTER_VALUE ? 'All union types' : value
-                          }
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All union types</MenuItem>
-                          {unionTypeOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="site-filter">
+                              Site
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="site-filter"
+                                value={activeSite}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedSite(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All sites' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All sites</MenuItem>
+                                {siteOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
 
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="worker-type-filter">
-                        Worker type
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="worker-type-filter"
-                          value={activeWorkerType}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedWorkerType(event.target.value);
-                          }}
-                          renderValue={(value) =>
-                            value === ALL_FILTER_VALUE ? 'All worker types' : value
-                          }
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All worker types</MenuItem>
-                          {workerTypeOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="otd-type-filter">
+                              Type
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="otd-type-filter"
+                                value={activeOtdType}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedOtdType(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All types' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All types</MenuItem>
+                                {otdTypeOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+                        </div>
 
-                    <div className="filter-group">
-                      <label className="filter-label" htmlFor="time-type-filter">
-                        Time type
-                      </label>
-                      <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                        <Select
-                          id="time-type-filter"
-                          value={activeTimeType}
-                          displayEmpty
-                          onChange={(event) => {
-                            setSelectedTimeType(event.target.value);
-                          }}
-                          renderValue={(value) =>
-                            value === ALL_FILTER_VALUE ? 'All time types' : value
-                          }
-                          MenuProps={selectMenuProps}
-                        >
-                          <MenuItem value={ALL_FILTER_VALUE}>All time types</MenuItem>
-                          {timeTypeOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </div>
-                  </div>
-
-                  <p className="filter-summary">
-                    Using {filteredLaborRows.length} filtered labor rows: {laborChartData.directRowCount}{' '}
-                    direct, {laborChartData.indirectRowCount} indirect, {laborChartData.otherRowCount}{' '}
-                    other.
-                  </p>
-                </aside>
-
-                <div className="visual-column">
-                  <div ref={laborChartHostRef} className="chart-host">
-                    {laborState.loading && (
-                      <p className="chart-message">Loading labor utilization data...</p>
+                        <p className="filter-summary">
+                          Showing {filteredOtdRows.length} of {otdState.rows.length} OTD rows.
+                        </p>
+                      </div>
                     )}
+                  </aside>
 
-                    {!laborState.loading && laborState.error && (
-                      <p className="chart-message chart-message-error">{laborState.error}</p>
-                    )}
+                  <div className="visual-column">
+                    <div ref={otdChartHostRef} className="chart-host">
+                      {otdState.loading && <p className="chart-message">Loading OTD data...</p>}
 
-                    {!laborState.loading &&
-                      !laborState.error &&
-                      filteredLaborRows.length === 0 && (
-                        <p className="chart-message">No labor rows match the selected filters.</p>
+                      {!otdState.loading && otdState.error && (
+                        <p className="chart-message chart-message-error">{otdState.error}</p>
                       )}
 
-                    {!laborState.loading &&
-                      !laborState.error &&
-                      filteredLaborRows.length > 0 &&
-                      laborChartData.labels.length > 0 && (
-                        <LineChart
-                          width={laborChartWidth}
-                          height={360}
-                          margin={LABOR_CHART_MARGIN}
-                          xAxis={[
-                            {
-                              scaleType: 'point',
-                              data: laborChartData.labels
-                            }
-                          ]}
-                          yAxis={[
-                            {
-                              valueFormatter: formatNumber
-                            }
-                          ]}
-                          series={[
-                            {
-                              data: laborChartData.totals,
-                              label: 'Total',
-                              color: 'var(--chart-line)',
-                              valueFormatter: formatNumber,
-                              showMark: false
-                            },
-                            {
-                              data: laborChartData.direct,
-                              label: 'Direct',
-                              color: 'var(--chart-accent-line)',
-                              valueFormatter: formatNumber,
-                              showMark: false
-                            },
-                            {
-                              data: laborChartData.indirect,
-                              label: 'Indirect',
-                              color: 'var(--chart-secondary-line)',
-                              valueFormatter: formatNumber,
-                              showMark: false
-                            }
-                          ]}
-                          grid={{ horizontal: true }}
-                          sx={sharedChartSx}
-                          slots={{
-                            tooltip: LaborChartTooltip
-                          }}
-                          slotProps={{
-                            tooltip: {
-                              trigger: 'axis',
-                              chartData: laborChartData
-                            }
-                          }}
-                        />
-                      )}
-                  </div>
+                      {!otdState.loading &&
+                        !otdState.error &&
+                        filteredOtdRows.length === 0 && (
+                          <p className="chart-message">
+                            {otdState.rows.length === 0
+                              ? 'No OTD rows are available for charting.'
+                              : 'No OTD rows match the selected filters.'}
+                          </p>
+                        )}
 
-                  <div className="chart-footer">
-                    <ToggleButtonGroup
-                      value={laborViewMode}
-                      exclusive
-                      fullWidth
-                      onChange={(_event, nextMode) => {
-                        if (nextMode) {
-                          setLaborViewMode(nextMode);
-                        }
-                      }}
-                      sx={{
-                        backgroundColor: 'var(--surface-muted)',
-                        border: '1px solid var(--border)',
-                        borderRadius: '18px',
-                        padding: '0.25rem'
-                      }}
-                    >
-                      {Object.entries(LABOR_VIEW_CONFIG).map(([mode, config]) => (
-                        <ToggleButton
-                          key={mode}
-                          value={mode}
-                          sx={{
-                            border: 0,
-                            borderRadius: '14px !important',
-                            color: 'var(--text-primary)',
-                            fontWeight: 600,
-                            textTransform: 'none',
-                            '&.Mui-selected': {
-                              backgroundColor: 'var(--selected-bg)',
-                              color: 'var(--selected-text)'
-                            },
-                            '&.Mui-selected:hover': {
-                              backgroundColor: 'var(--selected-bg)'
-                            }
-                          }}
-                        >
-                          {config.label}
-                        </ToggleButton>
-                      ))}
-                    </ToggleButtonGroup>
+                      {!otdState.loading &&
+                        !otdState.error &&
+                        filteredOtdRows.length > 0 &&
+                        otdChartWidth > 0 && (
+                          <LineChart
+                            width={otdChartWidth}
+                            height={CHART_HEIGHT}
+                            margin={DEFAULT_CHART_MARGIN}
+                            xAxis={[
+                              {
+                                scaleType: 'point',
+                                height: 28,
+                                data: otdChartData.labels
+                              }
+                            ]}
+                            yAxis={OTD_Y_AXIS}
+                            series={[
+                              {
+                                data: otdChartData.contract,
+                                label: 'Contract Commitment',
+                                color: 'var(--chart-line)',
+                                valueFormatter: formatCurrency,
+                                showMark: false
+                              },
+                              {
+                                data: otdChartData.delivered,
+                                label: 'Actual Delivered',
+                                color: 'var(--chart-secondary-line)',
+                                valueFormatter: formatCurrency,
+                                showMark: false
+                              }
+                            ]}
+                            grid={{ horizontal: true }}
+                            sx={sharedChartSx}
+                            slots={{
+                              tooltip: StandardChartTooltip
+                            }}
+                            slotProps={{
+                              tooltip: {
+                                trigger: 'axis'
+                              }
+                            }}
+                          />
+                        )}
+                    </div>
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <div className="chart-note-shell">
+                        <p className="chart-note">
+                          {OTD_VIEW_CONFIG[otdViewMode].label} totals compare commitment and actual
+                          delivery.
+                        </p>
+                      </div>
+
+                      <ToggleButtonGroup
+                        value={otdViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setOtdViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(OTD_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </article>
+              </article>
+            )}
+
+            {visibleCards.labor && (
+              <article className="analytics-card">
+                <div className="card-header">
+                  <div>
+                    <p className="card-kicker">Labor trend</p>
+                    <h2 className="card-title">Direct Labor Utilization</h2>
+                  </div>
+                </div>
+
+                <div className="dashboard-grid">
+                  <aside
+                    className={`filter-panel${isLaborFiltersOpen ? '' : ' filter-panel-collapsed'}`}
+                  >
+                    <div className="filter-panel-header">
+                      <div className="filter-panel-title-row">
+                        <p className="filter-heading">Filters</p>
+                        <button
+                          type="button"
+                          className="filter-toggle"
+                          onClick={() => {
+                            setIsLaborFiltersOpen((currentValue) => !currentValue);
+                          }}
+                        >
+                          {isLaborFiltersOpen ? 'Hide filters' : 'Show filters'}
+                        </button>
+                      </div>
+
+                      {isLaborFiltersOpen && (
+                        <p className="filter-copy">
+                          Narrow the labor utilization chart by facility, pool, union status, worker
+                          type, and time type.
+                        </p>
+                      )}
+                    </div>
+
+                    {isLaborFiltersOpen && (
+                      <div className="filter-panel-body">
+                        <div className="filter-fields">
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="forecasted-cc-filter">
+                              Forecasted CC
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="forecasted-cc-filter"
+                                value={activeForecastedCc}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedForecastedCc(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All facilities' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All facilities</MenuItem>
+                                {forecastedCcOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="pool-filter">
+                              Pool
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="pool-filter"
+                                value={activePool}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedPool(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All pools' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All pools</MenuItem>
+                                {poolOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="union-type-filter">
+                              Union type
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="union-type-filter"
+                                value={activeUnionType}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedUnionType(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All union types' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All union types</MenuItem>
+                                {unionTypeOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="worker-type-filter">
+                              Worker type
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="worker-type-filter"
+                                value={activeWorkerType}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedWorkerType(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All worker types' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All worker types</MenuItem>
+                                {workerTypeOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="time-type-filter">
+                              Time type
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="time-type-filter"
+                                value={activeTimeType}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedTimeType(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All time types' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All time types</MenuItem>
+                                {timeTypeOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+                        </div>
+
+                        <p className="filter-summary">
+                          Using {filteredLaborRows.length} filtered labor rows:{' '}
+                          {laborChartData.directRowCount} direct, {laborChartData.indirectRowCount}{' '}
+                          indirect, {laborChartData.otherRowCount} other.
+                        </p>
+                      </div>
+                    )}
+                  </aside>
+
+                  <div className="visual-column">
+                    <div ref={laborChartHostRef} className="chart-host chart-host-with-axis-unit">
+                      {laborState.loading && (
+                        <p className="chart-message">Loading labor utilization data...</p>
+                      )}
+
+                      {!laborState.loading && laborState.error && (
+                        <p className="chart-message chart-message-error">{laborState.error}</p>
+                      )}
+
+                      {!laborState.loading &&
+                        !laborState.error &&
+                        filteredLaborRows.length === 0 && (
+                          <p className="chart-message">No labor rows match the selected filters.</p>
+                        )}
+
+                      {!laborState.loading &&
+                        !laborState.error &&
+                        filteredLaborRows.length > 0 &&
+                        laborChartData.labels.length > 0 &&
+                        laborChartWidth > 0 && (
+                          <>
+                            <span className="chart-axis-unit-label">Hours</span>
+                            <LineChart
+                              width={laborChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              xAxis={[
+                                {
+                                  scaleType: 'point',
+                                  height: 28,
+                                  data: laborChartData.labels
+                                }
+                              ]}
+                              yAxis={LABOR_Y_AXIS}
+                              series={[
+                                {
+                                  data: laborChartData.totals,
+                                  label: 'Total',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatHours,
+                                  showMark: false
+                                },
+                                {
+                                  data: laborChartData.direct,
+                                  label: 'Direct',
+                                  color: 'var(--chart-accent-line)',
+                                  valueFormatter: formatHours,
+                                  showMark: false
+                                },
+                                {
+                                  data: laborChartData.indirect,
+                                  label: 'Indirect',
+                                  color: 'var(--chart-secondary-line)',
+                                  valueFormatter: formatHours,
+                                  showMark: false
+                                }
+                              ]}
+                              grid={{ horizontal: true }}
+                              sx={sharedChartSx}
+                              slots={{
+                                tooltip: LaborChartTooltip
+                              }}
+                              slotProps={{
+                                tooltip: {
+                                  trigger: 'axis',
+                                  chartData: laborChartData
+                                }
+                              }}
+                            />
+                          </>
+                        )}
+                    </div>
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <div className="chart-note-shell">
+                        <p className="chart-note">
+                          Total hours include direct, indirect, and other labor categories for the
+                          selected cadence.
+                        </p>
+                      </div>
+
+                      <ToggleButtonGroup
+                        value={laborViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setLaborViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(LABOR_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {!hasVisibleCards && (
+              <div className="cards-empty-state">Select a card above to show it again.</div>
+            )}
           </div>
         </div>
       </section>
@@ -1550,7 +1908,7 @@ const selectMenuProps = {
   PaperProps: {
     sx: {
       mt: 1,
-      borderRadius: '18px',
+      borderRadius: '14px',
       border: '1px solid var(--border)',
       backgroundColor: 'var(--input-bg)',
       color: 'var(--input-text)',
@@ -1561,13 +1919,14 @@ const selectMenuProps = {
 
 const filterSelectStyles = {
   '& .MuiOutlinedInput-root': {
-    minHeight: 52,
-    borderRadius: '16px',
+    minHeight: 40,
+    borderRadius: '12px',
+    fontSize: '0.85rem',
     color: 'var(--input-text)',
     backgroundColor: 'var(--input-bg)'
   },
   '& .MuiSelect-select': {
-    padding: '14px 16px',
+    padding: '9px 12px',
     fontWeight: 600
   },
   '& .MuiOutlinedInput-notchedOutline': {
@@ -1580,6 +1939,7 @@ const filterSelectStyles = {
     borderColor: 'var(--text-primary)'
   },
   '& .MuiSvgIcon-root': {
-    color: 'var(--input-text)'
+    color: 'var(--input-text)',
+    fontSize: '1rem'
   }
 };

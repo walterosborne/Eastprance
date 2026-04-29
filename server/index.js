@@ -3,11 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import {
-  getWildcardApiHost,
-  resolveApiHostConfig,
-  shouldFallbackToWildcardHost
-} from '../shared/apiHost.mjs';
+import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
 import { closePaymentsConnection, readPayments } from './paymentsRepository.js';
@@ -76,9 +72,7 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-const { port, preferredHost, bindHost, connectHost, usingFallback, reason } =
-  await resolveApiHostConfig();
-const wildcardHost = getWildcardApiHost();
+const { port, bindHost, connectHost } = await resolveApiHostConfig();
 
 function handleStartupError(error) {
   if (error.code === 'EADDRINUSE') {
@@ -111,42 +105,16 @@ function listen(host) {
 }
 
 async function startServer() {
-  if (usingFallback) {
-    console.warn(`${reason} Falling back to ${wildcardHost}.`);
-  }
-
   try {
-    return {
-      server: await listen(bindHost),
-      boundHost: bindHost
-    };
+    return await listen(bindHost);
   } catch (error) {
-    if (bindHost !== wildcardHost && shouldFallbackToWildcardHost(error)) {
-      console.warn(
-        `Unable to bind to hostname "${preferredHost}" (${error.code}). Falling back to ${wildcardHost}.`
-      );
-
-      try {
-        return {
-          server: await listen(wildcardHost),
-          boundHost: wildcardHost
-        };
-      } catch (fallbackError) {
-        handleStartupError(fallbackError);
-      }
-    }
-
     handleStartupError(error);
   }
 }
 
-const { server, boundHost } = await startServer();
-const announcedHost = boundHost === wildcardHost ? connectHost : preferredHost;
-const boundWithFallback = boundHost === wildcardHost;
+const server = await startServer();
 
-console.log(
-  `Server listening on http://${announcedHost}:${port}${boundWithFallback ? ` (bound to ${wildcardHost})` : ''}`
-);
+console.log(`Server listening on http://${connectHost}:${port}`);
 
 async function shutdown() {
   try {

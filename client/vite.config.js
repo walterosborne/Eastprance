@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { resolveApiHostConfig } from '../shared/apiHost.mjs';
+import { getApiPort, getPreferredApiHost } from '../shared/apiHost.mjs';
 
-export default defineConfig(async () => {
-  const { port: apiPort, connectHost } = await resolveApiHostConfig();
+export default defineConfig(() => {
+  const apiPort = getApiPort();
+  const apiHost = getPreferredApiHost();
 
   return {
     plugins: [react()],
@@ -11,7 +12,7 @@ export default defineConfig(async () => {
       port: 5173,
       proxy: {
         '/api': {
-          target: `http://${connectHost}:${apiPort}`,
+          target: `http://${apiHost}:${apiPort}`,
           changeOrigin: true
         }
       }

@@ -2,11 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import {
   FormControl,
   MenuItem,
+  Paper,
   Select,
   ToggleButton,
   ToggleButtonGroup
 } from '@mui/material';
 import { LineChart } from '@mui/x-charts/LineChart';
+import {
+  ChartsTooltipContainer,
+  useAxesTooltip
+} from '@mui/x-charts/ChartsTooltip';
 
 const ALL_FILTER_VALUE = '__all__';
 const OTD_MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -49,6 +54,27 @@ const VIEW_CONFIG = {
     seriesLabel: 'Yearly expense'
   }
 };
+
+const LABOR_VIEW_CONFIG = {
+  monthly: {
+    label: 'Monthly',
+    bucketSize: 1,
+    bucketFormatter: (_month, index) => LABOR_MONTH_COLUMNS[index].label
+  },
+  quarterly: {
+    label: 'Quarterly',
+    bucketSize: 3,
+    bucketFormatter: (_month, index) => `Q${Math.floor(index / 3) + 1} 2026`
+  },
+  yearly: {
+    label: 'Annual',
+    bucketSize: 12,
+    bucketFormatter: () => '2026'
+  }
+};
+
+const DEFAULT_CHART_MARGIN = { top: 24, right: 24, bottom: 36, left: 88 };
+const LABOR_CHART_MARGIN = { top: 24, right: 24, bottom: 36, left: 96 };
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -241,39 +267,263 @@ function getLaborCategoryGroup(laborCategory) {
   return 'other';
 }
 
-function buildLaborUtilizationChartData(rows) {
-  const monthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
+function getLaborBuckets(viewMode) {
+  const bucketConfig = LABOR_VIEW_CONFIG[viewMode];
+  const buckets = [];
+
+  for (
+    let startIndex = 0;
+    startIndex < LABOR_MONTH_COLUMNS.length;
+    startIndex += bucketConfig.bucketSize
+  ) {
+    const monthIndices = [];
+
+    for (
+      let monthIndex = startIndex;
+      monthIndex < Math.min(startIndex + bucketConfig.bucketSize, LABOR_MONTH_COLUMNS.length);
+      monthIndex += 1
+    ) {
+      monthIndices.push(monthIndex);
+    }
+
+    buckets.push({
+      label: bucketConfig.bucketFormatter(LABOR_MONTH_COLUMNS[startIndex], startIndex),
+      monthIndices
+    });
+  }
+
+  return buckets;
+}
+
+function buildLaborUtilizationChartData(rows, viewMode) {
+  const directMonthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
+  const indirectMonthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
+  const otherMonthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
   let directRowCount = 0;
-  let annualTotal = 0;
+  let indirectRowCount = 0;
+  let otherRowCount = 0;
 
   rows.forEach((row) => {
-    if (getLaborCategoryGroup(row.labor_category) !== 'direct') {
-      return;
+    const laborCategoryGroup = getLaborCategoryGroup(row.labor_category);
+
+    if (laborCategoryGroup === 'direct') {
+      directRowCount += 1;
+    } else if (laborCategoryGroup === 'indirect') {
+      indirectRowCount += 1;
+    } else {
+      otherRowCount += 1;
     }
 
-    directRowCount += 1;
-
-    const total2026 = Number(row.total_2026);
-
-    if (Number.isFinite(total2026)) {
-      annualTotal += total2026;
-    }
+    const targetSeries =
+      laborCategoryGroup === 'direct'
+        ? directMonthlyTotals
+        : laborCategoryGroup === 'indirect'
+          ? indirectMonthlyTotals
+          : otherMonthlyTotals;
 
     LABOR_MONTH_COLUMNS.forEach(({ key }, index) => {
       const value = Number(row[key]);
 
       if (Number.isFinite(value)) {
-        monthlyTotals[index] += value;
+        targetSeries[index] += value;
       }
     });
   });
 
+  const buckets = getLaborBuckets(viewMode);
+  const tooltipLookup = {};
+
+  const direct = buckets.map(({ label, monthIndices }) => {
+    const total = monthIndices.reduce(
+      (sum, monthIndex) => sum + directMonthlyTotals[monthIndex],
+      0
+    );
+    const normalizedTotal = Number(total.toFixed(2));
+
+    tooltipLookup[label] = {
+      ...(tooltipLookup[label] || {}),
+      direct: normalizedTotal
+    };
+
+    return normalizedTotal;
+  });
+
+  const indirect = buckets.map(({ label, monthIndices }) => {
+    const total = monthIndices.reduce(
+      (sum, monthIndex) => sum + indirectMonthlyTotals[monthIndex],
+      0
+    );
+    const normalizedTotal = Number(total.toFixed(2));
+
+    tooltipLookup[label] = {
+      ...(tooltipLookup[label] || {}),
+      indirect: normalizedTotal
+    };
+
+    return normalizedTotal;
+  });
+
+  const other = buckets.map(({ label, monthIndices }) => {
+    const total = monthIndices.reduce(
+      (sum, monthIndex) => sum + otherMonthlyTotals[monthIndex],
+      0
+    );
+    const normalizedTotal = Number(total.toFixed(2));
+
+    tooltipLookup[label] = {
+      ...(tooltipLookup[label] || {}),
+      other: normalizedTotal
+    };
+
+    return normalizedTotal;
+  });
+
+  const totals = buckets.map(({ label }, index) => {
+    const total = Number((direct[index] + indirect[index] + other[index]).toFixed(2));
+
+    tooltipLookup[label] = {
+      ...tooltipLookup[label],
+      total
+    };
+
+    return total;
+  });
+
   return {
-    labels: LABOR_MONTH_COLUMNS.map((month) => month.label),
-    totals: monthlyTotals.map((value) => Number(value.toFixed(2))),
+    labels: buckets.map((bucket) => bucket.label),
+    totals,
+    direct,
+    indirect,
+    other,
     directRowCount,
-    annualTotal: Number(annualTotal.toFixed(2))
+    indirectRowCount,
+    otherRowCount,
+    annualTotal: Number(totals.reduce((sum, value) => sum + value, 0).toFixed(2)),
+    tooltipLookup
   };
+}
+
+function TooltipMark({ color }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: 'inline-block',
+        width: 10,
+        height: 10,
+        marginRight: 10,
+        borderRadius: '999px',
+        backgroundColor: color,
+        verticalAlign: 'middle'
+      }}
+    />
+  );
+}
+
+function LaborChartTooltip(props) {
+  const { chartData, ...tooltipProps } = props;
+  const tooltipData = useAxesTooltip();
+
+  if (!tooltipData?.length) {
+    return null;
+  }
+
+  return (
+    <ChartsTooltipContainer {...tooltipProps}>
+      <Paper
+        elevation={6}
+        sx={{
+          overflow: 'hidden',
+          borderRadius: '16px',
+          border: '1px solid var(--border)',
+          backgroundColor: 'var(--input-bg)',
+          color: 'var(--input-text)'
+        }}
+      >
+        {tooltipData.map(({ axisId, axisFormattedValue, seriesItems }) => {
+          const bucketLabel = String(axisFormattedValue);
+          const bucketValues = chartData.tooltipLookup[bucketLabel];
+
+          return (
+            <table
+              key={axisId}
+              style={{
+                borderCollapse: 'collapse',
+                borderSpacing: 0,
+                minWidth: 220
+              }}
+            >
+              <caption
+                style={{
+                  padding: '8px 12px',
+                  textAlign: 'left',
+                  borderBottom: '1px solid var(--border)',
+                  color: 'var(--input-text)',
+                  fontWeight: 600
+                }}
+              >
+                {bucketLabel}
+              </caption>
+              <tbody>
+                {seriesItems
+                  .filter((seriesItem) => seriesItem.formattedValue != null)
+                  .map((seriesItem) => (
+                    <tr key={seriesItem.seriesId}>
+                      <th
+                        style={{
+                          padding: '8px 12px',
+                          textAlign: 'left',
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <TooltipMark color={seriesItem.color} />
+                        {seriesItem.formattedLabel || ''}
+                      </th>
+                      <td
+                        style={{
+                          padding: '8px 12px',
+                          textAlign: 'right',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {seriesItem.formattedValue}
+                      </td>
+                    </tr>
+                  ))}
+                {bucketValues && (
+                  <tr>
+                    <th
+                      style={{
+                        padding: '8px 12px',
+                        textAlign: 'left',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <TooltipMark color="var(--chart-tertiary-line)" />
+                      Other
+                    </th>
+                    <td
+                      style={{
+                        padding: '8px 12px',
+                        textAlign: 'right',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {formatNumber(bucketValues.other)}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          );
+        })}
+      </Paper>
+    </ChartsTooltipContainer>
+  );
 }
 
 function useChartWidth(minWidth = 320) {
@@ -383,6 +633,7 @@ export default function App() {
   const [selectedUnionType, setSelectedUnionType] = useState(ALL_FILTER_VALUE);
   const [selectedWorkerType, setSelectedWorkerType] = useState(ALL_FILTER_VALUE);
   const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
+  const [laborViewMode, setLaborViewMode] = useState('monthly');
   const { chartHostRef: costChartHostRef, chartWidth: costChartWidth } = useChartWidth(280);
   const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth(280);
   const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth(280);
@@ -508,6 +759,7 @@ export default function App() {
         setSelectedUnionType(ALL_FILTER_VALUE);
         setSelectedWorkerType(ALL_FILTER_VALUE);
         setSelectedTimeType(ALL_FILTER_VALUE);
+        setLaborViewMode('monthly');
 
         logClientDebug('labor', 'Labor state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -618,7 +870,7 @@ export default function App() {
       timeTypeMatches
     );
   });
-  const laborChartData = buildLaborUtilizationChartData(filteredLaborRows);
+  const laborChartData = buildLaborUtilizationChartData(filteredLaborRows, laborViewMode);
 
   return (
     <main className="app-shell">
@@ -766,7 +1018,7 @@ export default function App() {
                         <LineChart
                           width={costChartWidth}
                           height={360}
-                          margin={{ top: 24, right: 24, bottom: 36, left: 72 }}
+                          margin={DEFAULT_CHART_MARGIN}
                           xAxis={[
                             {
                               scaleType: 'point',
@@ -966,7 +1218,7 @@ export default function App() {
                         <LineChart
                           width={otdChartWidth}
                           height={360}
-                          margin={{ top: 24, right: 24, bottom: 36, left: 72 }}
+                          margin={DEFAULT_CHART_MARGIN}
                           xAxis={[
                             {
                               scaleType: 'point',
@@ -1023,8 +1275,8 @@ export default function App() {
                   <div className="filter-panel-header">
                     <p className="filter-heading">Filters</p>
                     <p className="filter-copy">
-                      Narrow the direct labor chart by facility, pool, union status, worker type,
-                      and time type.
+                      Narrow the labor utilization chart by facility, pool, union status, worker
+                      type, and time type.
                     </p>
                   </div>
 
@@ -1164,8 +1416,9 @@ export default function App() {
                   </div>
 
                   <p className="filter-summary">
-                    Using {laborChartData.directRowCount} direct rows from {filteredLaborRows.length}{' '}
-                    filtered labor rows.
+                    Using {filteredLaborRows.length} filtered labor rows: {laborChartData.directRowCount}{' '}
+                    direct, {laborChartData.indirectRowCount} indirect, {laborChartData.otherRowCount}{' '}
+                    other.
                   </p>
                 </aside>
 
@@ -1188,19 +1441,11 @@ export default function App() {
                     {!laborState.loading &&
                       !laborState.error &&
                       filteredLaborRows.length > 0 &&
-                      laborChartData.directRowCount === 0 && (
-                        <p className="chart-message">
-                          No filtered rows qualify as direct labor based on Labor Category.
-                        </p>
-                      )}
-
-                    {!laborState.loading &&
-                      !laborState.error &&
-                      laborChartData.directRowCount > 0 && (
+                      laborChartData.labels.length > 0 && (
                         <LineChart
                           width={laborChartWidth}
                           height={360}
-                          margin={{ top: 24, right: 24, bottom: 36, left: 72 }}
+                          margin={LABOR_CHART_MARGIN}
                           xAxis={[
                             {
                               scaleType: 'point',
@@ -1215,23 +1460,81 @@ export default function App() {
                           series={[
                             {
                               data: laborChartData.totals,
-                              label: 'Direct labor hours',
+                              label: 'Total',
                               color: 'var(--chart-line)',
+                              valueFormatter: formatNumber,
+                              showMark: false
+                            },
+                            {
+                              data: laborChartData.direct,
+                              label: 'Direct',
+                              color: 'var(--chart-accent-line)',
+                              valueFormatter: formatNumber,
+                              showMark: false
+                            },
+                            {
+                              data: laborChartData.indirect,
+                              label: 'Indirect',
+                              color: 'var(--chart-secondary-line)',
                               valueFormatter: formatNumber,
                               showMark: false
                             }
                           ]}
                           grid={{ horizontal: true }}
                           sx={sharedChartSx}
+                          slots={{
+                            tooltip: LaborChartTooltip
+                          }}
+                          slotProps={{
+                            tooltip: {
+                              trigger: 'axis',
+                              chartData: laborChartData
+                            }
+                          }}
                         />
                       )}
                   </div>
 
                   <div className="chart-footer">
-                    <p className="chart-note">
-                      Only rows whose Labor Category contains "Labor Direct" feed this chart. 2026
-                      hours in view: {formatNumber(laborChartData.annualTotal)}.
-                    </p>
+                    <ToggleButtonGroup
+                      value={laborViewMode}
+                      exclusive
+                      fullWidth
+                      onChange={(_event, nextMode) => {
+                        if (nextMode) {
+                          setLaborViewMode(nextMode);
+                        }
+                      }}
+                      sx={{
+                        backgroundColor: 'var(--surface-muted)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '18px',
+                        padding: '0.25rem'
+                      }}
+                    >
+                      {Object.entries(LABOR_VIEW_CONFIG).map(([mode, config]) => (
+                        <ToggleButton
+                          key={mode}
+                          value={mode}
+                          sx={{
+                            border: 0,
+                            borderRadius: '14px !important',
+                            color: 'var(--text-primary)',
+                            fontWeight: 600,
+                            textTransform: 'none',
+                            '&.Mui-selected': {
+                              backgroundColor: 'var(--selected-bg)',
+                              color: 'var(--selected-text)'
+                            },
+                            '&.Mui-selected:hover': {
+                              backgroundColor: 'var(--selected-bg)'
+                            }
+                          }}
+                        >
+                          {config.label}
+                        </ToggleButton>
+                      ))}
+                    </ToggleButtonGroup>
                   </div>
                 </div>
               </div>

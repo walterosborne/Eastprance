@@ -21,7 +21,9 @@
   --text-inverse: var(--white);
   --border: var(--grey-300);
   --chart-line: var(--theme-blue);
+  --chart-accent-line: #5a8fd8;
   --chart-secondary-line: #9aa4b3;
+  --chart-tertiary-line: #b38a5d;
   --chart-grid: var(--grey-300);
   --selected-bg: var(--theme-blue);
   --selected-text: var(--white);
@@ -43,7 +45,9 @@
   --text-inverse: var(--theme-blue);
   --border: rgba(255, 255, 255, 0.3);
   --chart-line: var(--theme-blue);
+  --chart-accent-line: #5a8fd8;
   --chart-secondary-line: #9aa4b3;
+  --chart-tertiary-line: #b38a5d;
   --chart-grid: var(--grey-300);
   --selected-bg: var(--white);
   --selected-text: var(--theme-blue);

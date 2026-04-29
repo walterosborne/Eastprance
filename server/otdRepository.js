@@ -35,7 +35,7 @@ function normalizeOtdRow(row) {
     project_id: row['Project ID'] ?? '',
     site: row.Site ?? '',
     type: row.Type ?? '',
-    measure_type: row['2026'] ?? ''
+    measure_type: row.Timeline ?? row['2026'] ?? ''
   };
 
   for (const month of MONTH_COLUMNS) {
@@ -111,7 +111,7 @@ export async function readOtdData() {
 
     const result = await pool.request().query(`
       SELECT
-        [2026],
+        [Timeline],
         [Program],
         [Project ID],
         [Site],
@@ -129,7 +129,7 @@ export async function readOtdData() {
         [NOV],
         [DEC]
       FROM ${tableName}
-      ORDER BY [Project ID] ASC, [2026] ASC;
+      ORDER BY [Project ID] ASC, [Timeline] ASC;
     `);
     const rows = result.recordset.map(normalizeOtdRow);
 

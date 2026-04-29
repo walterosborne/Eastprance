@@ -1,4 +1,10 @@
 import sql from 'mssql';
+import {
+  createTimer,
+  formatDuration,
+  logDebug,
+  logError
+} from './debugLogger.js';
 
 let poolPromise = null;
 
@@ -30,6 +36,13 @@ export function formatSqlIdentifier(identifier) {
 
 export async function getPool(config) {
   if (!poolPromise) {
+    const stopTimer = createTimer();
+
+    logDebug('sql', 'Creating SQL connection pool.', {
+      server: config.server,
+      database: config.database
+    });
+
     const connectionPool = new sql.ConnectionPool({
       server: config.server,
       database: config.database,
@@ -42,9 +55,24 @@ export async function getPool(config) {
     });
 
     poolPromise = connectionPool.connect().catch((error) => {
+      logError('sql', 'SQL connection pool failed to connect.', error, {
+        server: config.server,
+        database: config.database,
+        duration: formatDuration(stopTimer())
+      });
       poolPromise = null;
       throw error;
     });
+
+    poolPromise.then(() => {
+      logDebug('sql', 'SQL connection pool connected.', {
+        server: config.server,
+        database: config.database,
+        duration: formatDuration(stopTimer())
+      });
+    });
+  } else {
+    logDebug('sql', 'Reusing existing SQL connection pool.');
   }
 
   return poolPromise;
@@ -52,12 +80,18 @@ export async function getPool(config) {
 
 export async function closeDatabaseConnection() {
   if (!poolPromise) {
+    logDebug('sql', 'No SQL connection pool to close.');
     return;
   }
+
+  const stopTimer = createTimer();
 
   try {
     const pool = await poolPromise;
     await pool.close();
+    logDebug('sql', 'SQL connection pool closed.', {
+      duration: formatDuration(stopTimer())
+    });
   } finally {
     poolPromise = null;
   }

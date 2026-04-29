@@ -3,6 +3,12 @@ import cors from 'cors';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  createTimer,
+  formatDuration,
+  logDebug,
+  logError
+} from './debugLogger.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
@@ -12,9 +18,62 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
+let requestCounter = 0;
 
 app.use(cors());
 app.use(express.json());
+app.use((request, response, next) => {
+  if (!request.path.startsWith('/api')) {
+    next();
+    return;
+  }
+
+  const requestId = ++requestCounter;
+  const stopTimer = createTimer();
+
+  request.requestId = requestId;
+
+  logDebug('api', `#${requestId} ${request.method} ${request.path} started.`);
+
+  response.on('finish', () => {
+    logDebug('api', `#${requestId} ${request.method} ${request.path} completed.`, {
+      statusCode: response.statusCode,
+      duration: formatDuration(stopTimer())
+    });
+  });
+
+  next();
+});
+
+async function sendDatasetResponse(request, response, scope, loadDataset, failureMessage) {
+  const stopTimer = createTimer();
+
+  logDebug(scope, `Handling request #${request.requestId ?? 'n/a'}.`);
+
+  try {
+    const payload = await loadDataset();
+
+    logDebug(scope, `Request #${request.requestId ?? 'n/a'} loaded dataset.`, {
+      source: payload.source,
+      rowCount: payload.rowCount,
+      tableName: payload.tableName,
+      fileName: payload.fileName,
+      fallbackReason: payload.fallbackReason,
+      duration: formatDuration(stopTimer())
+    });
+
+    response.json(payload);
+  } catch (error) {
+    logError(scope, `Request #${request.requestId ?? 'n/a'} failed.`, error, {
+      duration: formatDuration(stopTimer())
+    });
+
+    response.status(500).json({
+      message: failureMessage,
+      error: error.message
+    });
+  }
+}
 
 app.get('/api/health', (_request, response) => {
   response.json({
@@ -23,40 +82,34 @@ app.get('/api/health', (_request, response) => {
   });
 });
 
-app.get('/api/payments', async (_request, response) => {
-  try {
-    const payments = await readPayments();
-    response.json(payments);
-  } catch (error) {
-    response.status(500).json({
-      message: 'Unable to read payment data.',
-      error: error.message
-    });
-  }
+app.get('/api/payments', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'payments',
+    readPayments,
+    'Unable to read payment data.'
+  );
 });
 
-app.get('/api/otd', async (_request, response) => {
-  try {
-    const otdData = await readOtdData();
-    response.json(otdData);
-  } catch (error) {
-    response.status(500).json({
-      message: 'Unable to read OTD data.',
-      error: error.message
-    });
-  }
+app.get('/api/otd', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'otd',
+    readOtdData,
+    'Unable to read OTD data.'
+  );
 });
 
-app.get('/api/labor-utilization', async (_request, response) => {
-  try {
-    const laborUtilizationData = await readLaborUtilizationData();
-    response.json(laborUtilizationData);
-  } catch (error) {
-    response.status(500).json({
-      message: 'Unable to read labor utilization data.',
-      error: error.message
-    });
-  }
+app.get('/api/labor-utilization', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'labor',
+    readLaborUtilizationData,
+    'Unable to read labor utilization data.'
+  );
 });
 
 if (process.env.NODE_ENV === 'production') {

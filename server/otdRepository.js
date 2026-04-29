@@ -3,6 +3,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
 import {
+  createTimer,
+  formatDuration,
+  logDebug,
+  logError
+} from './debugLogger.js';
+import {
   formatSqlIdentifier,
   getConnectionConfig,
   getPool
@@ -40,6 +46,13 @@ function normalizeOtdRow(row) {
 }
 
 async function readFallbackOtdData(reason) {
+  const stopTimer = createTimer();
+
+  logDebug('otd', 'Loading OTD fallback file.', {
+    filePath: otdFilePath,
+    reason
+  });
+
   await fs.access(otdFilePath);
 
   const workbook = XLSX.readFile(otdFilePath, { cellDates: false });
@@ -49,7 +62,7 @@ async function readFallbackOtdData(reason) {
     .sheet_to_json(worksheet, { defval: null, raw: true })
     .map(normalizeOtdRow);
 
-  return {
+  const payload = {
     source: 'excel',
     fileName: path.basename(otdFilePath),
     sheetName,
@@ -57,12 +70,32 @@ async function readFallbackOtdData(reason) {
     fallbackReason: reason,
     rows
   };
+
+  logDebug('otd', 'OTD fallback file loaded.', {
+    source: 'excel',
+    fileName: payload.fileName,
+    sheetName,
+    rowCount: rows.length,
+    duration: formatDuration(stopTimer())
+  });
+
+  return payload;
 }
 
 export async function readOtdData() {
+  const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig();
 
+  logDebug('otd', 'Starting OTD data load.', {
+    hasConnectionConfig: missing.length === 0,
+    tableName: OTD_TABLE_NAME
+  });
+
   if (missing.length > 0) {
+    logDebug('otd', 'OTD data load is missing SQL configuration; using fallback.', {
+      missing
+    });
+
     return readFallbackOtdData(
       `Missing database environment variables: ${missing.join(', ')}`
     );
@@ -71,6 +104,11 @@ export async function readOtdData() {
   try {
     const pool = await getPool(config);
     const tableName = formatSqlIdentifier(OTD_TABLE_NAME);
+
+    logDebug('otd', 'Executing OTD SQL query.', {
+      tableName
+    });
+
     const result = await pool.request().query(`
       SELECT
         [2026],
@@ -95,6 +133,13 @@ export async function readOtdData() {
     `);
     const rows = result.recordset.map(normalizeOtdRow);
 
+    logDebug('otd', 'OTD SQL query completed.', {
+      source: 'mssql',
+      tableName: OTD_TABLE_NAME,
+      rowCount: rows.length,
+      duration: formatDuration(stopTimer())
+    });
+
     return {
       source: 'mssql',
       tableName: OTD_TABLE_NAME,
@@ -102,6 +147,11 @@ export async function readOtdData() {
       rows
     };
   } catch (error) {
+    logError('otd', 'OTD SQL query failed; using fallback data.', error, {
+      tableName: OTD_TABLE_NAME,
+      duration: formatDuration(stopTimer())
+    });
+
     return readFallbackOtdData(`Database read failed: ${error.message}`);
   }
 }

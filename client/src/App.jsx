@@ -88,6 +88,21 @@ function formatNumber(value) {
   return numberFormatter.format(value ?? 0);
 }
 
+function formatDebugDuration(durationMs) {
+  return `${durationMs.toFixed(1)}ms`;
+}
+
+function logClientDebug(scope, message, metadata) {
+  const prefix = `[${new Date().toISOString()}] [client:${scope}] ${message}`;
+
+  if (metadata) {
+    console.log(prefix, metadata);
+    return;
+  }
+
+  console.log(prefix);
+}
+
 function getSourceLabel(source) {
   if (source === 'mssql') {
     return 'SQL Server data';
@@ -298,14 +313,36 @@ function useChartWidth(minWidth = 320) {
   return { chartHostRef, chartWidth };
 }
 
-async function fetchJson(url) {
+async function fetchJson(scope, url) {
+  const startTime = performance.now();
+
+  logClientDebug(scope, 'Starting fetch.', { url });
+
   const response = await fetch(url);
+
+  logClientDebug(scope, 'Received HTTP response.', {
+    url,
+    status: response.status,
+    ok: response.ok,
+    duration: formatDebugDuration(performance.now() - startTime)
+  });
 
   if (!response.ok) {
     throw new Error(`Request failed with status ${response.status}`);
   }
 
-  return response.json();
+  const payload = await response.json();
+
+  logClientDebug(scope, 'Parsed JSON payload.', {
+    source: payload.source,
+    rowCount: payload.rowCount,
+    tableName: payload.tableName,
+    fileName: payload.fileName,
+    fallbackReason: payload.fallbackReason,
+    totalDuration: formatDebugDuration(performance.now() - startTime)
+  });
+
+  return payload;
 }
 
 export default function App() {
@@ -353,81 +390,161 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadDashboardData() {
-      const [paymentsResult, otdResult, laborResult] = await Promise.allSettled([
-        fetchJson('/api/payments'),
-        fetchJson('/api/otd'),
-        fetchJson('/api/labor-utilization')
-      ]);
+    async function loadPaymentsData() {
+      const startTime = performance.now();
 
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const payload = await fetchJson('payments', '/api/payments');
 
-      if (paymentsResult.status === 'fulfilled') {
+        if (!isMounted) {
+          logClientDebug('payments', 'Component unmounted before payment state update.');
+          return;
+        }
+
         setPaymentsState({
-          rows: Array.isArray(paymentsResult.value.rows) ? paymentsResult.value.rows : [],
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
           loading: false,
           error: '',
-          source: getSourceLabel(paymentsResult.value.source)
+          source: getSourceLabel(payload.source)
         });
         setSelectedDateField('START_DATE');
         setSelectedPaymentType(ALL_FILTER_VALUE);
         setSelectedPaymentCategory(ALL_FILTER_VALUE);
-      } else {
+
+        logClientDebug('payments', 'Payment state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('payments', 'Component unmounted after payment load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
         setPaymentsState({
           rows: [],
           loading: false,
-          error: paymentsResult.reason.message || 'Unable to reach the backend.',
+          error: error.message || 'Unable to reach the backend.',
           source: ''
         });
-      }
 
-      if (otdResult.status === 'fulfilled') {
+        logClientDebug('payments', 'Payment load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    async function loadOtdData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson('otd', '/api/otd');
+
+        if (!isMounted) {
+          logClientDebug('otd', 'Component unmounted before OTD state update.');
+          return;
+        }
+
         setOtdState({
-          rows: Array.isArray(otdResult.value.rows) ? otdResult.value.rows : [],
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
           loading: false,
           error: '',
-          source: getSourceLabel(otdResult.value.source)
+          source: getSourceLabel(payload.source)
         });
         setSelectedProgram(ALL_FILTER_VALUE);
         setSelectedSite(ALL_FILTER_VALUE);
         setSelectedOtdType(ALL_FILTER_VALUE);
-      } else {
+
+        logClientDebug('otd', 'OTD state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('otd', 'Component unmounted after OTD load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
         setOtdState({
           rows: [],
           loading: false,
-          error: otdResult.reason.message || 'Unable to load OTD data.',
+          error: error.message || 'Unable to load OTD data.',
           source: ''
         });
-      }
 
-      if (laborResult.status === 'fulfilled') {
+        logClientDebug('otd', 'OTD load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    async function loadLaborData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson('labor', '/api/labor-utilization');
+
+        if (!isMounted) {
+          logClientDebug('labor', 'Component unmounted before labor state update.');
+          return;
+        }
+
         setLaborState({
-          rows: Array.isArray(laborResult.value.rows) ? laborResult.value.rows : [],
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
           loading: false,
           error: '',
-          source: getSourceLabel(laborResult.value.source)
+          source: getSourceLabel(payload.source)
         });
         setSelectedForecastedCc(ALL_FILTER_VALUE);
         setSelectedPool(ALL_FILTER_VALUE);
         setSelectedUnionType(ALL_FILTER_VALUE);
         setSelectedWorkerType(ALL_FILTER_VALUE);
         setSelectedTimeType(ALL_FILTER_VALUE);
-      } else {
+
+        logClientDebug('labor', 'Labor state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('labor', 'Component unmounted after labor load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
         setLaborState({
           rows: [],
           loading: false,
-          error: laborResult.reason.message || 'Unable to load labor utilization data.',
+          error: error.message || 'Unable to load labor utilization data.',
           source: ''
+        });
+
+        logClientDebug('labor', 'Labor load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
         });
       }
     }
 
-    loadDashboardData();
+    logClientDebug('dashboard', 'Starting dashboard data load.');
+
+    loadPaymentsData();
+    loadOtdData();
+    loadLaborData();
 
     return () => {
       isMounted = false;
+      logClientDebug('dashboard', 'Dashboard component unmounted.');
     };
   }, []);
 

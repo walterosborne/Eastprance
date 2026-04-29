@@ -1,22 +1,10 @@
-import sql from 'mssql';
 import { DUMMY_TABLE_NAME, getDummyTableRows } from './dummyTable.js';
-
-let poolPromise = null;
-
-function getConnectionConfig() {
-  const config = {
-    server: process.env.server,
-    database: process.env.database,
-    user: process.env.user,
-    password: process.env.password
-  };
-
-  const missing = Object.entries(config)
-    .filter(([, value]) => !value)
-    .map(([key]) => key);
-
-  return { config, missing };
-}
+import {
+  closeDatabaseConnection,
+  formatSqlIdentifier,
+  getConnectionConfig,
+  getPool
+} from './sqlConnection.js';
 
 function normalizePaymentRow(row) {
   return {
@@ -42,26 +30,6 @@ function getFallbackResponse(reason) {
   };
 }
 
-async function getPool(config) {
-  if (!poolPromise) {
-    poolPromise = sql.connect({
-      server: config.server,
-      database: config.database,
-      user: config.user,
-      password: config.password,
-      options: {
-        encrypt: true,
-        trustServerCertificate: true
-      }
-    }).catch((error) => {
-      poolPromise = null;
-      throw error;
-    });
-  }
-
-  return poolPromise;
-}
-
 export async function readPayments() {
   const { config, missing } = getConnectionConfig();
 
@@ -73,6 +41,7 @@ export async function readPayments() {
 
   try {
     const pool = await getPool(config);
+    const tableName = formatSqlIdentifier(DUMMY_TABLE_NAME);
     const result = await pool.request().query(`
       SELECT
         [payment_type],
@@ -82,7 +51,7 @@ export async function readPayments() {
         [CHARGE_AMT_Basis],
         [START_DATE],
         [END_DATE]
-      FROM [dbo].[${DUMMY_TABLE_NAME}]
+      FROM ${tableName}
       ORDER BY [START_DATE] ASC;
     `);
 
@@ -100,14 +69,5 @@ export async function readPayments() {
 }
 
 export async function closePaymentsConnection() {
-  if (!poolPromise) {
-    return;
-  }
-
-  try {
-    const pool = await poolPromise;
-    await pool.close();
-  } finally {
-    poolPromise = null;
-  }
+  await closeDatabaseConnection();
 }

@@ -2,9 +2,19 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
+import {
+  formatSqlIdentifier,
+  getConfiguredTableName,
+  getConnectionConfig,
+  getPool
+} from './sqlConnection.js';
 
 const WORKBOOK_MONTH_COLUMNS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const NORMALIZED_MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const LABOR_UTILIZATION_TABLE_NAME = getConfiguredTableName(
+  'LABOR_UTILIZATION_TABLE_NAME',
+  'labor_utilization'
+);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const laborUtilizationFilePath = path.resolve(__dirname, '../data/labor_utilization.xlsx');
@@ -41,7 +51,7 @@ function normalizeLaborUtilizationRow(row) {
   return normalizedRow;
 }
 
-export async function readLaborUtilizationData() {
+async function readFallbackLaborUtilizationData(reason) {
   await fs.access(laborUtilizationFilePath);
 
   const workbook = XLSX.readFile(laborUtilizationFilePath, { cellDates: false });
@@ -56,6 +66,61 @@ export async function readLaborUtilizationData() {
     fileName: path.basename(laborUtilizationFilePath),
     sheetName,
     rowCount: rows.length,
+    fallbackReason: reason,
     rows
   };
+}
+
+export async function readLaborUtilizationData() {
+  const { config, missing } = getConnectionConfig();
+
+  if (missing.length > 0) {
+    return readFallbackLaborUtilizationData(
+      `Missing database environment variables: ${missing.join(', ')}`
+    );
+  }
+
+  try {
+    const pool = await getPool(config);
+    const tableName = formatSqlIdentifier(LABOR_UTILIZATION_TABLE_NAME);
+    const result = await pool.request().query(`
+      SELECT
+        [MyID],
+        [Employee Name],
+        [Forecasted CC],
+        [Pool],
+        [Location Code],
+        [Union Type],
+        [Worker Type],
+        [Worker Subtype],
+        [Time Type],
+        [Labor Category],
+        [Measure],
+        [Jan],
+        [Feb],
+        [Mar],
+        [Apr],
+        [May],
+        [Jun],
+        [Jul],
+        [Aug],
+        [Sep],
+        [Oct],
+        [Nov],
+        [Dec],
+        [2026]
+      FROM ${tableName}
+      ORDER BY [MyID] ASC;
+    `);
+    const rows = result.recordset.map(normalizeLaborUtilizationRow);
+
+    return {
+      source: 'mssql',
+      tableName: LABOR_UTILIZATION_TABLE_NAME,
+      rowCount: rows.length,
+      rows
+    };
+  } catch (error) {
+    return readFallbackLaborUtilizationData(`Database read failed: ${error.message}`);
+  }
 }

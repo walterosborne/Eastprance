@@ -2,8 +2,15 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
+import {
+  formatSqlIdentifier,
+  getConfiguredTableName,
+  getConnectionConfig,
+  getPool
+} from './sqlConnection.js';
 
 const MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const OTD_TABLE_NAME = getConfiguredTableName('OTD_TABLE_NAME', 'otd_data');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const otdFilePath = path.resolve(__dirname, '../data/otd_data.xlsx');
@@ -33,7 +40,7 @@ function normalizeOtdRow(row) {
   return normalizedRow;
 }
 
-export async function readOtdData() {
+async function readFallbackOtdData(reason) {
   await fs.access(otdFilePath);
 
   const workbook = XLSX.readFile(otdFilePath, { cellDates: false });
@@ -48,6 +55,54 @@ export async function readOtdData() {
     fileName: path.basename(otdFilePath),
     sheetName,
     rowCount: rows.length,
+    fallbackReason: reason,
     rows
   };
+}
+
+export async function readOtdData() {
+  const { config, missing } = getConnectionConfig();
+
+  if (missing.length > 0) {
+    return readFallbackOtdData(
+      `Missing database environment variables: ${missing.join(', ')}`
+    );
+  }
+
+  try {
+    const pool = await getPool(config);
+    const tableName = formatSqlIdentifier(OTD_TABLE_NAME);
+    const result = await pool.request().query(`
+      SELECT
+        [2026],
+        [Program],
+        [Project ID],
+        [Site],
+        [Type],
+        [JAN],
+        [FEB],
+        [MAR],
+        [APR],
+        [MAY],
+        [JUN],
+        [JUL],
+        [AUG],
+        [SEP],
+        [OCT],
+        [NOV],
+        [DEC]
+      FROM ${tableName}
+      ORDER BY [Project ID] ASC, [2026] ASC;
+    `);
+    const rows = result.recordset.map(normalizeOtdRow);
+
+    return {
+      source: 'mssql',
+      tableName: OTD_TABLE_NAME,
+      rowCount: rows.length,
+      rows
+    };
+  } catch (error) {
+    return readFallbackOtdData(`Database read failed: ${error.message}`);
+  }
 }

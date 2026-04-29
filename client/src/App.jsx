@@ -88,6 +88,18 @@ function formatNumber(value) {
   return numberFormatter.format(value ?? 0);
 }
 
+function getSourceLabel(source) {
+  if (source === 'mssql') {
+    return 'SQL Server data';
+  }
+
+  if (source === 'excel' || source === 'dummy') {
+    return 'Local fallback data';
+  }
+
+  return '';
+}
+
 function getFilterOptions(rows, fieldName) {
   return Array.from(
     new Set(rows.map((row) => row[fieldName]).filter((value) => typeof value === 'string' && value))
@@ -357,7 +369,7 @@ export default function App() {
           rows: Array.isArray(paymentsResult.value.rows) ? paymentsResult.value.rows : [],
           loading: false,
           error: '',
-          source: paymentsResult.value.source === 'mssql' ? 'SQL Server data' : ''
+          source: getSourceLabel(paymentsResult.value.source)
         });
         setSelectedDateField('START_DATE');
         setSelectedPaymentType(ALL_FILTER_VALUE);
@@ -376,7 +388,7 @@ export default function App() {
           rows: Array.isArray(otdResult.value.rows) ? otdResult.value.rows : [],
           loading: false,
           error: '',
-          source: otdResult.value.fileName || 'Excel data'
+          source: getSourceLabel(otdResult.value.source)
         });
         setSelectedProgram(ALL_FILTER_VALUE);
         setSelectedSite(ALL_FILTER_VALUE);
@@ -385,7 +397,7 @@ export default function App() {
         setOtdState({
           rows: [],
           loading: false,
-          error: otdResult.reason.message || 'Unable to load the OTD workbook.',
+          error: otdResult.reason.message || 'Unable to load OTD data.',
           source: ''
         });
       }
@@ -395,7 +407,7 @@ export default function App() {
           rows: Array.isArray(laborResult.value.rows) ? laborResult.value.rows : [],
           loading: false,
           error: '',
-          source: laborResult.value.fileName || 'Excel data'
+          source: getSourceLabel(laborResult.value.source)
         });
         setSelectedForecastedCc(ALL_FILTER_VALUE);
         setSelectedPool(ALL_FILTER_VALUE);
@@ -406,7 +418,7 @@ export default function App() {
         setLaborState({
           rows: [],
           loading: false,
-          error: laborResult.reason.message || 'Unable to load the labor workbook.',
+          error: laborResult.reason.message || 'Unable to load labor utilization data.',
           source: ''
         });
       }
@@ -873,8 +885,7 @@ export default function App() {
 
                   <div className="chart-footer">
                     <p className="chart-note">
-                      Monthly totals from the Beatles-themed OTD workbook for Contract Commitment
-                      and Actual Delivered.
+                      Monthly totals for Contract Commitment and Actual Delivered.
                     </p>
                   </div>
                 </div>

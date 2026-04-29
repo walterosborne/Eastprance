@@ -17,12 +17,6 @@ export function getConnectionConfig() {
   return { config, missing };
 }
 
-export function getConfiguredTableName(envKey, fallbackName) {
-  const configuredTableName = process.env[envKey]?.trim();
-
-  return configuredTableName || fallbackName;
-}
-
 export function formatSqlIdentifier(identifier) {
   const normalizedIdentifier = String(identifier).includes('.')
     ? String(identifier)

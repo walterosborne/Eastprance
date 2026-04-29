@@ -4,17 +4,13 @@ import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
 import {
   formatSqlIdentifier,
-  getConfiguredTableName,
   getConnectionConfig,
   getPool
 } from './sqlConnection.js';
 
 const WORKBOOK_MONTH_COLUMNS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const NORMALIZED_MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-const LABOR_UTILIZATION_TABLE_NAME = getConfiguredTableName(
-  'LABOR_UTILIZATION_TABLE_NAME',
-  'labor_utilization'
-);
+const LABOR_UTILIZATION_TABLE_NAME = 'westmarch_labor_utilization';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const laborUtilizationFilePath = path.resolve(__dirname, '../data/labor_utilization.xlsx');

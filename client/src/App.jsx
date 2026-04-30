@@ -42,31 +42,6 @@ const LABOR_MONTH_COLUMNS = [
   { key: 'NOV', label: 'Nov' },
   { key: 'DEC', label: 'Dec' }
 ];
-const DATE_FIELD_OPTIONS = [
-  { value: 'START_DATE', label: 'Start date' },
-  { value: 'END_DATE', label: 'End date' }
-];
-
-const VIEW_CONFIG = {
-  monthly: {
-    label: 'Monthly',
-    titleLabel: 'Monthly',
-    divisor: 12,
-    seriesLabel: 'Monthly expense'
-  },
-  quarterly: {
-    label: 'Quarterly',
-    titleLabel: 'Quarterly',
-    divisor: 4,
-    seriesLabel: 'Quarterly expense'
-  },
-  yearly: {
-    label: 'Yearly',
-    titleLabel: 'Yearly',
-    divisor: 1,
-    seriesLabel: 'Yearly expense'
-  }
-};
 
 const OTD_VIEW_CONFIG = {
   monthly: {
@@ -80,8 +55,17 @@ const OTD_VIEW_CONFIG = {
   }
 };
 
+const CONTROLLABLE_COSTS_VIEW_CONFIG = {
+  quarterly: {
+    label: 'Quarterly'
+  },
+  yearly: {
+    label: 'Annual'
+  }
+};
+
 const CARD_CHIP_OPTIONS = [
-  { key: 'costs', label: 'Monthly Costs' },
+  { key: 'controllableCosts', label: 'Controllable Costs' },
   { key: 'otd', label: 'On Time Delivery (OTD)' },
   { key: 'labor', label: 'Direct Labor Utilization' }
 ];
@@ -107,13 +91,6 @@ const LABOR_VIEW_CONFIG = {
 const DEFAULT_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
 const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
 const CHART_HEIGHT = 332;
-const COST_Y_AXIS = [
-  {
-    width: 52,
-    valueFormatter: formatCurrency,
-    tickLabelStyle: { fontSize: 11 }
-  }
-];
 const OTD_Y_AXIS = [
   {
     width: 66,
@@ -149,12 +126,6 @@ const wholeNumberFormatter = new Intl.NumberFormat('en-US', {
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 1
-});
-
-const monthLabelFormatter = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'UTC'
 });
 
 const sharedChartSx = {
@@ -307,70 +278,67 @@ function normalizeFilterValue(value, options) {
   return options.includes(value) ? value : ALL_FILTER_VALUE;
 }
 
-function getBucket(referenceDate, viewMode) {
-  const year = referenceDate.getUTCFullYear();
-  const month = referenceDate.getUTCMonth();
-
-  if (viewMode === 'monthly') {
-    const bucketDate = new Date(Date.UTC(year, month, 1));
-
-    return {
-      key: `${year}-${month}`,
-      label: monthLabelFormatter.format(bucketDate),
-      sortValue: bucketDate.getTime()
-    };
-  }
-
-  if (viewMode === 'quarterly') {
-    const quarter = Math.floor(month / 3) + 1;
-    const quarterStartMonth = (quarter - 1) * 3;
-    const bucketDate = new Date(Date.UTC(year, quarterStartMonth, 1));
-
-    return {
-      key: `${year}-Q${quarter}`,
-      label: `Q${quarter} ${year}`,
-      sortValue: bucketDate.getTime()
-    };
-  }
-
-  const bucketDate = new Date(Date.UTC(year, 0, 1));
-
-  return {
-    key: `${year}`,
-    label: `${year}`,
-    sortValue: bucketDate.getTime()
-  };
+function getQuarterNumber(value) {
+  const match = /^Q\s*([1-4])$/i.exec(String(value ?? '').trim());
+  return match ? Number(match[1]) : null;
 }
 
-function buildCostChartData(rows, viewMode, dateField) {
+function buildControllableCostsChartData(rows, viewMode) {
   const buckets = new Map();
-  const divisor = VIEW_CONFIG[viewMode].divisor;
 
   rows.forEach((row) => {
-    const annualAmount = Number(row.ANNUAL_AMT);
-    const referenceDate = new Date(row[dateField]);
+    const cost = Number(row.cost);
+    const year = Number(row.year);
 
-    if (!Number.isFinite(annualAmount) || Number.isNaN(referenceDate.getTime())) {
+    if (!Number.isFinite(cost) || !Number.isInteger(year)) {
       return;
     }
 
-    const bucket = getBucket(referenceDate, viewMode);
-    const currentValue = buckets.get(bucket.key) ?? {
-      label: bucket.label,
-      sortValue: bucket.sortValue,
-      total: 0
+    let bucketKey = '';
+    let bucketLabel = '';
+    let sortValue = 0;
+
+    if (viewMode === 'quarterly') {
+      const quarterNumber = getQuarterNumber(row.quarter);
+
+      if (quarterNumber == null) {
+        return;
+      }
+
+      bucketKey = `${year}-Q${quarterNumber}`;
+      bucketLabel = `Q${quarterNumber} ${year}`;
+      sortValue = year * 10 + quarterNumber;
+    } else {
+      bucketKey = String(year);
+      bucketLabel = String(year);
+      sortValue = year;
+    }
+
+    const currentBucket = buckets.get(bucketKey) ?? {
+      label: bucketLabel,
+      sortValue,
+      controllable: 0,
+      uncontrollable: 0
     };
 
-    currentValue.total += annualAmount / divisor;
-    buckets.set(bucket.key, currentValue);
+    if (row.controllable === 'Controllable') {
+      currentBucket.controllable += cost;
+    } else {
+      currentBucket.uncontrollable += cost;
+    }
+
+    buckets.set(bucketKey, currentBucket);
   });
 
-  return Array.from(buckets.values())
-    .sort((left, right) => left.sortValue - right.sortValue)
-    .map((bucket) => ({
-      label: bucket.label,
-      total: Number(bucket.total.toFixed(2))
-    }));
+  const sortedBuckets = Array.from(buckets.values()).sort(
+    (left, right) => left.sortValue - right.sortValue
+  );
+
+  return {
+    labels: sortedBuckets.map((bucket) => bucket.label),
+    controllable: sortedBuckets.map((bucket) => Number(bucket.controllable.toFixed(2))),
+    uncontrollable: sortedBuckets.map((bucket) => Number(bucket.uncontrollable.toFixed(2)))
+  };
 }
 
 function getOtdBuckets(viewMode) {
@@ -857,7 +825,7 @@ export default function App() {
 
     return window.localStorage.getItem('expense-theme-mode') === 'dark' ? 'dark' : 'light';
   });
-  const [paymentsState, setPaymentsState] = useState({
+  const [controllableCostsState, setControllableCostsState] = useState({
     rows: [],
     loading: true,
     error: '',
@@ -875,10 +843,10 @@ export default function App() {
     error: '',
     source: ''
   });
-  const [viewMode, setViewMode] = useState('monthly');
-  const [selectedDateField, setSelectedDateField] = useState('START_DATE');
-  const [selectedPaymentType, setSelectedPaymentType] = useState(ALL_FILTER_VALUE);
-  const [selectedPaymentCategory, setSelectedPaymentCategory] = useState(ALL_FILTER_VALUE);
+  const [selectedControllableAddress, setSelectedControllableAddress] = useState(ALL_FILTER_VALUE);
+  const [selectedControllableCostElementDescription, setSelectedControllableCostElementDescription] =
+    useState(ALL_FILTER_VALUE);
+  const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
   const [selectedProgram, setSelectedProgram] = useState(ALL_FILTER_VALUE);
   const [selectedSite, setSelectedSite] = useState(ALL_FILTER_VALUE);
   const [selectedOtdType, setSelectedOtdType] = useState(ALL_FILTER_VALUE);
@@ -890,62 +858,72 @@ export default function App() {
   const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [visibleCards, setVisibleCards] = useState({
-    costs: true,
+    controllableCosts: true,
     otd: true,
     labor: true
   });
-  const [isCostFiltersOpen, setIsCostFiltersOpen] = useState(false);
+  const [isControllableCostsFiltersOpen, setIsControllableCostsFiltersOpen] = useState(false);
   const [isOtdFiltersOpen, setIsOtdFiltersOpen] = useState(false);
   const [isLaborFiltersOpen, setIsLaborFiltersOpen] = useState(false);
-  const { chartHostRef: costChartHostRef, chartWidth: costChartWidth } = useChartWidth();
+  const {
+    chartHostRef: controllableCostsChartHostRef,
+    chartWidth: controllableCostsChartWidth
+  } = useChartWidth();
   const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth();
   const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth();
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadPaymentsData() {
+    async function loadControllableCostsData() {
       const startTime = performance.now();
 
       try {
-        const payload = await fetchJson('payments', '/api/payments');
+        const payload = await fetchJson('controllable-costs', '/api/controllable-costs');
 
         if (!isMounted) {
-          logClientDebug('payments', 'Component unmounted before payment state update.');
+          logClientDebug(
+            'controllable-costs',
+            'Component unmounted before controllable costs state update.'
+          );
           return;
         }
 
-        setPaymentsState({
+        setControllableCostsState({
           rows: Array.isArray(payload.rows) ? payload.rows : [],
           loading: false,
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSelectedDateField('START_DATE');
-        setSelectedPaymentType(ALL_FILTER_VALUE);
-        setSelectedPaymentCategory(ALL_FILTER_VALUE);
+        setSelectedControllableAddress(ALL_FILTER_VALUE);
+        setSelectedControllableCostElementDescription(ALL_FILTER_VALUE);
+        setControllableCostsViewMode('quarterly');
 
-        logClientDebug('payments', 'Payment state updated.', {
+        logClientDebug('controllable-costs', 'Controllable costs state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
           source: payload.source,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
       } catch (error) {
         if (!isMounted) {
-          logClientDebug('payments', 'Component unmounted after payment load failure.', {
-            error: error.message
-          });
+          logClientDebug(
+            'controllable-costs',
+            'Component unmounted after controllable costs load failure.',
+            {
+              error: error.message
+            }
+          );
           return;
         }
 
-        setPaymentsState({
+        setControllableCostsState({
           rows: [],
           loading: false,
-          error: error.message || 'Unable to reach the backend.',
+          error: error.message || 'Unable to load controllable costs data.',
           source: ''
         });
 
-        logClientDebug('payments', 'Payment load failed.', {
+        logClientDebug('controllable-costs', 'Controllable costs load failed.', {
           error: error.message,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
@@ -1054,7 +1032,7 @@ export default function App() {
 
     logClientDebug('dashboard', 'Starting dashboard data load.');
 
-    loadPaymentsData();
+    loadControllableCostsData();
     loadOtdData();
     loadLaborData();
 
@@ -1069,24 +1047,32 @@ export default function App() {
     window.localStorage.setItem('expense-theme-mode', themeMode);
   }, [themeMode]);
 
-  const paymentTypeOptions = getFilterOptions(paymentsState.rows, 'payment_type');
-  const paymentCategoryOptions = getFilterOptions(paymentsState.rows, 'payment_summary_type');
-  const activePaymentType = normalizeFilterValue(selectedPaymentType, paymentTypeOptions);
-  const activePaymentCategory = normalizeFilterValue(
-    selectedPaymentCategory,
-    paymentCategoryOptions
+  const controllableAddressOptions = getFilterOptions(controllableCostsState.rows, 'address');
+  const controllableCostElementDescriptionOptions = getFilterOptions(
+    controllableCostsState.rows,
+    'cost_element_description'
   );
-  const filteredPayments = paymentsState.rows.filter((row) => {
-    const paymentTypeMatches =
-      activePaymentType === ALL_FILTER_VALUE || row.payment_type === activePaymentType;
-    const paymentCategoryMatches =
-      activePaymentCategory === ALL_FILTER_VALUE ||
-      row.payment_summary_type === activePaymentCategory;
+  const activeControllableAddress = normalizeFilterValue(
+    selectedControllableAddress,
+    controllableAddressOptions
+  );
+  const activeControllableCostElementDescription = normalizeFilterValue(
+    selectedControllableCostElementDescription,
+    controllableCostElementDescriptionOptions
+  );
+  const filteredControllableCostsRows = controllableCostsState.rows.filter((row) => {
+    const addressMatches =
+      activeControllableAddress === ALL_FILTER_VALUE || row.address === activeControllableAddress;
+    const costElementDescriptionMatches =
+      activeControllableCostElementDescription === ALL_FILTER_VALUE ||
+      row.cost_element_description === activeControllableCostElementDescription;
 
-    return paymentTypeMatches && paymentCategoryMatches;
+    return addressMatches && costElementDescriptionMatches;
   });
-  const costChartData = buildCostChartData(filteredPayments, viewMode, selectedDateField);
-  const costTitle = `${VIEW_CONFIG[viewMode].titleLabel} Costs`;
+  const controllableCostsChartData = buildControllableCostsChartData(
+    filteredControllableCostsRows,
+    controllableCostsViewMode
+  );
 
   const programOptions = getFilterOptions(otdState.rows, 'program');
   const siteOptions = getFilterOptions(otdState.rows, 'site');
@@ -1176,18 +1162,18 @@ export default function App() {
           </div>
 
           <div className="cards-grid">
-            {visibleCards.costs && (
+            {visibleCards.controllableCosts && (
               <article className="analytics-card">
                 <div className="card-header">
                   <div>
-                    <p className="card-kicker">Expense trend</p>
-                    <h2 className="card-title">{costTitle}</h2>
+                    <p className="card-kicker">Cost trend</p>
+                    <h2 className="card-title">Controllable Costs</h2>
                   </div>
                 </div>
 
                 <div className="dashboard-grid">
                   <aside
-                    className={`filter-panel${isCostFiltersOpen ? '' : ' filter-panel-collapsed'}`}
+                    className={`filter-panel${isControllableCostsFiltersOpen ? '' : ' filter-panel-collapsed'}`}
                   >
                     <div className="filter-panel-header">
                       <div className="filter-panel-title-row">
@@ -1196,64 +1182,43 @@ export default function App() {
                           type="button"
                           className="filter-toggle"
                           onClick={() => {
-                            setIsCostFiltersOpen((currentValue) => !currentValue);
+                            setIsControllableCostsFiltersOpen((currentValue) => !currentValue);
                           }}
                         >
-                          {isCostFiltersOpen ? 'Hide filters' : 'Show filters'}
+                          {isControllableCostsFiltersOpen ? 'Hide filters' : 'Show filters'}
                         </button>
                       </div>
 
-                      {isCostFiltersOpen && (
+                      {isControllableCostsFiltersOpen && (
                         <p className="filter-copy">
-                          Narrow the cost chart by date basis, payment type, and payment category.
+                          Narrow the controllable costs chart by address and cost element
+                          description.
                         </p>
                       )}
                     </div>
 
-                    {isCostFiltersOpen && (
+                    {isControllableCostsFiltersOpen && (
                       <div className="filter-panel-body">
                         <div className="filter-fields">
                           <div className="filter-group">
-                            <label className="filter-label" htmlFor="date-field-filter">
-                              Display by
+                            <label className="filter-label" htmlFor="controllable-address-filter">
+                              Address
                             </label>
                             <FormControl fullWidth size="small" sx={filterSelectStyles}>
                               <Select
-                                id="date-field-filter"
-                                value={selectedDateField}
-                                onChange={(event) => {
-                                  setSelectedDateField(event.target.value);
-                                }}
-                                MenuProps={selectMenuProps}
-                              >
-                                {DATE_FIELD_OPTIONS.map((option) => (
-                                  <MenuItem key={option.value} value={option.value}>
-                                    {option.label}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="payment-type-filter">
-                              Payment type
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="payment-type-filter"
-                                value={activePaymentType}
+                                id="controllable-address-filter"
+                                value={activeControllableAddress}
                                 displayEmpty
                                 onChange={(event) => {
-                                  setSelectedPaymentType(event.target.value);
+                                  setSelectedControllableAddress(event.target.value);
                                 }}
                                 renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All payment types' : value
+                                  value === ALL_FILTER_VALUE ? 'All addresses' : value
                                 }
                                 MenuProps={selectMenuProps}
                               >
-                                <MenuItem value={ALL_FILTER_VALUE}>All payment types</MenuItem>
-                                {paymentTypeOptions.map((option) => (
+                                <MenuItem value={ALL_FILTER_VALUE}>All addresses</MenuItem>
+                                {controllableAddressOptions.map((option) => (
                                   <MenuItem key={option} value={option}>
                                     {option}
                                   </MenuItem>
@@ -1263,24 +1228,29 @@ export default function App() {
                           </div>
 
                           <div className="filter-group">
-                            <label className="filter-label" htmlFor="payment-category-filter">
-                              Payment category
+                            <label
+                              className="filter-label"
+                              htmlFor="controllable-cost-element-description-filter"
+                            >
+                              Cost element description
                             </label>
                             <FormControl fullWidth size="small" sx={filterSelectStyles}>
                               <Select
-                                id="payment-category-filter"
-                                value={activePaymentCategory}
+                                id="controllable-cost-element-description-filter"
+                                value={activeControllableCostElementDescription}
                                 displayEmpty
                                 onChange={(event) => {
-                                  setSelectedPaymentCategory(event.target.value);
+                                  setSelectedControllableCostElementDescription(
+                                    event.target.value
+                                  );
                                 }}
                                 renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All payment categories' : value
+                                  value === ALL_FILTER_VALUE ? 'All descriptions' : value
                                 }
                                 MenuProps={selectMenuProps}
                               >
-                                <MenuItem value={ALL_FILTER_VALUE}>All payment categories</MenuItem>
-                                {paymentCategoryOptions.map((option) => (
+                                <MenuItem value={ALL_FILTER_VALUE}>All descriptions</MenuItem>
+                                {controllableCostElementDescriptionOptions.map((option) => (
                                   <MenuItem key={option} value={option}>
                                     {option}
                                   </MenuItem>
@@ -1291,52 +1261,64 @@ export default function App() {
                         </div>
 
                         <p className="filter-summary">
-                          Showing {filteredPayments.length} of {paymentsState.rows.length} payment
-                          rows.
+                          Showing {filteredControllableCostsRows.length} of{' '}
+                          {controllableCostsState.rows.length} controllable cost rows.
                         </p>
                       </div>
                     )}
                   </aside>
 
                   <div className="visual-column">
-                    <div ref={costChartHostRef} className="chart-host">
-                      {paymentsState.loading && <p className="chart-message">Loading cost data...</p>}
-
-                      {!paymentsState.loading && paymentsState.error && (
-                        <p className="chart-message chart-message-error">{paymentsState.error}</p>
+                    <div ref={controllableCostsChartHostRef} className="chart-host">
+                      {controllableCostsState.loading && (
+                        <p className="chart-message">Loading controllable costs data...</p>
                       )}
 
-                      {!paymentsState.loading &&
-                        !paymentsState.error &&
-                        costChartData.length === 0 && (
+                      {!controllableCostsState.loading && controllableCostsState.error && (
+                        <p className="chart-message chart-message-error">
+                          {controllableCostsState.error}
+                        </p>
+                      )}
+
+                      {!controllableCostsState.loading &&
+                        !controllableCostsState.error &&
+                        filteredControllableCostsRows.length === 0 && (
                           <p className="chart-message">
-                            {paymentsState.rows.length === 0
-                              ? 'No payment rows are available for charting.'
-                              : 'No payment rows match the selected filters.'}
+                            {controllableCostsState.rows.length === 0
+                              ? 'No controllable cost rows are available for charting.'
+                              : 'No controllable cost rows match the selected filters.'}
                           </p>
                         )}
 
-                      {!paymentsState.loading &&
-                        !paymentsState.error &&
-                        costChartData.length > 0 &&
-                        costChartWidth > 0 && (
+                      {!controllableCostsState.loading &&
+                        !controllableCostsState.error &&
+                        filteredControllableCostsRows.length > 0 &&
+                        controllableCostsChartData.labels.length > 0 &&
+                        controllableCostsChartWidth > 0 && (
                           <LineChart
-                            width={costChartWidth}
+                            width={controllableCostsChartWidth}
                             height={CHART_HEIGHT}
                             margin={DEFAULT_CHART_MARGIN}
                             xAxis={[
                               {
                                 scaleType: 'point',
                                 height: 28,
-                                data: costChartData.map((bucket) => bucket.label)
+                                data: controllableCostsChartData.labels
                               }
                             ]}
-                            yAxis={COST_Y_AXIS}
+                            yAxis={OTD_Y_AXIS}
                             series={[
                               {
-                                data: costChartData.map((bucket) => bucket.total),
-                                label: `${VIEW_CONFIG[viewMode].seriesLabel} from ANNUAL_AMT`,
+                                data: controllableCostsChartData.controllable,
+                                label: 'Controllable',
                                 color: 'var(--chart-line)',
+                                valueFormatter: formatCurrency,
+                                showMark: false
+                              },
+                              {
+                                data: controllableCostsChartData.uncontrollable,
+                                label: 'Uncontrollable',
+                                color: 'var(--chart-secondary-line)',
                                 valueFormatter: formatCurrency,
                                 showMark: false
                               }
@@ -1358,22 +1340,23 @@ export default function App() {
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
                         <p className="chart-note">
-                          Values are derived from ANNUAL_AMT and normalized to the selected cadence.
+                          {CONTROLLABLE_COSTS_VIEW_CONFIG[controllableCostsViewMode].label} totals
+                          compare controllable and uncontrollable costs for the selected filters.
                         </p>
                       </div>
 
                       <ToggleButtonGroup
-                        value={viewMode}
+                        value={controllableCostsViewMode}
                         exclusive
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
-                            setViewMode(nextMode);
+                            setControllableCostsViewMode(nextMode);
                           }
                         }}
                         sx={timelineToggleGroupSx}
                       >
-                        {Object.entries(VIEW_CONFIG).map(([mode, config]) => (
+                        {Object.entries(CONTROLLABLE_COSTS_VIEW_CONFIG).map(([mode, config]) => (
                           <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
                             {config.label}
                           </ToggleButton>

@@ -7,9 +7,15 @@ const __dirname = path.dirname(__filename);
 const dataDirectoryPath = path.resolve(__dirname, '../data');
 const otdFilePath = path.join(dataDirectoryPath, 'otd_data.xlsx');
 const laborUtilizationFilePath = path.join(dataDirectoryPath, 'labor_utilization.xlsx');
+const controllableCostsFilePath = path.join(dataDirectoryPath, 'controllable_costs.xlsx');
 
 const OTD_MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const LABOR_MONTH_COLUMNS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const CONTROLLABLE_COSTS_SHEET_NAMES = {
+  costs: 'Controllable Costs',
+  categoryKey: 'Cost Category Key',
+  elementKey: 'Cost Element Key'
+};
 
 const beatlesPrograms = [
   { program: 'Penny Lane Lanterns', projectId: 'BTL-001', site: 'Abbey Road', type: 'Tea Kettle' },
@@ -138,6 +144,96 @@ const laborLastNames = [
   'Carroll'
 ];
 
+const controllableCostAddresses = [
+  'Folsom Yard',
+  'Ring of Fire Plaza',
+  'Walk the Line Depot',
+  'Jackson Crossing',
+  'San Quentin Annex',
+  'Hurt Ridge',
+  'June Carter Center',
+  'Ghost Riders Base'
+];
+
+const controllableCostCategories = [
+  { name: 'Rail Operations', controllable: 'Controllable' },
+  { name: 'Wardrobe', controllable: 'Controllable' },
+  { name: 'Security', controllable: 'Uncontrollable' },
+  { name: 'Facilities', controllable: 'Uncontrollable' },
+  { name: 'Travel', controllable: 'Uncontrollable' },
+  { name: 'Utilities', controllable: 'Uncontrollable' }
+];
+
+const controllableCostElements = [
+  {
+    costCategory: 'Wardrobe',
+    costElement: 'JC-101',
+    costElementDescription: 'Man in Black Tailoring',
+    baseCost: 182000,
+    keyControllable: 'Controllable'
+  },
+  {
+    costCategory: 'Rail Operations',
+    costElement: 'JC-102',
+    costElementDescription: 'Folsom Rail Brake Service',
+    baseCost: 246000,
+    keyControllable: 'Controllable'
+  },
+  {
+    costCategory: 'Travel',
+    costElement: 'JC-103',
+    costElementDescription: 'Jackson Guest Travel',
+    baseCost: 138000,
+    keyControllable: 'Controllable'
+  },
+  {
+    costCategory: 'Security',
+    costElement: 'JC-104',
+    costElementDescription: 'San Quentin Perimeter Cameras',
+    baseCost: 228000,
+    keyControllable: 'Uncontrollable'
+  },
+  {
+    costCategory: 'Utilities',
+    costElement: 'JC-105',
+    costElementDescription: 'Ring of Fire Generator Diesel',
+    baseCost: 264000,
+    keyControllable: 'Uncontrollable'
+  },
+  {
+    costCategory: 'Rail Operations',
+    costElement: 'JC-106',
+    costElementDescription: 'I Walk the Line Dispatch Tools',
+    baseCost: 174000,
+    keyControllable: 'Controllable'
+  },
+  {
+    costCategory: 'Facilities',
+    costElement: 'JC-107',
+    costElementDescription: 'Hurt Facility Repairs',
+    baseCost: 196000
+  },
+  {
+    costCategory: 'Wardrobe',
+    costElement: 'JC-108',
+    costElementDescription: 'Carter Harmony Greenroom Kits',
+    baseCost: 121000
+  },
+  {
+    costCategory: 'Travel',
+    costElement: 'JC-109',
+    costElementDescription: 'Ghost Riders Crew Lodging',
+    baseCost: 167000
+  },
+  {
+    costCategory: 'Facilities',
+    costElement: 'JC-110',
+    costElementDescription: 'Folsom Stage Lighting Lease',
+    baseCost: 212000,
+    keyControllable: 'Uncontrollable'
+  }
+];
+
 function createRng(seed) {
   let state = seed >>> 0;
 
@@ -163,6 +259,17 @@ function createWorkbook(rows, sheetName) {
   const worksheet = XLSX.utils.json_to_sheet(rows);
 
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+  return workbook;
+}
+
+function createWorkbookWithSheets(sheets) {
+  const workbook = XLSX.utils.book_new();
+
+  sheets.forEach(({ name, rows }) => {
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, name);
+  });
 
   return workbook;
 }
@@ -298,14 +405,92 @@ function createLaborUtilizationRows() {
   return rows;
 }
 
+function createControllableCostCategoryKeyRows() {
+  return controllableCostCategories.map((category) => ({
+    'Cost Category': category.name,
+    Controllable: category.controllable
+  }));
+}
+
+function createControllableCostElementKeyRows() {
+  return controllableCostElements
+    .filter((element) => element.keyControllable)
+    .map((element) => ({
+      'Cost Category': element.costCategory,
+      'Cost Element': element.costElement,
+      'Cost Element Description': element.costElementDescription,
+      Controllable: element.keyControllable
+    }));
+}
+
+function createControllableCostsRows() {
+  const rng = createRng(1932);
+  const rows = [];
+  const years = [2025, 2026];
+  const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
+
+  years.forEach((year, yearIndex) => {
+    quarters.forEach((quarter, quarterIndex) => {
+      controllableCostAddresses.forEach((address, addressIndex) => {
+        controllableCostElements.forEach((element, elementIndex) => {
+          if (rng() < 0.08) {
+            return;
+          }
+
+          const seasonalFactor = 0.86 + quarterIndex * 0.07;
+          const yearFactor = 1 + yearIndex * 0.05;
+          const addressFactor = 0.9 + (addressIndex % 4) * 0.055;
+          const elementFactor = 0.94 + (elementIndex % 5) * 0.045;
+          const varianceFactor = 0.9 + rng() * 0.24;
+          const cost =
+            element.baseCost *
+            seasonalFactor *
+            yearFactor *
+            addressFactor *
+            elementFactor *
+            varianceFactor;
+
+          rows.push({
+            'Cost Category': element.costCategory,
+            Address: address,
+            'Cost Element': element.costElement,
+            'Cost Element Description': element.costElementDescription,
+            Cost: roundNumber(cost),
+            Quarter: quarter,
+            Year: year
+          });
+        });
+      });
+    });
+  });
+
+  return rows;
+}
+
 const otdWorkbook = createWorkbook(createOtdRows(), '2026 Commitments');
 const laborUtilizationWorkbook = createWorkbook(
   createLaborUtilizationRows(),
   '2026 Labor Utilization'
 );
+const controllableCostsWorkbook = createWorkbookWithSheets([
+  {
+    name: CONTROLLABLE_COSTS_SHEET_NAMES.costs,
+    rows: createControllableCostsRows()
+  },
+  {
+    name: CONTROLLABLE_COSTS_SHEET_NAMES.categoryKey,
+    rows: createControllableCostCategoryKeyRows()
+  },
+  {
+    name: CONTROLLABLE_COSTS_SHEET_NAMES.elementKey,
+    rows: createControllableCostElementKeyRows()
+  }
+]);
 
 XLSX.writeFile(otdWorkbook, otdFilePath);
 XLSX.writeFile(laborUtilizationWorkbook, laborUtilizationFilePath);
+XLSX.writeFile(controllableCostsWorkbook, controllableCostsFilePath);
 
 console.log(`Wrote ${path.relative(process.cwd(), otdFilePath)}`);
 console.log(`Wrote ${path.relative(process.cwd(), laborUtilizationFilePath)}`);
+console.log(`Wrote ${path.relative(process.cwd(), controllableCostsFilePath)}`);

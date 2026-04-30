@@ -10,9 +10,10 @@ import {
   logError
 } from './debugLogger.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
+import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
-import { closePaymentsConnection, readPayments } from './paymentsRepository.js';
+import { closeDatabaseConnection } from './sqlConnection.js';
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -82,16 +83,6 @@ app.get('/api/health', (_request, response) => {
   });
 });
 
-app.get('/api/payments', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'payments',
-    readPayments,
-    'Unable to read payment data.'
-  );
-});
-
 app.get('/api/otd', async (request, response) => {
   await sendDatasetResponse(
     request,
@@ -99,6 +90,16 @@ app.get('/api/otd', async (request, response) => {
     'otd',
     readOtdData,
     'Unable to read OTD data.'
+  );
+});
+
+app.get('/api/controllable-costs', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'controllable-costs',
+    readControllableCostsData,
+    'Unable to read controllable costs data.'
   );
 });
 
@@ -171,9 +172,9 @@ console.log(`Server listening on http://${connectHost}:${port}`);
 
 async function shutdown() {
   try {
-    await closePaymentsConnection();
+    await closeDatabaseConnection();
   } catch (error) {
-    console.error('Error while closing the payment connection.', error);
+    console.error('Error while closing the database connection.', error);
   }
 
   process.exit(0);

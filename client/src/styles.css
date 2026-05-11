@@ -114,15 +114,15 @@ body {
 .global-date-filter {
   grid-column: 1;
   justify-self: start;
-  width: 408px;
-  min-width: 408px;
+  width: 286px;
+  min-width: 286px;
 }
 
 .global-date-filter-control {
   display: grid;
-  grid-template-columns: 280px 88px;
+  grid-template-columns: 190px 60px;
   align-items: stretch;
-  column-gap: 16px;
+  column-gap: 12px;
   width: 100%;
   min-width: 0;
   min-height: 88px;
@@ -136,9 +136,9 @@ body {
 .global-date-filter-main {
   display: grid;
   grid-template-rows: 16px 1fr;
-  width: 280px;
-  min-width: 280px;
-  max-width: 280px;
+  width: 190px;
+  min-width: 190px;
+  max-width: 190px;
   min-height: 0;
   overflow: hidden;
 }
@@ -156,16 +156,16 @@ body {
 .global-date-filter-slider-wrap {
   display: grid;
   grid-template-rows: auto auto;
-  width: 280px;
-  min-width: 280px;
-  max-width: 280px;
+  width: 190px;
+  min-width: 190px;
+  max-width: 190px;
   align-self: end;
   overflow: hidden;
 }
 
 .global-date-filter-slider {
-  width: 240px;
-  max-width: 240px;
+  width: 154px;
+  max-width: 154px;
   justify-self: center;
   margin: 6px auto 4px;
 }
@@ -177,8 +177,8 @@ body {
   gap: 0.75rem;
   width: 100%;
   padding: 0 10px;
-  min-width: 280px;
-  max-width: 280px;
+  min-width: 190px;
+  max-width: 190px;
   overflow: hidden;
 }
 
@@ -200,15 +200,15 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  width: 88px;
-  min-width: 88px;
-  max-width: 88px;
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
 }
 
 .global-date-filter-shortcut {
   min-height: 38px;
-  min-width: 72px;
-  padding: 0.45rem 0.95rem;
+  min-width: 52px;
+  padding: 0.45rem 0.55rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--input-bg);

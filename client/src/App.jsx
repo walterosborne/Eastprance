@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
 import {
   FormControl,
   MenuItem,
@@ -42,6 +44,25 @@ const LABOR_MONTH_COLUMNS = [
   { key: 'NOV', label: 'Nov' },
   { key: 'DEC', label: 'Dec' }
 ];
+const SIF_KPI_NAME = 'Significant Injuries or Fatalities (SIF)';
+const SIF_KPI_UPPER = 'SIF INCIDENTS';
+const POTENTIAL_SIF_KPI_NAME = 'Potential Significant Injuries or Fatalities (psif)';
+const POTENTIAL_SIF_KPI_UPPER = 'POTENTIAL SIF INCIDENTS';
+const NMFR_KPI_NAME = 'Near Miss Frequency Rate (NMFR)';
+const NMFR_KPI_UPPER = 'NEAR MISS FREQUENCY RATE';
+const INCIDENT_ORG_UNIT_NAME = 'Defense';
+
+const INCIDENT_VIEW_CONFIG = {
+  monthly: {
+    label: 'Monthly'
+  },
+  quarterly: {
+    label: 'Quarterly'
+  },
+  yearly: {
+    label: 'Annual'
+  }
+};
 
 const OTD_VIEW_CONFIG = {
   monthly: {
@@ -66,6 +87,9 @@ const CONTROLLABLE_COSTS_VIEW_CONFIG = {
 
 const CARD_CHIP_OPTIONS = [
   { key: 'controllableCosts', label: 'Controllable Costs' },
+  { key: 'sif', label: 'SIF Incidents' },
+  { key: 'potentialSif', label: 'Potential SIF Incidents' },
+  { key: 'nmfr', label: 'Near Miss Frequency Rate' },
   { key: 'otd', label: 'On Time Delivery (OTD)' },
   { key: 'labor', label: 'Direct Labor Utilization' }
 ];
@@ -89,12 +113,29 @@ const LABOR_VIEW_CONFIG = {
 };
 
 const DEFAULT_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
+const INCIDENT_CHART_MARGIN = { top: 2, right: 12, bottom: 14, left: 0 };
 const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
 const CHART_HEIGHT = 332;
+const INCIDENT_CHART_HEIGHT = 366;
+const INCIDENT_X_AXIS_HEIGHT = 24;
 const OTD_Y_AXIS = [
   {
     width: 66,
     valueFormatter: formatCompactCurrency,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+const SIF_Y_AXIS = [
+  {
+    width: 44,
+    valueFormatter: formatIncidentCount,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+const NMFR_Y_AXIS = [
+  {
+    width: 52,
+    valueFormatter: formatNumber,
     tickLabelStyle: { fontSize: 11 }
   }
 ];
@@ -126,6 +167,11 @@ const wholeNumberFormatter = new Intl.NumberFormat('en-US', {
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 1
+});
+const monthYearFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC'
 });
 
 const sharedChartSx = {
@@ -229,6 +275,10 @@ function formatHours(value) {
   return `${wholeNumberFormatter.format(Math.round(Number(value ?? 0)))} hours`;
 }
 
+function formatIncidentCount(value) {
+  return wholeNumberFormatter.format(Math.round(Number(value ?? 0)));
+}
+
 function formatCompactHours(value) {
   return `${formatCompactWholeNumber(value)} hours`;
 }
@@ -239,6 +289,25 @@ function formatCompactHoursAxis(value) {
 
 function formatDebugDuration(durationMs) {
   return `${durationMs.toFixed(1)}ms`;
+}
+
+function sumActualValues(rows) {
+  return rows.reduce((sum, row) => {
+    const numericValue = Number(row.actual_value);
+    return Number.isFinite(numericValue) ? sum + numericValue : sum;
+  }, 0);
+}
+
+function averageActualValues(rows) {
+  const numericValues = rows
+    .map((row) => Number(row.actual_value))
+    .filter((value) => Number.isFinite(value));
+
+  if (numericValues.length === 0) {
+    return null;
+  }
+
+  return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
 }
 
 function logClientDebug(scope, message, metadata) {
@@ -255,6 +324,10 @@ function logClientDebug(scope, message, metadata) {
 function getSourceLabel(source) {
   if (source === 'mssql') {
     return 'SQL Server data';
+  }
+
+  if (source === 'json') {
+    return 'Local JSON data';
   }
 
   if (source === 'excel' || source === 'dummy') {
@@ -276,6 +349,18 @@ function normalizeFilterValue(value, options) {
   }
 
   return options.includes(value) ? value : ALL_FILTER_VALUE;
+}
+
+function normalizeKpiName(value) {
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeText(value) {
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getQuarterNumber(value) {
@@ -339,6 +424,77 @@ function buildControllableCostsChartData(rows, viewMode) {
     controllable: sortedBuckets.map((bucket) => Number(bucket.controllable.toFixed(2))),
     uncontrollable: sortedBuckets.map((bucket) => Number(bucket.uncontrollable.toFixed(2)))
   };
+}
+
+function buildIncidentChartData(
+  rows,
+  kpiName,
+  kpiUpper,
+  orgUnitName,
+  viewMode,
+  aggregationMode = 'sum'
+) {
+  const buckets = new Map();
+
+  rows.forEach((row) => {
+    if (
+      normalizeKpiName(row.kpi_name) !== kpiName ||
+      normalizeText(row.kpi_upper) !== kpiUpper ||
+      normalizeText(row.org_unit_name) !== orgUnitName
+    ) {
+      return;
+    }
+
+    const actualValue = Number(row.actual_value);
+    const referenceDate = new Date(row.date);
+
+    if (!Number.isFinite(actualValue) || Number.isNaN(referenceDate.getTime())) {
+      return;
+    }
+
+    const year = referenceDate.getUTCFullYear();
+    const monthIndex = referenceDate.getUTCMonth();
+    let bucketKey = '';
+    let bucketLabel = '';
+    let sortValue = 0;
+
+    if (viewMode === 'quarterly') {
+      const quarterNumber = Math.floor(monthIndex / 3) + 1;
+      bucketKey = `${year}-Q${quarterNumber}`;
+      bucketLabel = `Q${quarterNumber} ${year}`;
+      sortValue = year * 10 + quarterNumber;
+    } else if (viewMode === 'yearly') {
+      bucketKey = String(year);
+      bucketLabel = String(year);
+      sortValue = year;
+    } else {
+      const bucketDate = new Date(Date.UTC(year, monthIndex, 1));
+      bucketKey = bucketDate.toISOString().slice(0, 10);
+      bucketLabel = monthYearFormatter.format(bucketDate);
+      sortValue = bucketDate.getTime();
+    }
+
+    const currentBucket = buckets.get(bucketKey) ?? {
+      label: bucketLabel,
+      sortValue,
+      total: 0,
+      count: 0
+    };
+
+    currentBucket.total += actualValue;
+    currentBucket.count += 1;
+    buckets.set(bucketKey, currentBucket);
+  });
+
+  return Array.from(buckets.values())
+    .sort((left, right) => left.sortValue - right.sortValue)
+    .map((bucket) => ({
+      label: bucket.label,
+      total:
+        aggregationMode === 'average'
+          ? Number((bucket.total / Math.max(bucket.count, 1)).toFixed(2))
+          : Math.round(bucket.total)
+    }));
 }
 
 function getOtdBuckets(viewMode) {
@@ -687,6 +843,15 @@ function StandardChartTooltip(props) {
   );
 }
 
+function MetricSummaryPanel({ title, value }) {
+  return (
+    <section className="filter-panel filter-panel-collapsed metric-summary-panel">
+      <p className="metric-summary-title">{title}</p>
+      <p className="metric-summary-value">{value}</p>
+    </section>
+  );
+}
+
 function LaborChartTooltip(props) {
   const { chartData, ...tooltipProps } = props;
   const tooltipData = useAxesTooltip();
@@ -831,6 +996,24 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [sifState, setSifState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
+  const [potentialSifState, setPotentialSifState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
+  const [nmfrState, setNmfrState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
   const [otdState, setOtdState] = useState({
     rows: [],
     loading: true,
@@ -847,6 +1030,9 @@ export default function App() {
   const [selectedControllableCostElementDescription, setSelectedControllableCostElementDescription] =
     useState(ALL_FILTER_VALUE);
   const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
+  const [sifViewMode, setSifViewMode] = useState('monthly');
+  const [potentialSifViewMode, setPotentialSifViewMode] = useState('monthly');
+  const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
   const [selectedProgram, setSelectedProgram] = useState(ALL_FILTER_VALUE);
   const [selectedSite, setSelectedSite] = useState(ALL_FILTER_VALUE);
   const [selectedOtdType, setSelectedOtdType] = useState(ALL_FILTER_VALUE);
@@ -859,6 +1045,9 @@ export default function App() {
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [visibleCards, setVisibleCards] = useState({
     controllableCosts: true,
+    sif: true,
+    potentialSif: true,
+    nmfr: true,
     otd: true,
     labor: true
   });
@@ -869,6 +1058,10 @@ export default function App() {
     chartHostRef: controllableCostsChartHostRef,
     chartWidth: controllableCostsChartWidth
   } = useChartWidth();
+  const { chartHostRef: sifChartHostRef, chartWidth: sifChartWidth } = useChartWidth();
+  const { chartHostRef: potentialSifChartHostRef, chartWidth: potentialSifChartWidth } =
+    useChartWidth();
+  const { chartHostRef: nmfrChartHostRef, chartWidth: nmfrChartWidth } = useChartWidth();
   const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth();
   const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth();
 
@@ -924,6 +1117,144 @@ export default function App() {
         });
 
         logClientDebug('controllable-costs', 'Controllable costs load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    async function loadSifData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson('sif', '/api/sif-incidents');
+
+        if (!isMounted) {
+          logClientDebug('sif', 'Component unmounted before SIF state update.');
+          return;
+        }
+
+        setSifState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: '',
+          source: getSourceLabel(payload.source)
+        });
+        setSifViewMode('monthly');
+
+        logClientDebug('sif', 'SIF state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('sif', 'Component unmounted after SIF load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
+        setSifState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load SIF data.',
+          source: ''
+        });
+
+        logClientDebug('sif', 'SIF load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    async function loadPotentialSifData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson('potential-sif', '/api/potential-sif-incidents');
+
+        if (!isMounted) {
+          logClientDebug('potential-sif', 'Component unmounted before potential SIF state update.');
+          return;
+        }
+
+        setPotentialSifState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: '',
+          source: getSourceLabel(payload.source)
+        });
+        setPotentialSifViewMode('monthly');
+
+        logClientDebug('potential-sif', 'Potential SIF state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('potential-sif', 'Component unmounted after potential SIF load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
+        setPotentialSifState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load potential SIF data.',
+          source: ''
+        });
+
+        logClientDebug('potential-sif', 'Potential SIF load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    async function loadNmfrData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson('nmfr', '/api/nmfr');
+
+        if (!isMounted) {
+          logClientDebug('nmfr', 'Component unmounted before NMFR state update.');
+          return;
+        }
+
+        setNmfrState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: '',
+          source: getSourceLabel(payload.source)
+        });
+        setNmfrViewMode('monthly');
+
+        logClientDebug('nmfr', 'NMFR state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('nmfr', 'Component unmounted after NMFR load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
+        setNmfrState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load NMFR data.',
+          source: ''
+        });
+
+        logClientDebug('nmfr', 'NMFR load failed.', {
           error: error.message,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
@@ -1033,6 +1364,9 @@ export default function App() {
     logClientDebug('dashboard', 'Starting dashboard data load.');
 
     loadControllableCostsData();
+    loadSifData();
+    loadPotentialSifData();
+    loadNmfrData();
     loadOtdData();
     loadLaborData();
 
@@ -1073,6 +1407,50 @@ export default function App() {
     filteredControllableCostsRows,
     controllableCostsViewMode
   );
+  const filteredSifRows = sifState.rows.filter(
+    (row) =>
+      normalizeKpiName(row.kpi_name) === SIF_KPI_NAME &&
+      normalizeText(row.kpi_upper) === SIF_KPI_UPPER &&
+      normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  );
+  const sifChartData = buildIncidentChartData(
+    filteredSifRows,
+    SIF_KPI_NAME,
+    SIF_KPI_UPPER,
+    INCIDENT_ORG_UNIT_NAME,
+    sifViewMode
+  );
+  const sifSummaryValue = formatIncidentCount(sumActualValues(filteredSifRows));
+  const filteredPotentialSifRows = potentialSifState.rows.filter(
+    (row) =>
+      normalizeKpiName(row.kpi_name) === POTENTIAL_SIF_KPI_NAME &&
+      normalizeText(row.kpi_upper) === POTENTIAL_SIF_KPI_UPPER &&
+      normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  );
+  const potentialSifChartData = buildIncidentChartData(
+    filteredPotentialSifRows,
+    POTENTIAL_SIF_KPI_NAME,
+    POTENTIAL_SIF_KPI_UPPER,
+    INCIDENT_ORG_UNIT_NAME,
+    potentialSifViewMode
+  );
+  const potentialSifSummaryValue = formatIncidentCount(sumActualValues(filteredPotentialSifRows));
+  const filteredNmfrRows = nmfrState.rows.filter(
+    (row) =>
+      normalizeKpiName(row.kpi_name) === NMFR_KPI_NAME &&
+      normalizeText(row.kpi_upper) === NMFR_KPI_UPPER &&
+      normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  );
+  const nmfrChartData = buildIncidentChartData(
+    filteredNmfrRows,
+    NMFR_KPI_NAME,
+    NMFR_KPI_UPPER,
+    INCIDENT_ORG_UNIT_NAME,
+    nmfrViewMode,
+    'average'
+  );
+  const nmfrAverageValue = averageActualValues(filteredNmfrRows);
+  const nmfrSummaryValue = nmfrAverageValue == null ? '--' : formatNumber(nmfrAverageValue);
 
   const programOptions = getFilterOptions(otdState.rows, 'program');
   const siteOptions = getFilterOptions(otdState.rows, 'site');
@@ -1120,15 +1498,14 @@ export default function App() {
   });
   const laborChartData = buildLaborUtilizationChartData(filteredLaborRows, laborViewMode);
   const hasVisibleCards = Object.values(visibleCards).some(Boolean);
+  const nextThemeLabel = themeMode === 'light' ? 'Dark' : 'Light';
+  const nextThemeIcon = themeMode === 'light' ? faMoon : faSun;
 
   return (
     <main className="app-shell">
       <section className="panel">
         <div className="page-layout">
           <div className="page-header">
-            <div>
-              <h1 className="page-title">Metrics Project</h1>
-            </div>
             <div className="page-actions">
               <div className="card-chip-panel">
                 {CARD_CHIP_OPTIONS.map((card) => (
@@ -1152,11 +1529,13 @@ export default function App() {
               <button
                 type="button"
                 className="theme-toggle"
+                aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
                 onClick={() => {
                   setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
                 }}
               >
-                {themeMode === 'light' ? 'Dark mode' : 'Light mode'}
+                <FontAwesomeIcon icon={nextThemeIcon} className="theme-toggle-icon" />
+                <span className="theme-toggle-label">{nextThemeLabel}</span>
               </button>
             </div>
           </div>
@@ -1166,7 +1545,6 @@ export default function App() {
               <article className="analytics-card">
                 <div className="card-header">
                   <div>
-                    <p className="card-kicker">Cost trend</p>
                     <h2 className="card-title">Controllable Costs</h2>
                   </div>
                 </div>
@@ -1368,11 +1746,315 @@ export default function App() {
               </article>
             )}
 
+            {visibleCards.sif && (
+              <article className="analytics-card">
+                <div className="card-header">
+                  <div>
+                    <h2 className="card-title">SIF Incidents</h2>
+                  </div>
+                </div>
+
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <div ref={sifChartHostRef} className="chart-host">
+                      {sifState.loading && <p className="chart-message">Loading SIF data...</p>}
+
+                      {!sifState.loading && sifState.error && (
+                        <p className="chart-message chart-message-error">{sifState.error}</p>
+                      )}
+
+                      {!sifState.loading && !sifState.error && sifChartData.length === 0 && (
+                        <p className="chart-message">No Defense SIF rows are available for charting.</p>
+                      )}
+
+                      {!sifState.loading &&
+                        !sifState.error &&
+                        sifChartData.length > 0 &&
+                        sifChartWidth > 0 && (
+                          <LineChart
+                            width={sifChartWidth}
+                            height={INCIDENT_CHART_HEIGHT}
+                            hideLegend
+                            margin={INCIDENT_CHART_MARGIN}
+                            xAxis={[
+                              {
+                                scaleType: 'point',
+                                height: INCIDENT_X_AXIS_HEIGHT,
+                                data: sifChartData.map((bucket) => bucket.label)
+                              }
+                            ]}
+                            yAxis={SIF_Y_AXIS}
+                            series={[
+                              {
+                                data: sifChartData.map((bucket) => bucket.total),
+                                label: 'SIF Incidents',
+                                color: 'var(--chart-line)',
+                                valueFormatter: formatIncidentCount,
+                                showMark: false
+                              }
+                            ]}
+                            grid={{ horizontal: true }}
+                            sx={sharedChartSx}
+                            slots={{
+                              tooltip: StandardChartTooltip
+                            }}
+                            slotProps={{
+                              tooltip: {
+                                trigger: 'axis'
+                              }
+                            }}
+                          />
+                        )}
+                    </div>
+
+                    <MetricSummaryPanel
+                      title="SIF Incidents"
+                      value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
+                    />
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <div className="chart-note-shell">
+                        <p className="chart-note">
+                          {INCIDENT_VIEW_CONFIG[sifViewMode].label} totals sum Defense SIF incidents
+                          for the selected KPI.
+                        </p>
+                      </div>
+
+                      <ToggleButtonGroup
+                        value={sifViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setSifViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(INCIDENT_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {visibleCards.potentialSif && (
+              <article className="analytics-card">
+                <div className="card-header">
+                  <div>
+                    <h2 className="card-title">Potential SIF Incidents</h2>
+                  </div>
+                </div>
+
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <div ref={potentialSifChartHostRef} className="chart-host">
+                      {potentialSifState.loading && (
+                        <p className="chart-message">Loading potential SIF data...</p>
+                      )}
+
+                      {!potentialSifState.loading && potentialSifState.error && (
+                        <p className="chart-message chart-message-error">
+                          {potentialSifState.error}
+                        </p>
+                      )}
+
+                      {!potentialSifState.loading &&
+                        !potentialSifState.error &&
+                        potentialSifChartData.length === 0 && (
+                          <p className="chart-message">
+                            No Defense potential SIF rows are available for charting.
+                          </p>
+                        )}
+
+                      {!potentialSifState.loading &&
+                        !potentialSifState.error &&
+                        potentialSifChartData.length > 0 &&
+                        potentialSifChartWidth > 0 && (
+                          <LineChart
+                            width={potentialSifChartWidth}
+                            height={INCIDENT_CHART_HEIGHT}
+                            hideLegend
+                            margin={INCIDENT_CHART_MARGIN}
+                            xAxis={[
+                              {
+                                scaleType: 'point',
+                                height: INCIDENT_X_AXIS_HEIGHT,
+                                data: potentialSifChartData.map((bucket) => bucket.label)
+                              }
+                            ]}
+                            yAxis={SIF_Y_AXIS}
+                            series={[
+                              {
+                                data: potentialSifChartData.map((bucket) => bucket.total),
+                                label: 'Potential SIF Incidents',
+                                color: 'var(--chart-line)',
+                                valueFormatter: formatIncidentCount,
+                                showMark: false
+                              }
+                            ]}
+                            grid={{ horizontal: true }}
+                            sx={sharedChartSx}
+                            slots={{
+                              tooltip: StandardChartTooltip
+                            }}
+                            slotProps={{
+                              tooltip: {
+                                trigger: 'axis'
+                              }
+                            }}
+                          />
+                        )}
+                    </div>
+
+                    <MetricSummaryPanel
+                      title="Potential SIF Incidents"
+                      value={
+                        potentialSifState.loading || potentialSifState.error
+                          ? '--'
+                          : potentialSifSummaryValue
+                      }
+                    />
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <div className="chart-note-shell">
+                        <p className="chart-note">
+                          {INCIDENT_VIEW_CONFIG[potentialSifViewMode].label} totals sum Defense
+                          potential SIF incidents for the selected KPI.
+                        </p>
+                      </div>
+
+                      <ToggleButtonGroup
+                        value={potentialSifViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setPotentialSifViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(INCIDENT_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {visibleCards.nmfr && (
+              <article className="analytics-card">
+                <div className="card-header">
+                  <div>
+                    <h2 className="card-title">Near Miss Frequency Rate</h2>
+                  </div>
+                </div>
+
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <div ref={nmfrChartHostRef} className="chart-host">
+                      {nmfrState.loading && <p className="chart-message">Loading NMFR data...</p>}
+
+                      {!nmfrState.loading && nmfrState.error && (
+                        <p className="chart-message chart-message-error">{nmfrState.error}</p>
+                      )}
+
+                      {!nmfrState.loading && !nmfrState.error && nmfrChartData.length === 0 && (
+                        <p className="chart-message">
+                          No Defense NMFR rows are available for charting.
+                        </p>
+                      )}
+
+                      {!nmfrState.loading &&
+                        !nmfrState.error &&
+                        nmfrChartData.length > 0 &&
+                        nmfrChartWidth > 0 && (
+                          <LineChart
+                            width={nmfrChartWidth}
+                            height={INCIDENT_CHART_HEIGHT}
+                            hideLegend
+                            margin={INCIDENT_CHART_MARGIN}
+                            xAxis={[
+                              {
+                                scaleType: 'point',
+                                height: INCIDENT_X_AXIS_HEIGHT,
+                                data: nmfrChartData.map((bucket) => bucket.label)
+                              }
+                            ]}
+                            yAxis={NMFR_Y_AXIS}
+                            series={[
+                              {
+                                data: nmfrChartData.map((bucket) => bucket.total),
+                                label: 'Near Miss Frequency Rate',
+                                color: 'var(--chart-line)',
+                                valueFormatter: formatNumber,
+                                showMark: false
+                              }
+                            ]}
+                            grid={{ horizontal: true }}
+                            sx={sharedChartSx}
+                            slots={{
+                              tooltip: StandardChartTooltip
+                            }}
+                            slotProps={{
+                              tooltip: {
+                                trigger: 'axis'
+                              }
+                            }}
+                          />
+                        )}
+                    </div>
+
+                    <MetricSummaryPanel
+                      title="Near Miss Frequency Rate"
+                      value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
+                    />
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <div className="chart-note-shell">
+                        <p className="chart-note">
+                          Monthly values show Defense NMFR. Quarterly and annual views average the
+                          included months.
+                        </p>
+                      </div>
+
+                      <ToggleButtonGroup
+                        value={nmfrViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setNmfrViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(INCIDENT_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
             {visibleCards.otd && (
               <article className="analytics-card">
                 <div className="card-header">
                   <div>
-                    <p className="card-kicker">Delivery trend</p>
                     <h2 className="card-title">On Time Delivery (OTD)</h2>
                   </div>
                 </div>
@@ -1593,7 +2275,6 @@ export default function App() {
               <article className="analytics-card">
                 <div className="card-header">
                   <div>
-                    <p className="card-kicker">Labor trend</p>
                     <h2 className="card-title">Direct Labor Utilization</h2>
                   </div>
                 </div>

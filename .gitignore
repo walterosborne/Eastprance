@@ -20,6 +20,5 @@ Thumbs.db
 
 .vscode/
 .idea/
-
-data/otd_data.xlsx
-data/labor_utilization.xlsx
+    
+data/

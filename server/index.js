@@ -13,6 +13,7 @@ import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
+import { readNmfrData, readPotentialSifData, readSifData } from './sifRepository.js';
 import { closeDatabaseConnection } from './sqlConnection.js';
 
 const app = express();
@@ -100,6 +101,36 @@ app.get('/api/controllable-costs', async (request, response) => {
     'controllable-costs',
     readControllableCostsData,
     'Unable to read controllable costs data.'
+  );
+});
+
+app.get('/api/sif-incidents', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'sif',
+    readSifData,
+    'Unable to read SIF data.'
+  );
+});
+
+app.get('/api/potential-sif-incidents', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'potential-sif',
+    readPotentialSifData,
+    'Unable to read potential SIF data.'
+  );
+});
+
+app.get('/api/nmfr', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'nmfr',
+    readNmfrData,
+    'Unable to read NMFR data.'
   );
 });
 

@@ -1,5 +1,5 @@
 :root {
-  --theme-blue: #000080;
+  --theme-blue: #28223c;
   --grey-300: #d7dde5;
   --grey-200: #e7ebf0;
   --grey-100: #f3f5f7;
@@ -21,7 +21,7 @@
   --text-inverse: var(--white);
   --border: var(--grey-300);
   --chart-line: var(--theme-blue);
-  --chart-accent-line: #5a8fd8;
+  --chart-accent-line: #5b6170;
   --chart-secondary-line: #9aa4b3;
   --chart-tertiary-line: #b38a5d;
   --chart-grid: var(--grey-300);
@@ -34,8 +34,8 @@
 }
 
 :root[data-theme='dark'] {
-  --page-bg: #121418;
-  --surface: var(--theme-blue);
+  --page-bg: #111827;
+  --surface: #1f2937;
   --surface-muted: rgba(255, 255, 255, 0.08);
   --surface-soft: var(--white);
   --chart-surface: var(--white);
@@ -45,7 +45,7 @@
   --text-inverse: var(--theme-blue);
   --border: rgba(255, 255, 255, 0.3);
   --chart-line: var(--theme-blue);
-  --chart-accent-line: #5a8fd8;
+  --chart-accent-line: #94a3b8;
   --chart-secondary-line: #9aa4b3;
   --chart-tertiary-line: #b38a5d;
   --chart-grid: var(--grey-300);
@@ -93,12 +93,12 @@ body {
 
 .page-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
-  gap: 1rem 1.25rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: center;
 }
 
-.page-header > * {
+.page-header>* {
   min-width: 0;
 }
 
@@ -106,41 +106,39 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.9rem;
-  align-items: start;
+  align-items: center;
   justify-items: end;
   min-width: 0;
+  width: 100%;
 }
 
 .card-chip-panel {
-  display: flex;
-  gap: 0.65rem;
-  align-items: center;
-  justify-content: flex-start;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  align-items: stretch;
+  justify-content: stretch;
   min-width: 0;
-  overflow-x: auto;
+  width: 100%;
   padding: 0.4rem;
-  border-radius: 999px;
+  border-radius: 24px;
   background: var(--surface-muted);
   border: 1px solid var(--border);
-  scrollbar-width: none;
-}
-
-.card-chip-panel::-webkit-scrollbar {
-  display: none;
 }
 
 .card-chip {
   min-height: 38px;
-  padding: 0.55rem 0.95rem;
+  width: 100%;
+  padding: 0.55rem 0.8rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: transparent;
   color: var(--text-primary);
   font: inherit;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.15;
+  text-align: center;
   cursor: pointer;
   transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
 }
@@ -165,7 +163,7 @@ body {
   display: grid;
   width: 100%;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 1.5rem;
+  gap: 1.05rem;
   justify-content: stretch;
   justify-items: stretch;
   align-items: stretch;
@@ -178,7 +176,7 @@ body {
   grid-column: 1 / -1;
   min-height: 180px;
   padding: 1.5rem;
-  border-radius: 28px;
+  border-radius: 14px;
   border: 1px dashed var(--border);
   background: var(--surface-muted);
   color: var(--text-primary);
@@ -195,8 +193,8 @@ body {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: 1.35rem;
-  border-radius: 28px;
+  padding: .8rem;
+  border-radius: 14px;
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: 0 10px 28px var(--shadow);
@@ -206,12 +204,13 @@ body {
 .card-header {
   display: flex;
   gap: 0.7rem;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: center;
   min-width: 0;
+  text-align: center;
 }
 
-.card-header > * {
+.card-header>* {
   min-width: 0;
 }
 
@@ -225,9 +224,10 @@ body {
 
 .card-title {
   margin: 0;
-  font-size: clamp(1.22rem, 2.1vw, 1.68rem);
+  font-size: clamp(0.61rem, 1.05vw, 0.84rem);
   line-height: 1.1;
   overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .chart-layout {
@@ -267,8 +267,9 @@ h1 {
 
 .theme-toggle {
   align-self: center;
-  min-height: 44px;
-  padding: 0.7rem 1rem;
+  min-height: 56px;
+  min-width: 72px;
+  padding: 0.45rem 0.85rem;
   border-radius: 999px;
   border: 1px solid var(--selected-bg);
   background: var(--selected-bg);
@@ -276,10 +277,24 @@ h1 {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
 }
 
 .theme-toggle:hover {
   opacity: 0.92;
+}
+
+.theme-toggle-icon {
+  font-size: 0.95rem;
+}
+
+.theme-toggle-label {
+  font-size: 0.72rem;
+  line-height: 1;
 }
 
 .dashboard-grid {
@@ -297,7 +312,7 @@ h1 {
   gap: 0.8rem;
   height: auto;
   padding: 0.9rem;
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--surface-muted);
   color: var(--text-primary);
   border: 1px solid var(--border);
@@ -329,6 +344,7 @@ h1 {
 
 .filter-panel-collapsed {
   padding-bottom: 0.8rem;
+  min-height: 64px;
 }
 
 .filter-toggle {
@@ -394,6 +410,31 @@ h1 {
   line-height: 1.35;
 }
 
+.metric-summary-panel {
+  order: 0;
+  justify-content: center;
+  align-items: center;
+  gap: 0.15rem;
+  text-align: center;
+}
+
+.metric-summary-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.metric-summary-value {
+  margin: 0;
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
 .visual-column {
   display: grid;
   grid-template-rows: auto auto;
@@ -413,7 +454,7 @@ h1 {
   max-width: 100%;
   min-width: 0;
   padding: 0.15rem 0.2rem 0.05rem;
-  border-radius: 24px;
+  border-radius: 14px;
   background: var(--chart-surface);
   border: 1px solid var(--border);
   overflow: hidden;
@@ -455,7 +496,7 @@ h1 {
   min-width: 0;
   max-width: 100%;
   padding: 0.85rem 1rem;
-  border-radius: 20px;
+  border-radius: 14px;
   background: var(--surface-muted);
   border: 1px solid var(--border);
 }
@@ -516,13 +557,8 @@ h1 {
   }
 
   .page-header {
-    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.75rem;
     align-items: center;
-  }
-
-  .page-title {
-    justify-self: start;
   }
 
   .page-actions {
@@ -572,7 +608,6 @@ h1 {
   }
 
   .page-header {
-    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
   }
 

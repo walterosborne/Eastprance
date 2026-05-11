@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
+import {
+  faAsterisk,
+  faCalculator,
+  faClipboardCheck,
+  faMoon,
+  faSeedling,
+  faSun
+} from '@fortawesome/free-solid-svg-icons';
 import {
   FormControl,
   MenuItem,
   Paper,
   Select,
+  Slider,
   ToggleButton,
   ToggleButtonGroup
 } from '@mui/material';
@@ -83,12 +91,30 @@ const CONTROLLABLE_COSTS_VIEW_CONFIG = {
 };
 
 const CARD_CHIP_OPTIONS = [
-  { key: 'controllableCosts', label: 'Controllable Costs' },
-  { key: 'sif', label: 'SIF Incidents' },
-  { key: 'potentialSif', label: 'Potential SIF Incidents' },
-  { key: 'nmfr', label: 'Near Miss Frequency Rate' },
-  { key: 'otd', label: 'On Time Delivery (OTD)' },
-  { key: 'labor', label: 'Direct Labor Utilization' }
+  {
+    key: 'all',
+    label: 'All',
+    icon: faAsterisk,
+    cardKeys: ['controllableCosts', 'sif', 'potentialSif', 'nmfr', 'otd', 'labor']
+  },
+  {
+    key: 'businessManagement',
+    label: 'Business Management',
+    icon: faCalculator,
+    cardKeys: ['controllableCosts', 'labor']
+  },
+  {
+    key: 'ehss',
+    label: 'EHS&S',
+    icon: faSeedling,
+    cardKeys: ['sif', 'potentialSif', 'nmfr']
+  },
+  {
+    key: 'programManagement',
+    label: 'Program Management',
+    icon: faClipboardCheck,
+    cardKeys: ['otd']
+  }
 ];
 
 const LABOR_VIEW_CONFIG = {
@@ -115,6 +141,7 @@ const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
 const CHART_HEIGHT = 332;
 const INCIDENT_CHART_HEIGHT = 366;
 const INCIDENT_X_AXIS_HEIGHT = 24;
+const FIXED_MONTH_METRIC_YEAR = 2026;
 const OTD_Y_AXIS = [
   {
     width: 66,
@@ -223,6 +250,42 @@ const timelineToggleButtonSx = {
   },
   '&.Mui-selected:hover': {
     backgroundColor: 'var(--selected-bg)'
+  }
+};
+
+const dateSliderSx = {
+  color: 'var(--selected-bg)',
+  px: 1.1,
+  py: 0.75,
+  '& .MuiSlider-rail': {
+    backgroundColor: 'var(--border)',
+    opacity: 1
+  },
+  '& .MuiSlider-track': {
+    border: 'none'
+  },
+  '& .MuiSlider-thumb': {
+    width: 14,
+    height: 14,
+    backgroundColor: 'var(--selected-bg)',
+    boxShadow: 'none',
+    '&::before': {
+      boxShadow: 'none'
+    },
+    '&:hover, &.Mui-focusVisible, &.Mui-active': {
+      boxShadow: '0 0 0 8px color-mix(in srgb, var(--selected-bg) 18%, transparent)'
+    }
+  },
+  '& .MuiSlider-markLabel': {
+    color: 'var(--text-secondary)',
+    fontSize: '0.68rem',
+    lineHeight: 1.1
+  },
+  '& .MuiSlider-valueLabel': {
+    backgroundColor: 'var(--selected-bg)',
+    color: 'var(--selected-text)',
+    fontSize: '0.68rem',
+    fontWeight: 700
   }
 };
 
@@ -359,14 +422,134 @@ function getQuarterNumber(value) {
   return match ? Number(match[1]) : null;
 }
 
-function buildControllableCostsChartData(rows, viewMode) {
+function getMonthStartStamp(value) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+}
+
+function getFixedMonthStamp(year, monthIndex) {
+  return Date.UTC(year, monthIndex, 1);
+}
+
+function formatMonthStamp(stamp) {
+  return monthYearFormatter.format(new Date(stamp));
+}
+
+function getControllableCostsRowStamp(row) {
+  const year = Number(row.year);
+  const quarterNumber = getQuarterNumber(row.quarter);
+
+  if (!Number.isInteger(year) || quarterNumber == null) {
+    return null;
+  }
+
+  return getFixedMonthStamp(year, (quarterNumber - 1) * 3);
+}
+
+function getIncidentRowStamp(row) {
+  return getMonthStartStamp(row.date);
+}
+
+function isStampWithinDateRange(stamp, selectedDateRange) {
+  if (!selectedDateRange) {
+    return true;
+  }
+
+  if (stamp == null) {
+    return false;
+  }
+
+  return stamp >= selectedDateRange.startStamp && stamp <= selectedDateRange.endStamp;
+}
+
+function getAvailableTimelineStamps({
+  controllableCostsRows,
+  sifRows,
+  potentialSifRows,
+  nmfrRows,
+  hasOtdRows,
+  hasLaborRows
+}) {
+  const stampSet = new Set();
+
+  controllableCostsRows.forEach((row) => {
+    const stamp = getControllableCostsRowStamp(row);
+
+    if (stamp != null) {
+      stampSet.add(stamp);
+    }
+  });
+
+  [sifRows, potentialSifRows, nmfrRows].forEach((rows) => {
+    rows.forEach((row) => {
+      const stamp = getIncidentRowStamp(row);
+
+      if (stamp != null) {
+        stampSet.add(stamp);
+      }
+    });
+  });
+
+  if (hasOtdRows) {
+    OTD_MONTH_COLUMNS.forEach((_month, monthIndex) => {
+      stampSet.add(getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex));
+    });
+  }
+
+  if (hasLaborRows) {
+    LABOR_MONTH_COLUMNS.forEach((_month, monthIndex) => {
+      stampSet.add(getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex));
+    });
+  }
+
+  return Array.from(stampSet).sort((left, right) => left - right);
+}
+
+function getYtdRangeIndices(availableTimelineStamps) {
+  if (availableTimelineStamps.length === 0) {
+    return [0, 0];
+  }
+
+  const currentMonthStamp = getMonthStartStamp(new Date());
+  let endIndex = -1;
+
+  for (let index = availableTimelineStamps.length - 1; index >= 0; index -= 1) {
+    if (availableTimelineStamps[index] <= currentMonthStamp) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  if (endIndex === -1) {
+    endIndex = availableTimelineStamps.length - 1;
+  }
+
+  const endYear = new Date(availableTimelineStamps[endIndex]).getUTCFullYear();
+  const startIndex = availableTimelineStamps.findIndex(
+    (stamp) => new Date(stamp).getUTCFullYear() === endYear
+  );
+
+  return [startIndex === -1 ? 0 : startIndex, endIndex];
+}
+
+function buildControllableCostsChartData(rows, viewMode, selectedDateRange) {
   const buckets = new Map();
 
   rows.forEach((row) => {
     const cost = Number(row.cost);
     const year = Number(row.year);
+    const stamp = getControllableCostsRowStamp(row);
 
-    if (!Number.isFinite(cost) || !Number.isInteger(year)) {
+    if (
+      !Number.isFinite(cost) ||
+      !Number.isInteger(year) ||
+      !isStampWithinDateRange(stamp, selectedDateRange)
+    ) {
       return;
     }
 
@@ -422,6 +605,7 @@ function buildIncidentChartData(
   kpiId,
   orgUnitName,
   viewMode,
+  selectedDateRange,
   aggregationMode = 'sum'
 ) {
   const buckets = new Map();
@@ -432,9 +616,14 @@ function buildIncidentChartData(
     }
 
     const actualValue = Number(row.actual_value);
-    const referenceDate = new Date(row.date);
+    const stamp = getIncidentRowStamp(row);
+    const referenceDate = stamp == null ? new Date('') : new Date(stamp);
 
-    if (!Number.isFinite(actualValue) || Number.isNaN(referenceDate.getTime())) {
+    if (
+      !Number.isFinite(actualValue) ||
+      Number.isNaN(referenceDate.getTime()) ||
+      !isStampWithinDateRange(stamp, selectedDateRange)
+    ) {
       return;
     }
 
@@ -483,30 +672,52 @@ function buildIncidentChartData(
     }));
 }
 
-function getOtdBuckets(viewMode) {
+function getOtdBuckets(viewMode, selectedDateRange) {
+  const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
+    (monthIndex) =>
+      isStampWithinDateRange(
+        getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
+        selectedDateRange
+      )
+  );
+
   if (viewMode === 'monthly') {
-    return OTD_MONTH_COLUMNS.map(({ label }, index) => ({
-      label,
-      monthIndices: [index]
+    return monthIndicesInRange.map((monthIndex) => ({
+      label: OTD_MONTH_COLUMNS[monthIndex].label,
+      monthIndices: [monthIndex]
     }));
   }
 
   if (viewMode === 'quarterly') {
-    return [0, 3, 6, 9].map((startIndex, quarterIndex) => ({
-      label: `Q${quarterIndex + 1} 2026`,
-      monthIndices: [startIndex, startIndex + 1, startIndex + 2]
-    }));
+    return [0, 3, 6, 9]
+      .map((startIndex, quarterIndex) => {
+        const quarterMonthIndices = [startIndex, startIndex + 1, startIndex + 2].filter(
+          (monthIndex) => monthIndicesInRange.includes(monthIndex)
+        );
+
+        if (quarterMonthIndices.length === 0) {
+          return null;
+        }
+
+        return {
+          label: `Q${quarterIndex + 1} ${FIXED_MONTH_METRIC_YEAR}`,
+          monthIndices: quarterMonthIndices
+        };
+      })
+      .filter(Boolean);
   }
 
-  return [
-    {
-      label: '2026',
-      monthIndices: OTD_MONTH_COLUMNS.map((_month, index) => index)
-    }
-  ];
+  return monthIndicesInRange.length > 0
+    ? [
+      {
+        label: String(FIXED_MONTH_METRIC_YEAR),
+        monthIndices: monthIndicesInRange
+      }
+    ]
+    : [];
 }
 
-function buildOtdChartData(rows, viewMode) {
+function buildOtdChartData(rows, viewMode, selectedDateRange) {
   const contractTotals = OTD_MONTH_COLUMNS.map(() => 0);
   const deliveredTotals = OTD_MONTH_COLUMNS.map(() => 0);
 
@@ -531,7 +742,7 @@ function buildOtdChartData(rows, viewMode) {
     });
   });
 
-  const buckets = getOtdBuckets(viewMode);
+  const buckets = getOtdBuckets(viewMode, selectedDateRange);
 
   return {
     labels: buckets.map((bucket) => bucket.label),
@@ -566,7 +777,7 @@ function getLaborCategoryGroup(laborCategory) {
   return 'other';
 }
 
-function getLaborBuckets(viewMode) {
+function getLaborBuckets(viewMode, selectedDateRange) {
   const bucketConfig = LABOR_VIEW_CONFIG[viewMode];
   const buckets = [];
 
@@ -582,7 +793,18 @@ function getLaborBuckets(viewMode) {
       monthIndex < Math.min(startIndex + bucketConfig.bucketSize, LABOR_MONTH_COLUMNS.length);
       monthIndex += 1
     ) {
-      monthIndices.push(monthIndex);
+      if (
+        isStampWithinDateRange(
+          getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
+          selectedDateRange
+        )
+      ) {
+        monthIndices.push(monthIndex);
+      }
+    }
+
+    if (monthIndices.length === 0) {
+      continue;
     }
 
     buckets.push({
@@ -594,7 +816,7 @@ function getLaborBuckets(viewMode) {
   return buckets;
 }
 
-function buildLaborUtilizationChartData(rows, viewMode) {
+function buildLaborUtilizationChartData(rows, viewMode, selectedDateRange) {
   const directMonthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
   const indirectMonthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
   const otherMonthlyTotals = LABOR_MONTH_COLUMNS.map(() => 0);
@@ -629,7 +851,7 @@ function buildLaborUtilizationChartData(rows, viewMode) {
     });
   });
 
-  const buckets = getLaborBuckets(viewMode);
+  const buckets = getLaborBuckets(viewMode, selectedDateRange);
   const tooltipLookup = {};
 
   const direct = buckets.map(({ label, monthIndices }) => {
@@ -1029,14 +1251,9 @@ export default function App() {
   const [selectedWorkerType, setSelectedWorkerType] = useState(ALL_FILTER_VALUE);
   const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
   const [laborViewMode, setLaborViewMode] = useState('monthly');
-  const [visibleCards, setVisibleCards] = useState({
-    controllableCosts: true,
-    sif: true,
-    potentialSif: true,
-    nmfr: true,
-    otd: true,
-    labor: true
-  });
+  const [selectedCardGroup, setSelectedCardGroup] = useState('all');
+  const [selectedDateRangeIndices, setSelectedDateRangeIndices] = useState([0, 0]);
+  const [hasCustomizedDateRange, setHasCustomizedDateRange] = useState(false);
   const [isControllableCostsFiltersOpen, setIsControllableCostsFiltersOpen] = useState(false);
   const [isOtdFiltersOpen, setIsOtdFiltersOpen] = useState(false);
   const [isLaborFiltersOpen, setIsLaborFiltersOpen] = useState(false);
@@ -1367,7 +1584,78 @@ export default function App() {
     window.localStorage.setItem('expense-theme-mode', themeMode);
   }, [themeMode]);
 
+  const availableTimelineStamps = getAvailableTimelineStamps({
+    controllableCostsRows: controllableCostsState.rows,
+    sifRows: sifState.rows,
+    potentialSifRows: potentialSifState.rows,
+    nmfrRows: nmfrState.rows,
+    hasOtdRows: otdState.rows.length > 0,
+    hasLaborRows: laborState.rows.length > 0
+  });
+  const availableTimelineKey = availableTimelineStamps.join('|');
+
+  useEffect(() => {
+    if (availableTimelineStamps.length === 0) {
+      return;
+    }
+
+    const maxIndex = availableTimelineStamps.length - 1;
+
+    setSelectedDateRangeIndices((currentRange) => {
+      const normalizedCurrentRange =
+        Array.isArray(currentRange) && currentRange.length === 2 ? currentRange : [0, maxIndex];
+      const nextRange = hasCustomizedDateRange
+        ? [
+          Math.max(0, Math.min(normalizedCurrentRange[0], maxIndex)),
+          Math.max(0, Math.min(normalizedCurrentRange[1], maxIndex))
+        ]
+        : [0, maxIndex];
+
+      if (nextRange[0] > nextRange[1]) {
+        nextRange[0] = nextRange[1];
+      }
+
+      if (
+        nextRange[0] === normalizedCurrentRange[0] &&
+        nextRange[1] === normalizedCurrentRange[1]
+      ) {
+        return normalizedCurrentRange;
+      }
+
+      return nextRange;
+    });
+  }, [availableTimelineKey, availableTimelineStamps.length, hasCustomizedDateRange]);
+
   const controllableAddressOptions = getFilterOptions(controllableCostsState.rows, 'address');
+  const maximumDateIndex = Math.max(availableTimelineStamps.length - 1, 0);
+  const ytdRangeIndices = getYtdRangeIndices(availableTimelineStamps);
+  const activeDateRangeIndices = [
+    Math.max(0, Math.min(selectedDateRangeIndices[0] ?? 0, maximumDateIndex)),
+    Math.max(0, Math.min(selectedDateRangeIndices[1] ?? maximumDateIndex, maximumDateIndex))
+  ];
+  const isYtdRangeActive =
+    activeDateRangeIndices[0] === ytdRangeIndices[0] &&
+    activeDateRangeIndices[1] === ytdRangeIndices[1];
+  const selectedDateRange =
+    availableTimelineStamps.length > 0
+      ? {
+        startStamp: availableTimelineStamps[activeDateRangeIndices[0]],
+        endStamp: availableTimelineStamps[activeDateRangeIndices[1]]
+      }
+      : null;
+  const dateSliderMarks =
+    availableTimelineStamps.length > 1
+      ? [
+        { value: 0 },
+        { value: maximumDateIndex }
+      ]
+      : [];
+  const dateSliderStartLabel =
+    availableTimelineStamps.length > 0 ? formatMonthStamp(availableTimelineStamps[0]) : '';
+  const dateSliderEndLabel =
+    availableTimelineStamps.length > 0
+      ? formatMonthStamp(availableTimelineStamps[maximumDateIndex])
+      : '';
   const controllableCostElementDescriptionOptions = getFilterOptions(
     controllableCostsState.rows,
     'cost_element_description'
@@ -1389,43 +1677,61 @@ export default function App() {
 
     return addressMatches && costElementDescriptionMatches;
   });
+  const globallyFilteredControllableCostsRows = filteredControllableCostsRows.filter((row) =>
+    isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
+  );
   const controllableCostsChartData = buildControllableCostsChartData(
     filteredControllableCostsRows,
-    controllableCostsViewMode
+    controllableCostsViewMode,
+    selectedDateRange
   );
   const filteredSifRows = sifState.rows.filter(
     (row) => Number(row.kpi_id) === SIF_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  );
+  const globallyFilteredSifRows = filteredSifRows.filter((row) =>
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
   );
   const sifChartData = buildIncidentChartData(
     filteredSifRows,
     SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
-    sifViewMode
+    sifViewMode,
+    selectedDateRange
   );
-  const sifSummaryValue = formatIncidentCount(sumActualValues(filteredSifRows));
+  const sifSummaryValue = formatIncidentCount(sumActualValues(globallyFilteredSifRows));
   const filteredPotentialSifRows = potentialSifState.rows.filter(
     (row) =>
       Number(row.kpi_id) === POTENTIAL_SIF_KPI_ID &&
       normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
+  const globallyFilteredPotentialSifRows = filteredPotentialSifRows.filter((row) =>
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+  );
   const potentialSifChartData = buildIncidentChartData(
     filteredPotentialSifRows,
     POTENTIAL_SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
-    potentialSifViewMode
+    potentialSifViewMode,
+    selectedDateRange
   );
-  const potentialSifSummaryValue = formatIncidentCount(sumActualValues(filteredPotentialSifRows));
+  const potentialSifSummaryValue = formatIncidentCount(
+    sumActualValues(globallyFilteredPotentialSifRows)
+  );
   const filteredNmfrRows = nmfrState.rows.filter(
     (row) => Number(row.kpi_id) === NMFR_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  );
+  const globallyFilteredNmfrRows = filteredNmfrRows.filter((row) =>
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
   );
   const nmfrChartData = buildIncidentChartData(
     filteredNmfrRows,
     NMFR_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     nmfrViewMode,
+    selectedDateRange,
     'average'
   );
-  const nmfrAverageValue = averageActualValues(filteredNmfrRows);
+  const nmfrAverageValue = averageActualValues(globallyFilteredNmfrRows);
   const nmfrSummaryValue = nmfrAverageValue == null ? '--' : formatNumber(nmfrAverageValue);
 
   const programOptions = getFilterOptions(otdState.rows, 'program');
@@ -1441,7 +1747,7 @@ export default function App() {
 
     return programMatches && siteMatches && typeMatches;
   });
-  const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode);
+  const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
 
   const forecastedCcOptions = getFilterOptions(laborState.rows, 'forecasted_cc');
   const poolOptions = getFilterOptions(laborState.rows, 'pool');
@@ -1472,10 +1778,27 @@ export default function App() {
       timeTypeMatches
     );
   });
-  const laborChartData = buildLaborUtilizationChartData(filteredLaborRows, laborViewMode);
-  const hasVisibleCards = Object.values(visibleCards).some(Boolean);
+  const laborChartData = buildLaborUtilizationChartData(
+    filteredLaborRows,
+    laborViewMode,
+    selectedDateRange
+  );
+  const activeCardKeys = new Set(
+    (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
+      .cardKeys
+  );
+  const visibleCards = {
+    controllableCosts: activeCardKeys.has('controllableCosts'),
+    sif: activeCardKeys.has('sif'),
+    potentialSif: activeCardKeys.has('potentialSif'),
+    nmfr: activeCardKeys.has('nmfr'),
+    otd: activeCardKeys.has('otd'),
+    labor: activeCardKeys.has('labor')
+  };
+  const hasVisibleCards = activeCardKeys.size > 0;
   const nextThemeLabel = themeMode === 'light' ? 'Dark' : 'Light';
   const nextThemeIcon = themeMode === 'light' ? faMoon : faSun;
+  const isChipActive = (cardGroupKey) => selectedCardGroup === cardGroupKey;
 
   return (
     <main className="app-shell">
@@ -1483,21 +1806,73 @@ export default function App() {
         <div className="page-layout">
           <div className="page-header">
             <div className="page-actions">
+              <div className="global-date-filter">
+                <div className="global-date-filter-control">
+                  <div className="global-date-filter-main">
+                    <p className="global-date-filter-label">Date range</p>
+                    {availableTimelineStamps.length > 0 ? (
+                      <div className="global-date-filter-slider-wrap">
+                        <Slider
+                          className="global-date-filter-slider"
+                          value={activeDateRangeIndices}
+                          min={0}
+                          max={maximumDateIndex}
+                          step={1}
+                          marks={dateSliderMarks}
+                          disableSwap
+                          valueLabelDisplay="off"
+                          onChange={(_event, nextValue) => {
+                            if (Array.isArray(nextValue)) {
+                              setSelectedDateRangeIndices(nextValue);
+                              setHasCustomizedDateRange(true);
+                            }
+                          }}
+                          sx={dateSliderSx}
+                        />
+                        <div className="global-date-filter-boundary-labels" aria-hidden="true">
+                          <span className="global-date-filter-boundary-label">
+                            {dateSliderStartLabel}
+                          </span>
+                          <span className="global-date-filter-boundary-label global-date-filter-boundary-label-end">
+                            {dateSliderEndLabel}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="global-date-filter-loading">Loading date range...</p>
+                    )}
+                  </div>
+
+                  {availableTimelineStamps.length > 0 && (
+                    <div className="global-date-filter-actions">
+                      <button
+                        type="button"
+                        className={`global-date-filter-shortcut${isYtdRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
+                        onClick={() => {
+                          setSelectedDateRangeIndices(ytdRangeIndices);
+                          setHasCustomizedDateRange(true);
+                        }}
+                      >
+                        YTD
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="card-chip-panel">
-                {CARD_CHIP_OPTIONS.map((card) => (
+                {CARD_CHIP_OPTIONS.map((cardGroup) => (
                   <button
-                    key={card.key}
+                    key={cardGroup.key}
                     type="button"
-                    className={`card-chip${visibleCards[card.key] ? ' card-chip-active' : ''}`}
-                    aria-pressed={visibleCards[card.key]}
+                    className={`card-chip${isChipActive(cardGroup.key) ? ' card-chip-active' : ''}`}
+                    aria-pressed={isChipActive(cardGroup.key)}
                     onClick={() => {
-                      setVisibleCards((currentValue) => ({
-                        ...currentValue,
-                        [card.key]: !currentValue[card.key]
-                      }));
+                      setSelectedCardGroup(cardGroup.key);
                     }}
                   >
-                    {card.label}
+                    <FontAwesomeIcon icon={cardGroup.icon} className="card-chip-icon" />
+                    <span className="card-chip-label">{cardGroup.label}</span>
                   </button>
                 ))}
               </div>
@@ -1518,7 +1893,7 @@ export default function App() {
 
           <div className="cards-grid">
             {visibleCards.controllableCosts && (
-              <article className="analytics-card">
+              <article className="analytics-card" style={{ order: 1 }}>
                 <div className="card-header">
                   <div>
                     <h2 className="card-title">Controllable Costs</h2>
@@ -1636,17 +2011,19 @@ export default function App() {
 
                       {!controllableCostsState.loading &&
                         !controllableCostsState.error &&
-                        filteredControllableCostsRows.length === 0 && (
+                        (filteredControllableCostsRows.length === 0 ||
+                          globallyFilteredControllableCostsRows.length === 0) && (
                           <p className="chart-message">
                             {controllableCostsState.rows.length === 0
                               ? 'No controllable cost rows are available for charting.'
-                              : 'No controllable cost rows match the selected filters.'}
+                              : filteredControllableCostsRows.length === 0
+                                ? 'No controllable cost rows match the selected filters.'
+                                : 'No controllable cost rows fall within the selected date range.'}
                           </p>
                         )}
 
                       {!controllableCostsState.loading &&
                         !controllableCostsState.error &&
-                        filteredControllableCostsRows.length > 0 &&
                         controllableCostsChartData.labels.length > 0 &&
                         controllableCostsChartWidth > 0 && (
                           <LineChart
@@ -1723,7 +2100,7 @@ export default function App() {
             )}
 
             {visibleCards.sif && (
-              <article className="analytics-card">
+              <article className="analytics-card" style={{ order: 6 }}>
                 <div className="card-header">
                   <div>
                     <h2 className="card-title">SIF Incidents</h2>
@@ -1740,7 +2117,11 @@ export default function App() {
                       )}
 
                       {!sifState.loading && !sifState.error && sifChartData.length === 0 && (
-                        <p className="chart-message">No Defense SIF rows are available for charting.</p>
+                        <p className="chart-message">
+                          {filteredSifRows.length === 0
+                            ? 'No Defense SIF rows are available for charting.'
+                            : 'No Defense SIF rows fall within the selected date range.'}
+                        </p>
                       )}
 
                       {!sifState.loading &&
@@ -1820,7 +2201,7 @@ export default function App() {
             )}
 
             {visibleCards.potentialSif && (
-              <article className="analytics-card">
+              <article className="analytics-card" style={{ order: 5 }}>
                 <div className="card-header">
                   <div>
                     <h2 className="card-title">Potential SIF Incidents</h2>
@@ -1844,7 +2225,9 @@ export default function App() {
                         !potentialSifState.error &&
                         potentialSifChartData.length === 0 && (
                           <p className="chart-message">
-                            No Defense potential SIF rows are available for charting.
+                            {filteredPotentialSifRows.length === 0
+                              ? 'No Defense potential SIF rows are available for charting.'
+                              : 'No Defense potential SIF rows fall within the selected date range.'}
                           </p>
                         )}
 
@@ -1929,7 +2312,7 @@ export default function App() {
             )}
 
             {visibleCards.nmfr && (
-              <article className="analytics-card">
+              <article className="analytics-card" style={{ order: 3 }}>
                 <div className="card-header">
                   <div>
                     <h2 className="card-title">Near Miss Frequency Rate</h2>
@@ -1947,7 +2330,9 @@ export default function App() {
 
                       {!nmfrState.loading && !nmfrState.error && nmfrChartData.length === 0 && (
                         <p className="chart-message">
-                          No Defense NMFR rows are available for charting.
+                          {filteredNmfrRows.length === 0
+                            ? 'No Defense NMFR rows are available for charting.'
+                            : 'No Defense NMFR rows fall within the selected date range.'}
                         </p>
                       )}
 
@@ -2028,7 +2413,7 @@ export default function App() {
             )}
 
             {visibleCards.otd && (
-              <article className="analytics-card">
+              <article className="analytics-card" style={{ order: 4 }}>
                 <div className="card-header">
                   <div>
                     <h2 className="card-title">On Time Delivery (OTD)</h2>
@@ -2162,17 +2547,19 @@ export default function App() {
 
                       {!otdState.loading &&
                         !otdState.error &&
-                        filteredOtdRows.length === 0 && (
+                        (filteredOtdRows.length === 0 || otdChartData.labels.length === 0) && (
                           <p className="chart-message">
                             {otdState.rows.length === 0
                               ? 'No OTD rows are available for charting.'
-                              : 'No OTD rows match the selected filters.'}
+                              : filteredOtdRows.length === 0
+                                ? 'No OTD rows match the selected filters.'
+                                : 'No OTD months fall within the selected date range.'}
                           </p>
                         )}
 
                       {!otdState.loading &&
                         !otdState.error &&
-                        filteredOtdRows.length > 0 &&
+                        otdChartData.labels.length > 0 &&
                         otdChartWidth > 0 && (
                           <LineChart
                             width={otdChartWidth}
@@ -2248,7 +2635,7 @@ export default function App() {
             )}
 
             {visibleCards.labor && (
-              <article className="analytics-card">
+              <article className="analytics-card" style={{ order: 2 }}>
                 <div className="card-header">
                   <div>
                     <h2 className="card-title">Direct Labor Utilization</h2>
@@ -2441,13 +2828,16 @@ export default function App() {
 
                       {!laborState.loading &&
                         !laborState.error &&
-                        filteredLaborRows.length === 0 && (
-                          <p className="chart-message">No labor rows match the selected filters.</p>
+                        (filteredLaborRows.length === 0 || laborChartData.labels.length === 0) && (
+                          <p className="chart-message">
+                            {filteredLaborRows.length === 0
+                              ? 'No labor rows match the selected filters.'
+                              : 'No labor months fall within the selected date range.'}
+                          </p>
                         )}
 
                       {!laborState.loading &&
                         !laborState.error &&
-                        filteredLaborRows.length > 0 &&
                         laborChartData.labels.length > 0 &&
                         laborChartWidth > 0 && (
                           <>

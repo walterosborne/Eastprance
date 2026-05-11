@@ -44,12 +44,9 @@ const LABOR_MONTH_COLUMNS = [
   { key: 'NOV', label: 'Nov' },
   { key: 'DEC', label: 'Dec' }
 ];
-const SIF_KPI_NAME = 'Significant Injuries or Fatalities (SIF)';
-const SIF_KPI_UPPER = 'SIF INCIDENTS';
-const POTENTIAL_SIF_KPI_NAME = 'Potential Significant Injuries or Fatalities (psif)';
-const POTENTIAL_SIF_KPI_UPPER = 'POTENTIAL SIF INCIDENTS';
-const NMFR_KPI_NAME = 'Near Miss Frequency Rate (NMFR)';
-const NMFR_KPI_UPPER = 'NEAR MISS FREQUENCY RATE';
+const SIF_KPI_ID = 5;
+const POTENTIAL_SIF_KPI_ID = 6;
+const NMFR_KPI_ID = 4;
 const INCIDENT_ORG_UNIT_NAME = 'Defense';
 
 const INCIDENT_VIEW_CONFIG = {
@@ -351,12 +348,6 @@ function normalizeFilterValue(value, options) {
   return options.includes(value) ? value : ALL_FILTER_VALUE;
 }
 
-function normalizeKpiName(value) {
-  return String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function normalizeText(value) {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
@@ -428,8 +419,7 @@ function buildControllableCostsChartData(rows, viewMode) {
 
 function buildIncidentChartData(
   rows,
-  kpiName,
-  kpiUpper,
+  kpiId,
   orgUnitName,
   viewMode,
   aggregationMode = 'sum'
@@ -437,11 +427,7 @@ function buildIncidentChartData(
   const buckets = new Map();
 
   rows.forEach((row) => {
-    if (
-      normalizeKpiName(row.kpi_name) !== kpiName ||
-      normalizeText(row.kpi_upper) !== kpiUpper ||
-      normalizeText(row.org_unit_name) !== orgUnitName
-    ) {
+    if (Number(row.kpi_id) !== kpiId || normalizeText(row.org_unit_name) !== orgUnitName) {
       return;
     }
 
@@ -1408,43 +1394,33 @@ export default function App() {
     controllableCostsViewMode
   );
   const filteredSifRows = sifState.rows.filter(
-    (row) =>
-      normalizeKpiName(row.kpi_name) === SIF_KPI_NAME &&
-      normalizeText(row.kpi_upper) === SIF_KPI_UPPER &&
-      normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+    (row) => Number(row.kpi_id) === SIF_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
   const sifChartData = buildIncidentChartData(
     filteredSifRows,
-    SIF_KPI_NAME,
-    SIF_KPI_UPPER,
+    SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     sifViewMode
   );
   const sifSummaryValue = formatIncidentCount(sumActualValues(filteredSifRows));
   const filteredPotentialSifRows = potentialSifState.rows.filter(
     (row) =>
-      normalizeKpiName(row.kpi_name) === POTENTIAL_SIF_KPI_NAME &&
-      normalizeText(row.kpi_upper) === POTENTIAL_SIF_KPI_UPPER &&
+      Number(row.kpi_id) === POTENTIAL_SIF_KPI_ID &&
       normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
   const potentialSifChartData = buildIncidentChartData(
     filteredPotentialSifRows,
-    POTENTIAL_SIF_KPI_NAME,
-    POTENTIAL_SIF_KPI_UPPER,
+    POTENTIAL_SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     potentialSifViewMode
   );
   const potentialSifSummaryValue = formatIncidentCount(sumActualValues(filteredPotentialSifRows));
   const filteredNmfrRows = nmfrState.rows.filter(
-    (row) =>
-      normalizeKpiName(row.kpi_name) === NMFR_KPI_NAME &&
-      normalizeText(row.kpi_upper) === NMFR_KPI_UPPER &&
-      normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+    (row) => Number(row.kpi_id) === NMFR_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
   const nmfrChartData = buildIncidentChartData(
     filteredNmfrRows,
-    NMFR_KPI_NAME,
-    NMFR_KPI_UPPER,
+    NMFR_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     nmfrViewMode,
     'average'

@@ -29,13 +29,27 @@ function normalizeNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function normalizeMeasureType(value) {
+  const normalizedValue = String(value ?? '').trim();
+
+  if (normalizedValue === 'Contract Commitment') {
+    return 'Contract Commitment';
+  }
+
+  if (normalizedValue === 'Actual Delivered' || normalizedValue === 'Actuals Delivered') {
+    return 'Actuals Delivered';
+  }
+
+  return normalizedValue;
+}
+
 function normalizeOtdRow(row) {
   const normalizedRow = {
     program: row.Program ?? '',
     project_id: row['Project ID'] ?? '',
     site: row.Site ?? '',
     type: row.Type ?? '',
-    measure_type: row.Timeline ?? row['2026'] ?? ''
+    measure_type: normalizeMeasureType(row.Timeline ?? row['2026'] ?? '')
   };
 
   for (const month of MONTH_COLUMNS) {

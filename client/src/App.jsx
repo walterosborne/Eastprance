@@ -3,6 +3,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faAsterisk,
   faCalculator,
+  faChartColumn,
+  faChartLine,
   faClipboardCheck,
   faMoon,
   faSeedling,
@@ -17,6 +19,7 @@ import {
   ToggleButton,
   ToggleButtonGroup
 } from '@mui/material';
+import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import {
   ChartsTooltipContainer,
@@ -117,6 +120,15 @@ const CARD_CHIP_OPTIONS = [
   }
 ];
 
+const DEFAULT_CHART_VARIANTS = {
+  controllableCosts: 'line',
+  sif: 'line',
+  potentialSif: 'line',
+  nmfr: 'line',
+  otd: 'line',
+  labor: 'line'
+};
+
 const LABOR_VIEW_CONFIG = {
   monthly: {
     label: 'Monthly',
@@ -145,7 +157,7 @@ const FIXED_MONTH_METRIC_YEAR = 2026;
 const OTD_Y_AXIS = [
   {
     width: 66,
-    valueFormatter: formatCompactCurrency,
+    valueFormatter: formatCompactNumber,
     tickLabelStyle: { fontSize: 11 }
   }
 ];
@@ -244,6 +256,38 @@ const timelineToggleButtonSx = {
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
+  '&.Mui-selected': {
+    backgroundColor: 'var(--selected-bg)',
+    color: 'var(--selected-text)'
+  },
+  '&.Mui-selected:hover': {
+    backgroundColor: 'var(--selected-bg)'
+  }
+};
+
+const chartTypeToggleGroupSx = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  minWidth: 0,
+  backgroundColor: 'var(--surface-muted)',
+  border: '1px solid var(--border)',
+  borderRadius: '999px',
+  padding: '0.16rem',
+  overflow: 'hidden',
+  '& .MuiToggleButtonGroup-grouped': {
+    margin: 0,
+    border: 0
+  }
+};
+
+const chartTypeToggleButtonSx = {
+  minWidth: 28,
+  width: 28,
+  height: 28,
+  border: 0,
+  borderRadius: '999px !important',
+  color: 'var(--text-secondary)',
+  padding: 0,
   '&.Mui-selected': {
     backgroundColor: 'var(--selected-bg)',
     color: 'var(--selected-text)'
@@ -725,7 +769,7 @@ function buildOtdChartData(rows, viewMode, selectedDateRange) {
     const targetSeries =
       row.measure_type === 'Contract Commitment'
         ? contractTotals
-        : row.measure_type === 'Actual Delivered'
+        : row.measure_type === 'Actuals Delivered' || row.measure_type === 'Actual Delivered'
           ? deliveredTotals
           : null;
 
@@ -1051,6 +1095,86 @@ function StandardChartTooltip(props) {
   );
 }
 
+function MetricTrendChart({
+  variant,
+  width,
+  height,
+  margin,
+  labels,
+  xAxisHeight = 28,
+  yAxis,
+  series,
+  hideLegend = false,
+  tooltipComponent = StandardChartTooltip,
+  tooltipProps = {},
+  sx = sharedChartSx
+}) {
+  const chartProps = {
+    width,
+    height,
+    hideLegend,
+    margin,
+    xAxis: [
+      {
+        scaleType: variant === 'bar' ? 'band' : 'point',
+        height: xAxisHeight,
+        data: labels
+      }
+    ],
+    yAxis,
+    series:
+      variant === 'bar'
+        ? series.map(({ showMark, ...seriesConfig }) => seriesConfig)
+        : series.map((seriesConfig) => ({
+          ...seriesConfig,
+          showMark: seriesConfig.showMark ?? false
+        })),
+    grid: { horizontal: true },
+    sx,
+    slots: {
+      tooltip: tooltipComponent
+    },
+    slotProps: {
+      tooltip: {
+        trigger: 'axis',
+        ...tooltipProps
+      }
+    }
+  };
+
+  if (variant === 'bar') {
+    return <BarChart {...chartProps} />;
+  }
+
+  return <LineChart {...chartProps} />;
+}
+
+function ChartTypeToggle({ value, onChange }) {
+  return (
+    <div className="chart-type-toggle-bar">
+      <ToggleButtonGroup
+        value={value}
+        exclusive
+        size="small"
+        onChange={(_event, nextVariant) => {
+          if (nextVariant) {
+            onChange(nextVariant);
+          }
+        }}
+        sx={chartTypeToggleGroupSx}
+        aria-label="Chart type"
+      >
+        <ToggleButton value="line" sx={chartTypeToggleButtonSx} aria-label="Line chart">
+          <FontAwesomeIcon icon={faChartLine} />
+        </ToggleButton>
+        <ToggleButton value="bar" sx={chartTypeToggleButtonSx} aria-label="Bar chart">
+          <FontAwesomeIcon icon={faChartColumn} />
+        </ToggleButton>
+      </ToggleButtonGroup>
+    </div>
+  );
+}
+
 function MetricSummaryPanel({ title, value }) {
   return (
     <section className="filter-panel filter-panel-collapsed metric-summary-panel">
@@ -1252,6 +1376,7 @@ export default function App() {
   const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [selectedCardGroup, setSelectedCardGroup] = useState('all');
+  const [chartVariants, setChartVariants] = useState(DEFAULT_CHART_VARIANTS);
   const [selectedDateRangeIndices, setSelectedDateRangeIndices] = useState([0, 0]);
   const [hasCustomizedDateRange, setHasCustomizedDateRange] = useState(false);
   const [isControllableCostsFiltersOpen, setIsControllableCostsFiltersOpen] = useState(false);
@@ -2026,17 +2151,12 @@ export default function App() {
                         !controllableCostsState.error &&
                         controllableCostsChartData.labels.length > 0 &&
                         controllableCostsChartWidth > 0 && (
-                          <LineChart
+                          <MetricTrendChart
+                            variant={chartVariants.controllableCosts}
                             width={controllableCostsChartWidth}
                             height={CHART_HEIGHT}
                             margin={DEFAULT_CHART_MARGIN}
-                            xAxis={[
-                              {
-                                scaleType: 'point',
-                                height: 28,
-                                data: controllableCostsChartData.labels
-                              }
-                            ]}
+                            labels={controllableCostsChartData.labels}
                             yAxis={OTD_Y_AXIS}
                             series={[
                               {
@@ -2054,19 +2174,20 @@ export default function App() {
                                 showMark: false
                               }
                             ]}
-                            grid={{ horizontal: true }}
                             sx={sharedChartSx}
-                            slots={{
-                              tooltip: StandardChartTooltip
-                            }}
-                            slotProps={{
-                              tooltip: {
-                                trigger: 'axis'
-                              }
-                            }}
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.controllableCosts}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          controllableCosts: nextVariant
+                        }));
+                      }}
+                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
@@ -2128,18 +2249,14 @@ export default function App() {
                         !sifState.error &&
                         sifChartData.length > 0 &&
                         sifChartWidth > 0 && (
-                          <LineChart
+                          <MetricTrendChart
+                            variant={chartVariants.sif}
                             width={sifChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
                             margin={INCIDENT_CHART_MARGIN}
-                            xAxis={[
-                              {
-                                scaleType: 'point',
-                                height: INCIDENT_X_AXIS_HEIGHT,
-                                data: sifChartData.map((bucket) => bucket.label)
-                              }
-                            ]}
+                            labels={sifChartData.map((bucket) => bucket.label)}
+                            xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
                             yAxis={SIF_Y_AXIS}
                             series={[
                               {
@@ -2150,19 +2267,20 @@ export default function App() {
                                 showMark: false
                               }
                             ]}
-                            grid={{ horizontal: true }}
                             sx={sharedChartSx}
-                            slots={{
-                              tooltip: StandardChartTooltip
-                            }}
-                            slotProps={{
-                              tooltip: {
-                                trigger: 'axis'
-                              }
-                            }}
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.sif}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          sif: nextVariant
+                        }));
+                      }}
+                    />
 
                     <MetricSummaryPanel
                       title="SIF Incidents"
@@ -2235,18 +2353,14 @@ export default function App() {
                         !potentialSifState.error &&
                         potentialSifChartData.length > 0 &&
                         potentialSifChartWidth > 0 && (
-                          <LineChart
+                          <MetricTrendChart
+                            variant={chartVariants.potentialSif}
                             width={potentialSifChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
                             margin={INCIDENT_CHART_MARGIN}
-                            xAxis={[
-                              {
-                                scaleType: 'point',
-                                height: INCIDENT_X_AXIS_HEIGHT,
-                                data: potentialSifChartData.map((bucket) => bucket.label)
-                              }
-                            ]}
+                            labels={potentialSifChartData.map((bucket) => bucket.label)}
+                            xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
                             yAxis={SIF_Y_AXIS}
                             series={[
                               {
@@ -2257,19 +2371,20 @@ export default function App() {
                                 showMark: false
                               }
                             ]}
-                            grid={{ horizontal: true }}
                             sx={sharedChartSx}
-                            slots={{
-                              tooltip: StandardChartTooltip
-                            }}
-                            slotProps={{
-                              tooltip: {
-                                trigger: 'axis'
-                              }
-                            }}
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.potentialSif}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          potentialSif: nextVariant
+                        }));
+                      }}
+                    />
 
                     <MetricSummaryPanel
                       title="Potential SIF Incidents"
@@ -2340,18 +2455,14 @@ export default function App() {
                         !nmfrState.error &&
                         nmfrChartData.length > 0 &&
                         nmfrChartWidth > 0 && (
-                          <LineChart
+                          <MetricTrendChart
+                            variant={chartVariants.nmfr}
                             width={nmfrChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
                             margin={INCIDENT_CHART_MARGIN}
-                            xAxis={[
-                              {
-                                scaleType: 'point',
-                                height: INCIDENT_X_AXIS_HEIGHT,
-                                data: nmfrChartData.map((bucket) => bucket.label)
-                              }
-                            ]}
+                            labels={nmfrChartData.map((bucket) => bucket.label)}
+                            xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
                             yAxis={NMFR_Y_AXIS}
                             series={[
                               {
@@ -2362,19 +2473,20 @@ export default function App() {
                                 showMark: false
                               }
                             ]}
-                            grid={{ horizontal: true }}
                             sx={sharedChartSx}
-                            slots={{
-                              tooltip: StandardChartTooltip
-                            }}
-                            slotProps={{
-                              tooltip: {
-                                trigger: 'axis'
-                              }
-                            }}
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.nmfr}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          nmfr: nextVariant
+                        }));
+                      }}
+                    />
 
                     <MetricSummaryPanel
                       title="Near Miss Frequency Rate"
@@ -2561,47 +2673,43 @@ export default function App() {
                         !otdState.error &&
                         otdChartData.labels.length > 0 &&
                         otdChartWidth > 0 && (
-                          <LineChart
+                          <MetricTrendChart
+                            variant={chartVariants.otd}
                             width={otdChartWidth}
                             height={CHART_HEIGHT}
                             margin={DEFAULT_CHART_MARGIN}
-                            xAxis={[
-                              {
-                                scaleType: 'point',
-                                height: 28,
-                                data: otdChartData.labels
-                              }
-                            ]}
+                            labels={otdChartData.labels}
                             yAxis={OTD_Y_AXIS}
                             series={[
                               {
                                 data: otdChartData.contract,
                                 label: 'Contract Commitment',
                                 color: 'var(--chart-line)',
-                                valueFormatter: formatCurrency,
+                                valueFormatter: formatNumber,
                                 showMark: false
                               },
                               {
                                 data: otdChartData.delivered,
-                                label: 'Actual Delivered',
+                                label: 'Actuals Delivered',
                                 color: 'var(--chart-secondary-line)',
-                                valueFormatter: formatCurrency,
+                                valueFormatter: formatNumber,
                                 showMark: false
                               }
                             ]}
-                            grid={{ horizontal: true }}
                             sx={sharedChartSx}
-                            slots={{
-                              tooltip: StandardChartTooltip
-                            }}
-                            slotProps={{
-                              tooltip: {
-                                trigger: 'axis'
-                              }
-                            }}
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.otd}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          otd: nextVariant
+                        }));
+                      }}
+                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
@@ -2842,17 +2950,12 @@ export default function App() {
                         laborChartWidth > 0 && (
                           <>
                             <span className="chart-axis-unit-label">Hours</span>
-                            <LineChart
+                            <MetricTrendChart
+                              variant={chartVariants.labor}
                               width={laborChartWidth}
                               height={CHART_HEIGHT}
                               margin={LABOR_CHART_MARGIN}
-                              xAxis={[
-                                {
-                                  scaleType: 'point',
-                                  height: 28,
-                                  data: laborChartData.labels
-                                }
-                              ]}
+                              labels={laborChartData.labels}
                               yAxis={LABOR_Y_AXIS}
                               series={[
                                 {
@@ -2877,21 +2980,25 @@ export default function App() {
                                   showMark: false
                                 }
                               ]}
-                              grid={{ horizontal: true }}
                               sx={sharedChartSx}
-                              slots={{
-                                tooltip: LaborChartTooltip
-                              }}
-                              slotProps={{
-                                tooltip: {
-                                  trigger: 'axis',
-                                  chartData: laborChartData
-                                }
+                              tooltipComponent={LaborChartTooltip}
+                              tooltipProps={{
+                                chartData: laborChartData
                               }}
                             />
                           </>
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.labor}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          labor: nextVariant
+                        }));
+                      }}
+                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">

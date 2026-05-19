@@ -612,6 +612,14 @@ h1 {
   padding-top: 1.4rem;
 }
 
+.chart-type-toggle-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 1.65rem;
+  margin-top: -0.15rem;
+}
+
 .chart-axis-unit-label {
   position: absolute;
   top: 3rem;

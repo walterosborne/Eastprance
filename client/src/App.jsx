@@ -23,7 +23,8 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import {
   ChartsTooltipContainer,
-  useAxesTooltip
+  useAxesTooltip,
+  useItemTooltip
 } from '@mui/x-charts/ChartsTooltip';
 
 const ALL_FILTER_VALUE = '__all__';
@@ -120,15 +121,6 @@ const CARD_CHIP_OPTIONS = [
   }
 ];
 
-const DEFAULT_CHART_VARIANTS = {
-  controllableCosts: 'line',
-  sif: 'line',
-  potentialSif: 'line',
-  nmfr: 'line',
-  otd: 'line',
-  labor: 'line'
-};
-
 const LABOR_VIEW_CONFIG = {
   monthly: {
     label: 'Monthly',
@@ -204,6 +196,11 @@ const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 1
 });
+const percentFormatter = new Intl.NumberFormat('en-US', {
+  style: 'percent',
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1
+});
 const monthYearFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   year: 'numeric',
@@ -256,38 +253,6 @@ const timelineToggleButtonSx = {
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
-  '&.Mui-selected': {
-    backgroundColor: 'var(--selected-bg)',
-    color: 'var(--selected-text)'
-  },
-  '&.Mui-selected:hover': {
-    backgroundColor: 'var(--selected-bg)'
-  }
-};
-
-const chartTypeToggleGroupSx = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  minWidth: 0,
-  backgroundColor: 'var(--surface-muted)',
-  border: '1px solid var(--border)',
-  borderRadius: '999px',
-  padding: '0.16rem',
-  overflow: 'hidden',
-  '& .MuiToggleButtonGroup-grouped': {
-    margin: 0,
-    border: 0
-  }
-};
-
-const chartTypeToggleButtonSx = {
-  minWidth: 28,
-  width: 28,
-  height: 28,
-  border: 0,
-  borderRadius: '999px !important',
-  color: 'var(--text-secondary)',
-  padding: 0,
   '&.Mui-selected': {
     backgroundColor: 'var(--selected-bg)',
     color: 'var(--selected-text)'
@@ -377,6 +342,21 @@ function formatCompactWholeNumber(value) {
 
 function formatHours(value) {
   return `${wholeNumberFormatter.format(Math.round(Number(value ?? 0)))} hours`;
+}
+
+function formatPercentOfTotal(value, total) {
+  const numericValue = Number(value ?? 0);
+  const numericTotal = Number(total ?? 0);
+
+  if (!Number.isFinite(numericValue) || !Number.isFinite(numericTotal) || numericTotal <= 0) {
+    return percentFormatter.format(0);
+  }
+
+  return percentFormatter.format(numericValue / numericTotal);
+}
+
+function formatLaborTooltipValue(value, total) {
+  return `${formatHours(value)} (${formatPercentOfTotal(value, total)})`;
 }
 
 function formatIncidentCount(value) {
@@ -1106,6 +1086,7 @@ function MetricTrendChart({
   series,
   hideLegend = false,
   tooltipComponent = StandardChartTooltip,
+  tooltipTrigger = 'axis',
   tooltipProps = {},
   sx = sharedChartSx
 }) {
@@ -1136,7 +1117,7 @@ function MetricTrendChart({
     },
     slotProps: {
       tooltip: {
-        trigger: 'axis',
+        trigger: tooltipTrigger,
         ...tooltipProps
       }
     }
@@ -1147,32 +1128,6 @@ function MetricTrendChart({
   }
 
   return <LineChart {...chartProps} />;
-}
-
-function ChartTypeToggle({ value, onChange }) {
-  return (
-    <div className="chart-type-toggle-bar">
-      <ToggleButtonGroup
-        value={value}
-        exclusive
-        size="small"
-        onChange={(_event, nextVariant) => {
-          if (nextVariant) {
-            onChange(nextVariant);
-          }
-        }}
-        sx={chartTypeToggleGroupSx}
-        aria-label="Chart type"
-      >
-        <ToggleButton value="line" sx={chartTypeToggleButtonSx} aria-label="Line chart">
-          <FontAwesomeIcon icon={faChartLine} />
-        </ToggleButton>
-        <ToggleButton value="bar" sx={chartTypeToggleButtonSx} aria-label="Bar chart">
-          <FontAwesomeIcon icon={faChartColumn} />
-        </ToggleButton>
-      </ToggleButtonGroup>
-    </div>
-  );
 }
 
 function MetricSummaryPanel({ title, value }) {
@@ -1207,21 +1162,74 @@ function LaborChartTooltip(props) {
         {tooltipData.map(({ axisId, axisFormattedValue, seriesItems }) => {
           const bucketLabel = String(axisFormattedValue);
           const bucketValues = chartData.tooltipLookup[bucketLabel];
+          const total = bucketValues?.total ?? 0;
 
           return renderTooltipTable({
             axisId,
             bucketLabel,
-            seriesItems,
+            seriesItems: seriesItems.map((seriesItem) => {
+              const seriesKey = String(seriesItem.seriesId ?? '').toLowerCase();
+              const rawValue = bucketValues?.[seriesKey] ?? seriesItem.value;
+
+              return {
+                ...seriesItem,
+                formattedValue: formatLaborTooltipValue(rawValue, total)
+              };
+            }),
             extraRows: bucketValues
               ? [
                 {
                   label: 'Other',
                   color: 'var(--chart-tertiary-line)',
-                  formattedValue: formatHours(bucketValues.other)
+                  formattedValue: formatLaborTooltipValue(bucketValues.other, total)
                 }
               ]
               : []
           });
+        })}
+      </Paper>
+    </ChartsTooltipContainer>
+  );
+}
+
+function LaborBarChartTooltip(props) {
+  const { chartData, ...tooltipProps } = props;
+  const tooltipItem = useItemTooltip();
+
+  if (!tooltipItem) {
+    return null;
+  }
+
+  const dataIndex = tooltipItem.identifier?.dataIndex ?? -1;
+  const bucketLabel = chartData.labels[dataIndex] ?? '';
+  const bucketValues = chartData.tooltipLookup[bucketLabel];
+  const seriesKey = String(tooltipItem.identifier?.seriesId ?? '').toLowerCase();
+  const seriesValue = bucketValues?.[seriesKey] ?? Number(tooltipItem.value ?? 0);
+  const total = bucketValues?.total ?? 0;
+
+  return (
+    <ChartsTooltipContainer {...tooltipProps}>
+      <Paper
+        elevation={6}
+        sx={{
+          overflow: 'hidden',
+          borderRadius: '16px',
+          border: '1px solid var(--border)',
+          backgroundColor: 'var(--input-bg)',
+          color: 'var(--input-text)'
+        }}
+      >
+        {renderTooltipTable({
+          axisId: `${seriesKey}-${dataIndex}`,
+          bucketLabel,
+          seriesItems: [
+            {
+              seriesId: seriesKey,
+              color: tooltipItem.color,
+              formattedLabel: tooltipItem.label ?? '',
+              formattedValue: formatLaborTooltipValue(seriesValue, total)
+            }
+          ]
         })}
       </Paper>
     </ChartsTooltipContainer>
@@ -1376,7 +1384,7 @@ export default function App() {
   const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [selectedCardGroup, setSelectedCardGroup] = useState('all');
-  const [chartVariants, setChartVariants] = useState(DEFAULT_CHART_VARIANTS);
+  const [globalChartVariant, setGlobalChartVariant] = useState('line');
   const [selectedDateRangeIndices, setSelectedDateRangeIndices] = useState([0, 0]);
   const [hasCustomizedDateRange, setHasCustomizedDateRange] = useState(false);
   const [isControllableCostsFiltersOpen, setIsControllableCostsFiltersOpen] = useState(false);
@@ -1908,6 +1916,60 @@ export default function App() {
     laborViewMode,
     selectedDateRange
   );
+  const isLaborBarChart = globalChartVariant === 'bar';
+  const laborChartSeries = isLaborBarChart
+    ? [
+      {
+        id: 'direct',
+        data: laborChartData.direct,
+        label: 'Direct',
+        color: 'var(--chart-accent-line)',
+        valueFormatter: formatHours,
+        stack: 'labor-hours'
+      },
+      {
+        id: 'indirect',
+        data: laborChartData.indirect,
+        label: 'Indirect',
+        color: 'var(--chart-secondary-line)',
+        valueFormatter: formatHours,
+        stack: 'labor-hours'
+      },
+      {
+        id: 'other',
+        data: laborChartData.other,
+        label: 'Other',
+        color: 'var(--chart-tertiary-line)',
+        valueFormatter: formatHours,
+        stack: 'labor-hours'
+      }
+    ]
+    : [
+      {
+        id: 'total',
+        data: laborChartData.totals,
+        label: 'Total',
+        color: 'var(--chart-line)',
+        valueFormatter: formatHours,
+        showMark: false
+      },
+      {
+        id: 'direct',
+        data: laborChartData.direct,
+        label: 'Direct',
+        color: 'var(--chart-accent-line)',
+        valueFormatter: formatHours,
+        showMark: false
+      },
+      {
+        id: 'indirect',
+        data: laborChartData.indirect,
+        label: 'Indirect',
+        color: 'var(--chart-secondary-line)',
+        valueFormatter: formatHours,
+        showMark: false
+      }
+    ];
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
       .cardKeys
@@ -2002,17 +2064,44 @@ export default function App() {
                 ))}
               </div>
 
-              <button
-                type="button"
-                className="theme-toggle"
-                aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
-                onClick={() => {
-                  setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
-                }}
-              >
-                <FontAwesomeIcon icon={nextThemeIcon} className="theme-toggle-icon" />
-                <span className="theme-toggle-label">{nextThemeLabel}</span>
-              </button>
+              <div className="display-controls" aria-label="Display controls">
+                <div className="chart-mode-controls" aria-label="Chart type">
+                  <button
+                    type="button"
+                    className={`chart-mode-button${globalChartVariant === 'line' ? ' chart-mode-button-active' : ''}`}
+                    aria-label="Show all line charts"
+                    aria-pressed={globalChartVariant === 'line'}
+                    onClick={() => {
+                      setGlobalChartVariant('line');
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faChartLine} className="chart-mode-icon" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`chart-mode-button${globalChartVariant === 'bar' ? ' chart-mode-button-active' : ''}`}
+                    aria-label="Show all bar charts"
+                    aria-pressed={globalChartVariant === 'bar'}
+                    onClick={() => {
+                      setGlobalChartVariant('bar');
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faChartColumn} className="chart-mode-icon" />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className="theme-toggle"
+                  aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
+                  onClick={() => {
+                    setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
+                  }}
+                >
+                  <FontAwesomeIcon icon={nextThemeIcon} className="theme-toggle-icon" />
+                  <span className="theme-toggle-label">{nextThemeLabel}</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2152,7 +2241,7 @@ export default function App() {
                         controllableCostsChartData.labels.length > 0 &&
                         controllableCostsChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={chartVariants.controllableCosts}
+                            variant={globalChartVariant}
                             width={controllableCostsChartWidth}
                             height={CHART_HEIGHT}
                             margin={DEFAULT_CHART_MARGIN}
@@ -2178,16 +2267,6 @@ export default function App() {
                           />
                         )}
                     </div>
-
-                    <ChartTypeToggle
-                      value={chartVariants.controllableCosts}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          controllableCosts: nextVariant
-                        }));
-                      }}
-                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
@@ -2250,7 +2329,7 @@ export default function App() {
                         sifChartData.length > 0 &&
                         sifChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={chartVariants.sif}
+                            variant={globalChartVariant}
                             width={sifChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
@@ -2271,16 +2350,6 @@ export default function App() {
                           />
                         )}
                     </div>
-
-                    <ChartTypeToggle
-                      value={chartVariants.sif}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          sif: nextVariant
-                        }));
-                      }}
-                    />
 
                     <MetricSummaryPanel
                       title="SIF Incidents"
@@ -2354,7 +2423,7 @@ export default function App() {
                         potentialSifChartData.length > 0 &&
                         potentialSifChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={chartVariants.potentialSif}
+                            variant={globalChartVariant}
                             width={potentialSifChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
@@ -2375,16 +2444,6 @@ export default function App() {
                           />
                         )}
                     </div>
-
-                    <ChartTypeToggle
-                      value={chartVariants.potentialSif}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          potentialSif: nextVariant
-                        }));
-                      }}
-                    />
 
                     <MetricSummaryPanel
                       title="Potential SIF Incidents"
@@ -2456,7 +2515,7 @@ export default function App() {
                         nmfrChartData.length > 0 &&
                         nmfrChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={chartVariants.nmfr}
+                            variant={globalChartVariant}
                             width={nmfrChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
@@ -2477,16 +2536,6 @@ export default function App() {
                           />
                         )}
                     </div>
-
-                    <ChartTypeToggle
-                      value={chartVariants.nmfr}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          nmfr: nextVariant
-                        }));
-                      }}
-                    />
 
                     <MetricSummaryPanel
                       title="Near Miss Frequency Rate"
@@ -2674,7 +2723,7 @@ export default function App() {
                         otdChartData.labels.length > 0 &&
                         otdChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={chartVariants.otd}
+                            variant={globalChartVariant}
                             width={otdChartWidth}
                             height={CHART_HEIGHT}
                             margin={DEFAULT_CHART_MARGIN}
@@ -2700,16 +2749,6 @@ export default function App() {
                           />
                         )}
                     </div>
-
-                    <ChartTypeToggle
-                      value={chartVariants.otd}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          otd: nextVariant
-                        }));
-                      }}
-                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
@@ -2951,37 +2990,18 @@ export default function App() {
                           <>
                             <span className="chart-axis-unit-label">Hours</span>
                             <MetricTrendChart
-                              variant={chartVariants.labor}
+                              variant={globalChartVariant}
                               width={laborChartWidth}
                               height={CHART_HEIGHT}
                               margin={LABOR_CHART_MARGIN}
                               labels={laborChartData.labels}
                               yAxis={LABOR_Y_AXIS}
-                              series={[
-                                {
-                                  data: laborChartData.totals,
-                                  label: 'Total',
-                                  color: 'var(--chart-line)',
-                                  valueFormatter: formatHours,
-                                  showMark: false
-                                },
-                                {
-                                  data: laborChartData.direct,
-                                  label: 'Direct',
-                                  color: 'var(--chart-accent-line)',
-                                  valueFormatter: formatHours,
-                                  showMark: false
-                                },
-                                {
-                                  data: laborChartData.indirect,
-                                  label: 'Indirect',
-                                  color: 'var(--chart-secondary-line)',
-                                  valueFormatter: formatHours,
-                                  showMark: false
-                                }
-                              ]}
+                              series={laborChartSeries}
                               sx={sharedChartSx}
-                              tooltipComponent={LaborChartTooltip}
+                              tooltipComponent={
+                                isLaborBarChart ? LaborBarChartTooltip : LaborChartTooltip
+                              }
+                              tooltipTrigger={isLaborBarChart ? 'item' : 'axis'}
                               tooltipProps={{
                                 chartData: laborChartData
                               }}
@@ -2989,16 +3009,6 @@ export default function App() {
                           </>
                         )}
                     </div>
-
-                    <ChartTypeToggle
-                      value={chartVariants.labor}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          labor: nextVariant
-                        }));
-                      }}
-                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">

@@ -26,6 +26,7 @@ import {
   useAxesTooltip,
   useItemTooltip
 } from '@mui/x-charts/ChartsTooltip';
+import { DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 
 const ALL_FILTER_VALUE = '__all__';
 const OTD_MONTH_COLUMNS = [
@@ -121,6 +122,15 @@ const CARD_CHIP_OPTIONS = [
   }
 ];
 
+const DEFAULT_CHART_VARIANTS = {
+  controllableCosts: 'line',
+  sif: 'line',
+  potentialSif: 'line',
+  nmfr: 'line',
+  otd: 'line',
+  labor: 'line'
+};
+
 const LABOR_VIEW_CONFIG = {
   monthly: {
     label: 'Monthly',
@@ -169,8 +179,8 @@ const NMFR_Y_AXIS = [
 ];
 const LABOR_Y_AXIS = [
   {
-    width: 64,
-    valueFormatter: formatCompactHoursAxis,
+    width: 52,
+    valueFormatter: formatPercentAxis,
     tickLabelStyle: { fontSize: 11 }
   }
 ];
@@ -262,6 +272,38 @@ const timelineToggleButtonSx = {
   }
 };
 
+const chartTypeToggleGroupSx = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  minWidth: 0,
+  backgroundColor: 'var(--surface-muted)',
+  border: '1px solid var(--border)',
+  borderRadius: '999px',
+  padding: '0.16rem',
+  overflow: 'hidden',
+  '& .MuiToggleButtonGroup-grouped': {
+    margin: 0,
+    border: 0
+  }
+};
+
+const chartTypeToggleButtonSx = {
+  minWidth: 28,
+  width: 28,
+  height: 28,
+  border: 0,
+  borderRadius: '999px !important',
+  color: 'var(--text-secondary)',
+  padding: 0,
+  '&.Mui-selected': {
+    backgroundColor: 'var(--selected-bg)',
+    color: 'var(--selected-text)'
+  },
+  '&.Mui-selected:hover': {
+    backgroundColor: 'var(--selected-bg)'
+  }
+};
+
 const dateSliderSx = {
   color: 'var(--selected-bg)',
   px: 1.1,
@@ -344,6 +386,10 @@ function formatHours(value) {
   return `${wholeNumberFormatter.format(Math.round(Number(value ?? 0)))} hours`;
 }
 
+function formatUnits(value) {
+  return `${formatNumber(value)} units`;
+}
+
 function formatPercentOfTotal(value, total) {
   const numericValue = Number(value ?? 0);
   const numericTotal = Number(total ?? 0);
@@ -355,8 +401,12 @@ function formatPercentOfTotal(value, total) {
   return percentFormatter.format(numericValue / numericTotal);
 }
 
-function formatLaborTooltipValue(value, total) {
-  return `${formatHours(value)} (${formatPercentOfTotal(value, total)})`;
+function formatPercentValue(value) {
+  return percentFormatter.format(Number(value ?? 0));
+}
+
+function formatPercentAxis(value) {
+  return `${Math.round(Number(value ?? 0) * 100)}%`;
 }
 
 function formatIncidentCount(value) {
@@ -934,16 +984,28 @@ function buildLaborUtilizationChartData(rows, viewMode, selectedDateRange) {
     return total;
   });
 
+  const directShare = buckets.map(({ label }, index) => {
+    const total = totals[index];
+    const share = total > 0 ? direct[index] / total : 0;
+
+    tooltipLookup[label] = {
+      ...tooltipLookup[label],
+      directShare: share
+    };
+
+    return share;
+  });
+
   return {
     labels: buckets.map((bucket) => bucket.label),
     totals,
     direct,
     indirect,
     other,
+    directShare,
     directRowCount,
     indirectRowCount,
     otherRowCount,
-    annualTotal: Math.round(totals.reduce((sum, value) => sum + value, 0)),
     tooltipLookup
   };
 }
@@ -1130,6 +1192,54 @@ function MetricTrendChart({
   return <LineChart {...chartProps} />;
 }
 
+function ChartTypeToggle({ value, onChange }) {
+  return (
+    <div className="chart-type-toggle-bar">
+      <ToggleButtonGroup
+        value={value}
+        exclusive
+        size="small"
+        onChange={(_event, nextVariant) => {
+          if (nextVariant) {
+            onChange(nextVariant);
+          }
+        }}
+        sx={chartTypeToggleGroupSx}
+        aria-label="Chart type"
+      >
+        <ToggleButton value="line" sx={chartTypeToggleButtonSx} aria-label="Line chart">
+          <FontAwesomeIcon icon={faChartLine} />
+        </ToggleButton>
+        <ToggleButton value="bar" sx={chartTypeToggleButtonSx} aria-label="Bar chart">
+          <FontAwesomeIcon icon={faChartColumn} />
+        </ToggleButton>
+      </ToggleButtonGroup>
+    </div>
+  );
+}
+
+function CardHeader({ title, info }) {
+  const metricInfo = info || DEFAULT_METRIC_INFO;
+
+  return (
+    <div className="card-header">
+      <h2 className="card-title">{title}</h2>
+      <div className="card-info">
+        <button
+          type="button"
+          className="card-info-trigger"
+          aria-label={`${title} metric info`}
+        >
+          ?
+        </button>
+        <div className="card-info-tooltip" role="tooltip">
+          {metricInfo}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MetricSummaryPanel({ title, value }) {
   return (
     <section className="filter-panel filter-panel-collapsed metric-summary-panel">
@@ -1162,29 +1272,34 @@ function LaborChartTooltip(props) {
         {tooltipData.map(({ axisId, axisFormattedValue, seriesItems }) => {
           const bucketLabel = String(axisFormattedValue);
           const bucketValues = chartData.tooltipLookup[bucketLabel];
-          const total = bucketValues?.total ?? 0;
+          const directHours = bucketValues?.direct ?? 0;
+          const totalHours = bucketValues?.total ?? 0;
+          const directShare = bucketValues?.directShare ?? 0;
+          const seriesItem = seriesItems[0];
 
           return renderTooltipTable({
             axisId,
             bucketLabel,
-            seriesItems: seriesItems.map((seriesItem) => {
-              const seriesKey = String(seriesItem.seriesId ?? '').toLowerCase();
-              const rawValue = bucketValues?.[seriesKey] ?? seriesItem.value;
-
-              return {
-                ...seriesItem,
-                formattedValue: formatLaborTooltipValue(rawValue, total)
-              };
-            }),
-            extraRows: bucketValues
+            seriesItems: seriesItem
               ? [
                 {
-                  label: 'Other',
-                  color: 'var(--chart-tertiary-line)',
-                  formattedValue: formatLaborTooltipValue(bucketValues.other, total)
+                  ...seriesItem,
+                  formattedValue: formatPercentValue(directShare)
                 }
               ]
-              : []
+              : [],
+            extraRows: [
+              {
+                label: 'Direct hours',
+                color: 'var(--chart-accent-line)',
+                formattedValue: formatHours(directHours)
+              },
+              {
+                label: 'Total hours',
+                color: 'var(--chart-secondary-line)',
+                formattedValue: formatHours(totalHours)
+              }
+            ]
           });
         })}
       </Paper>
@@ -1203,9 +1318,9 @@ function LaborBarChartTooltip(props) {
   const dataIndex = tooltipItem.identifier?.dataIndex ?? -1;
   const bucketLabel = chartData.labels[dataIndex] ?? '';
   const bucketValues = chartData.tooltipLookup[bucketLabel];
-  const seriesKey = String(tooltipItem.identifier?.seriesId ?? '').toLowerCase();
-  const seriesValue = bucketValues?.[seriesKey] ?? Number(tooltipItem.value ?? 0);
-  const total = bucketValues?.total ?? 0;
+  const directShare = bucketValues?.directShare ?? Number(tooltipItem.value ?? 0);
+  const directHours = bucketValues?.direct ?? 0;
+  const totalHours = bucketValues?.total ?? 0;
 
   return (
     <ChartsTooltipContainer {...tooltipProps}>
@@ -1220,14 +1335,26 @@ function LaborBarChartTooltip(props) {
         }}
       >
         {renderTooltipTable({
-          axisId: `${seriesKey}-${dataIndex}`,
+          axisId: `directShare-${dataIndex}`,
           bucketLabel,
           seriesItems: [
             {
-              seriesId: seriesKey,
+              seriesId: 'directShare',
               color: tooltipItem.color,
               formattedLabel: tooltipItem.label ?? '',
-              formattedValue: formatLaborTooltipValue(seriesValue, total)
+              formattedValue: formatPercentValue(directShare)
+            }
+          ],
+          extraRows: [
+            {
+              label: 'Direct hours',
+              color: 'var(--chart-accent-line)',
+              formattedValue: formatHours(directHours)
+            },
+            {
+              label: 'Total hours',
+              color: 'var(--chart-secondary-line)',
+              formattedValue: formatHours(totalHours)
             }
           ]
         })}
@@ -1384,7 +1511,7 @@ export default function App() {
   const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [selectedCardGroup, setSelectedCardGroup] = useState('all');
-  const [globalChartVariant, setGlobalChartVariant] = useState('line');
+  const [chartVariants, setChartVariants] = useState(DEFAULT_CHART_VARIANTS);
   const [selectedDateRangeIndices, setSelectedDateRangeIndices] = useState([0, 0]);
   const [hasCustomizedDateRange, setHasCustomizedDateRange] = useState(false);
   const [isControllableCostsFiltersOpen, setIsControllableCostsFiltersOpen] = useState(false);
@@ -1916,60 +2043,17 @@ export default function App() {
     laborViewMode,
     selectedDateRange
   );
-  const isLaborBarChart = globalChartVariant === 'bar';
-  const laborChartSeries = isLaborBarChart
-    ? [
-      {
-        id: 'direct',
-        data: laborChartData.direct,
-        label: 'Direct',
-        color: 'var(--chart-accent-line)',
-        valueFormatter: formatHours,
-        stack: 'labor-hours'
-      },
-      {
-        id: 'indirect',
-        data: laborChartData.indirect,
-        label: 'Indirect',
-        color: 'var(--chart-secondary-line)',
-        valueFormatter: formatHours,
-        stack: 'labor-hours'
-      },
-      {
-        id: 'other',
-        data: laborChartData.other,
-        label: 'Other',
-        color: 'var(--chart-tertiary-line)',
-        valueFormatter: formatHours,
-        stack: 'labor-hours'
-      }
-    ]
-    : [
-      {
-        id: 'total',
-        data: laborChartData.totals,
-        label: 'Total',
-        color: 'var(--chart-line)',
-        valueFormatter: formatHours,
-        showMark: false
-      },
-      {
-        id: 'direct',
-        data: laborChartData.direct,
-        label: 'Direct',
-        color: 'var(--chart-accent-line)',
-        valueFormatter: formatHours,
-        showMark: false
-      },
-      {
-        id: 'indirect',
-        data: laborChartData.indirect,
-        label: 'Indirect',
-        color: 'var(--chart-secondary-line)',
-        valueFormatter: formatHours,
-        showMark: false
-      }
-    ];
+  const isLaborBarChart = chartVariants.labor === 'bar';
+  const laborChartSeries = [
+    {
+      id: 'directShare',
+      data: laborChartData.directShare,
+      label: 'Direct labor share',
+      color: 'var(--chart-line)',
+      valueFormatter: formatPercentValue,
+      showMark: false
+    }
+  ];
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
       .cardKeys
@@ -1986,6 +2070,19 @@ export default function App() {
   const nextThemeLabel = themeMode === 'light' ? 'Dark' : 'Light';
   const nextThemeIcon = themeMode === 'light' ? faMoon : faSun;
   const isChipActive = (cardGroupKey) => selectedCardGroup === cardGroupKey;
+  const allChartsLine = Object.values(chartVariants).every((variant) => variant === 'line');
+  const allChartsBar = Object.values(chartVariants).every((variant) => variant === 'bar');
+
+  const setAllChartVariants = (nextVariant) => {
+    setChartVariants({
+      controllableCosts: nextVariant,
+      sif: nextVariant,
+      potentialSif: nextVariant,
+      nmfr: nextVariant,
+      otd: nextVariant,
+      labor: nextVariant
+    });
+  };
 
   return (
     <main className="app-shell">
@@ -2068,22 +2165,22 @@ export default function App() {
                 <div className="chart-mode-controls" aria-label="Chart type">
                   <button
                     type="button"
-                    className={`chart-mode-button${globalChartVariant === 'line' ? ' chart-mode-button-active' : ''}`}
+                    className={`chart-mode-button${allChartsLine ? ' chart-mode-button-active' : ''}`}
                     aria-label="Show all line charts"
-                    aria-pressed={globalChartVariant === 'line'}
+                    aria-pressed={allChartsLine}
                     onClick={() => {
-                      setGlobalChartVariant('line');
+                      setAllChartVariants('line');
                     }}
                   >
                     <FontAwesomeIcon icon={faChartLine} className="chart-mode-icon" />
                   </button>
                   <button
                     type="button"
-                    className={`chart-mode-button${globalChartVariant === 'bar' ? ' chart-mode-button-active' : ''}`}
+                    className={`chart-mode-button${allChartsBar ? ' chart-mode-button-active' : ''}`}
                     aria-label="Show all bar charts"
-                    aria-pressed={globalChartVariant === 'bar'}
+                    aria-pressed={allChartsBar}
                     onClick={() => {
-                      setGlobalChartVariant('bar');
+                      setAllChartVariants('bar');
                     }}
                   >
                     <FontAwesomeIcon icon={faChartColumn} className="chart-mode-icon" />
@@ -2108,11 +2205,10 @@ export default function App() {
           <div className="cards-grid">
             {visibleCards.controllableCosts && (
               <article className="analytics-card" style={{ order: 1 }}>
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">Controllable Costs</h2>
-                  </div>
-                </div>
+                <CardHeader
+                  title="Controllable Costs"
+                  info={METRIC_INFO.controllableCosts}
+                />
 
                 <div className="dashboard-grid">
                   <aside
@@ -2241,7 +2337,7 @@ export default function App() {
                         controllableCostsChartData.labels.length > 0 &&
                         controllableCostsChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={globalChartVariant}
+                            variant={chartVariants.controllableCosts}
                             width={controllableCostsChartWidth}
                             height={CHART_HEIGHT}
                             margin={DEFAULT_CHART_MARGIN}
@@ -2258,7 +2354,7 @@ export default function App() {
                               {
                                 data: controllableCostsChartData.uncontrollable,
                                 label: 'Uncontrollable',
-                                color: 'var(--chart-secondary-line)',
+                                color: 'var(--chart-accent-line)',
                                 valueFormatter: formatCurrency,
                                 showMark: false
                               }
@@ -2267,6 +2363,16 @@ export default function App() {
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.controllableCosts}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          controllableCosts: nextVariant
+                        }));
+                      }}
+                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
@@ -2301,11 +2407,7 @@ export default function App() {
 
             {visibleCards.sif && (
               <article className="analytics-card" style={{ order: 6 }}>
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">SIF Incidents</h2>
-                  </div>
-                </div>
+                <CardHeader title="SIF Incidents" info={METRIC_INFO.sif} />
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
@@ -2329,7 +2431,7 @@ export default function App() {
                         sifChartData.length > 0 &&
                         sifChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={globalChartVariant}
+                            variant={chartVariants.sif}
                             width={sifChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
@@ -2350,6 +2452,16 @@ export default function App() {
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.sif}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          sif: nextVariant
+                        }));
+                      }}
+                    />
 
                     <MetricSummaryPanel
                       title="SIF Incidents"
@@ -2389,11 +2501,10 @@ export default function App() {
 
             {visibleCards.potentialSif && (
               <article className="analytics-card" style={{ order: 5 }}>
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">Potential SIF Incidents</h2>
-                  </div>
-                </div>
+                <CardHeader
+                  title="Potential SIF Incidents"
+                  info={METRIC_INFO.potentialSif}
+                />
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
@@ -2423,7 +2534,7 @@ export default function App() {
                         potentialSifChartData.length > 0 &&
                         potentialSifChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={globalChartVariant}
+                            variant={chartVariants.potentialSif}
                             width={potentialSifChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
@@ -2444,6 +2555,16 @@ export default function App() {
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.potentialSif}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          potentialSif: nextVariant
+                        }));
+                      }}
+                    />
 
                     <MetricSummaryPanel
                       title="Potential SIF Incidents"
@@ -2487,11 +2608,10 @@ export default function App() {
 
             {visibleCards.nmfr && (
               <article className="analytics-card" style={{ order: 3 }}>
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">Near Miss Frequency Rate</h2>
-                  </div>
-                </div>
+                <CardHeader
+                  title="Near Miss Frequency Rate"
+                  info={METRIC_INFO.nmfr}
+                />
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
@@ -2515,7 +2635,7 @@ export default function App() {
                         nmfrChartData.length > 0 &&
                         nmfrChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={globalChartVariant}
+                            variant={chartVariants.nmfr}
                             width={nmfrChartWidth}
                             height={INCIDENT_CHART_HEIGHT}
                             hideLegend
@@ -2536,6 +2656,16 @@ export default function App() {
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.nmfr}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          nmfr: nextVariant
+                        }));
+                      }}
+                    />
 
                     <MetricSummaryPanel
                       title="Near Miss Frequency Rate"
@@ -2575,11 +2705,10 @@ export default function App() {
 
             {visibleCards.otd && (
               <article className="analytics-card" style={{ order: 4 }}>
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">On Time Delivery (OTD)</h2>
-                  </div>
-                </div>
+                <CardHeader
+                  title="On Time Delivery (OTD)"
+                  info={METRIC_INFO.otd}
+                />
 
                 <div className="dashboard-grid">
                   <aside
@@ -2723,7 +2852,7 @@ export default function App() {
                         otdChartData.labels.length > 0 &&
                         otdChartWidth > 0 && (
                           <MetricTrendChart
-                            variant={globalChartVariant}
+                            variant={chartVariants.otd}
                             width={otdChartWidth}
                             height={CHART_HEIGHT}
                             margin={DEFAULT_CHART_MARGIN}
@@ -2734,14 +2863,14 @@ export default function App() {
                                 data: otdChartData.contract,
                                 label: 'Contract Commitment',
                                 color: 'var(--chart-line)',
-                                valueFormatter: formatNumber,
+                                valueFormatter: formatUnits,
                                 showMark: false
                               },
                               {
                                 data: otdChartData.delivered,
                                 label: 'Actuals Delivered',
-                                color: 'var(--chart-secondary-line)',
-                                valueFormatter: formatNumber,
+                                color: 'var(--chart-accent-line)',
+                                valueFormatter: formatUnits,
                                 showMark: false
                               }
                             ]}
@@ -2749,6 +2878,16 @@ export default function App() {
                           />
                         )}
                     </div>
+
+                    <ChartTypeToggle
+                      value={chartVariants.otd}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          otd: nextVariant
+                        }));
+                      }}
+                    />
 
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
@@ -2783,11 +2922,10 @@ export default function App() {
 
             {visibleCards.labor && (
               <article className="analytics-card" style={{ order: 2 }}>
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">Direct Labor Utilization</h2>
-                  </div>
-                </div>
+                <CardHeader
+                  title="Direct Labor Utilization"
+                  info={METRIC_INFO.labor}
+                />
 
                 <div className="dashboard-grid">
                   <aside
@@ -2988,9 +3126,9 @@ export default function App() {
                         laborChartData.labels.length > 0 &&
                         laborChartWidth > 0 && (
                           <>
-                            <span className="chart-axis-unit-label">Hours</span>
+                            <span className="chart-axis-unit-label">Direct %</span>
                             <MetricTrendChart
-                              variant={globalChartVariant}
+                              variant={chartVariants.labor}
                               width={laborChartWidth}
                               height={CHART_HEIGHT}
                               margin={LABOR_CHART_MARGIN}
@@ -3010,10 +3148,20 @@ export default function App() {
                         )}
                     </div>
 
+                    <ChartTypeToggle
+                      value={chartVariants.labor}
+                      onChange={(nextVariant) => {
+                        setChartVariants((currentValue) => ({
+                          ...currentValue,
+                          labor: nextVariant
+                        }));
+                      }}
+                    />
+
                     <div className="chart-footer chart-footer-match-labor">
                       <div className="chart-note-shell">
                         <p className="chart-note">
-                          Total hours include direct, indirect, and other labor categories for the
+                          Displays the percentage of total hours that are direct labor for the
                           selected cadence.
                         </p>
                       </div>

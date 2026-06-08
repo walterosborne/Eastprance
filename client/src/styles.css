@@ -442,7 +442,7 @@ body {
   font-size: clamp(0.55rem, 0.95vw, 0.8rem);
   font-weight: 700;
   line-height: 1;
-  cursor: default;
+  cursor: help;
 }
 
 .card-info-tooltip {
@@ -450,9 +450,9 @@ body {
   top: calc(100% + 0.35rem);
   right: 0;
   z-index: 5;
-  min-width: 180px;
-  max-width: min(220px, 70vw);
-  padding: 0.55rem 0.7rem;
+  min-width: 220px;
+  max-width: min(360px, 80vw);
+  padding: 0.7rem 0.8rem;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--input-bg);
@@ -470,6 +470,25 @@ body {
 .card-info:focus-within .card-info-tooltip {
   opacity: 1;
   transform: translateY(0);
+}
+
+.metric-info-copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.metric-info-paragraph {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.metric-info-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.metric-info-list li + li {
+  margin-top: 0.25rem;
 }
 
 .chart-layout {

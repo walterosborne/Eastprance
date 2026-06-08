@@ -46,6 +46,7 @@ function normalizeMeasureType(value) {
 function normalizeOtdRow(row) {
   const normalizedRow = {
     program: row.Program ?? '',
+    bu: row.BU ?? '',
     project_id: row['Project ID'] ?? '',
     site: row.Site ?? '',
     type: row.Type ?? '',
@@ -127,6 +128,7 @@ export async function readOtdData() {
       SELECT
         [Timeline],
         [Program],
+        [BU],
         [Project ID],
         [Site],
         [Type],

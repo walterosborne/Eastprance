@@ -1218,6 +1218,69 @@ function ChartTypeToggle({ value, onChange }) {
   );
 }
 
+function renderMetricInfoContent(info) {
+  if (Array.isArray(info)) {
+    const bulletItems = info
+      .map((item) => String(item ?? '').trim())
+      .filter(Boolean);
+
+    return bulletItems.length > 0 ? (
+      <ul className="metric-info-list">
+        {bulletItems.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    ) : (
+      <p className="metric-info-paragraph">{DEFAULT_METRIC_INFO}</p>
+    );
+  }
+
+  const normalizedInfo = String(info || DEFAULT_METRIC_INFO);
+  const lines = normalizedInfo
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return <p className="metric-info-paragraph">{DEFAULT_METRIC_INFO}</p>;
+  }
+
+  const bulletItems = [];
+  const paragraphs = [];
+
+  lines.forEach((line) => {
+    const bulletMatch = /^[-*•]\s*(.+)$/.exec(line);
+
+    if (bulletMatch) {
+      bulletItems.push(bulletMatch[1]);
+      return;
+    }
+
+    paragraphs.push(line);
+  });
+
+  if (bulletItems.length === 0 && paragraphs.length === 1) {
+    return <p className="metric-info-paragraph">{paragraphs[0]}</p>;
+  }
+
+  return (
+    <div className="metric-info-copy">
+      {paragraphs.map((paragraph) => (
+        <p key={paragraph} className="metric-info-paragraph">
+          {paragraph}
+        </p>
+      ))}
+      {bulletItems.length > 0 && (
+        <ul className="metric-info-list">
+          {bulletItems.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function CardHeader({ title, info }) {
   const metricInfo = info || DEFAULT_METRIC_INFO;
 
@@ -1233,7 +1296,7 @@ function CardHeader({ title, info }) {
           ?
         </button>
         <div className="card-info-tooltip" role="tooltip">
-          {metricInfo}
+          {renderMetricInfoContent(metricInfo)}
         </div>
       </div>
     </div>
@@ -1501,6 +1564,7 @@ export default function App() {
   const [potentialSifViewMode, setPotentialSifViewMode] = useState('monthly');
   const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
   const [selectedProgram, setSelectedProgram] = useState(ALL_FILTER_VALUE);
+  const [selectedOtdBu, setSelectedOtdBu] = useState(ALL_FILTER_VALUE);
   const [selectedSite, setSelectedSite] = useState(ALL_FILTER_VALUE);
   const [selectedOtdType, setSelectedOtdType] = useState(ALL_FILTER_VALUE);
   const [otdViewMode, setOtdViewMode] = useState('monthly');
@@ -1742,6 +1806,7 @@ export default function App() {
           source: getSourceLabel(payload.source)
         });
         setSelectedProgram(ALL_FILTER_VALUE);
+        setSelectedOtdBu(ALL_FILTER_VALUE);
         setSelectedSite(ALL_FILTER_VALUE);
         setSelectedOtdType(ALL_FILTER_VALUE);
         setOtdViewMode('monthly');
@@ -1995,17 +2060,20 @@ export default function App() {
   const nmfrSummaryValue = nmfrAverageValue == null ? '--' : formatNumber(nmfrAverageValue);
 
   const programOptions = getFilterOptions(otdState.rows, 'program');
+  const otdBuOptions = getFilterOptions(otdState.rows, 'bu');
   const siteOptions = getFilterOptions(otdState.rows, 'site');
   const otdTypeOptions = getFilterOptions(otdState.rows, 'type');
   const activeProgram = normalizeFilterValue(selectedProgram, programOptions);
+  const activeOtdBu = normalizeFilterValue(selectedOtdBu, otdBuOptions);
   const activeSite = normalizeFilterValue(selectedSite, siteOptions);
   const activeOtdType = normalizeFilterValue(selectedOtdType, otdTypeOptions);
   const filteredOtdRows = otdState.rows.filter((row) => {
     const programMatches = activeProgram === ALL_FILTER_VALUE || row.program === activeProgram;
+    const buMatches = activeOtdBu === ALL_FILTER_VALUE || row.bu === activeOtdBu;
     const siteMatches = activeSite === ALL_FILTER_VALUE || row.site === activeSite;
     const typeMatches = activeOtdType === ALL_FILTER_VALUE || row.type === activeOtdType;
 
-    return programMatches && siteMatches && typeMatches;
+    return programMatches && buMatches && siteMatches && typeMatches;
   });
   const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
 
@@ -2730,7 +2798,7 @@ export default function App() {
 
                       {isOtdFiltersOpen && (
                         <p className="filter-copy">
-                          Narrow the OTD chart by program, site, and type.
+                          Narrow the OTD chart by program, BU, site, and type.
                         </p>
                       )}
                     </div>
@@ -2757,6 +2825,33 @@ export default function App() {
                               >
                                 <MenuItem value={ALL_FILTER_VALUE}>All programs</MenuItem>
                                 {programOptions.map((option) => (
+                                  <MenuItem key={option} value={option}>
+                                    {option}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </div>
+
+                          <div className="filter-group">
+                            <label className="filter-label" htmlFor="otd-bu-filter">
+                              BU
+                            </label>
+                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
+                              <Select
+                                id="otd-bu-filter"
+                                value={activeOtdBu}
+                                displayEmpty
+                                onChange={(event) => {
+                                  setSelectedOtdBu(event.target.value);
+                                }}
+                                renderValue={(value) =>
+                                  value === ALL_FILTER_VALUE ? 'All BUs' : value
+                                }
+                                MenuProps={selectMenuProps}
+                              >
+                                <MenuItem value={ALL_FILTER_VALUE}>All BUs</MenuItem>
+                                {otdBuOptions.map((option) => (
                                   <MenuItem key={option} value={option}>
                                     {option}
                                   </MenuItem>

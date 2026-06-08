@@ -44,6 +44,15 @@ const beatlesPrograms = [
   { program: 'Ob La Di Parade Whistles', projectId: 'BTL-024', site: 'Parade Square', type: 'Whistle Mold' }
 ];
 
+const otdBusinessUnits = [
+  'Abbey Systems',
+  'Pepperland Operations',
+  'Liverpool Programs',
+  'Mersey Manufacturing',
+  'Northern Delivery',
+  'Rooftop Integration'
+];
+
 const laborFacilities = [
   'Blonde on Blonde Works',
   'Desolation Row Plant',
@@ -278,9 +287,11 @@ function createOtdRows() {
   const rng = createRng(1964);
 
   return beatlesPrograms.flatMap((project, projectIndex) => {
+    const businessUnit = otdBusinessUnits[projectIndex % otdBusinessUnits.length];
     const contractRow = {
       '2026': 'Contract Commitment',
       Program: project.program,
+      BU: businessUnit,
       'Project ID': project.projectId,
       Site: project.site,
       Type: project.type
@@ -288,6 +299,7 @@ function createOtdRows() {
     const deliveredRow = {
       '2026': 'Actual Delivered',
       Program: project.program,
+      BU: businessUnit,
       'Project ID': project.projectId,
       Site: project.site,
       Type: project.type

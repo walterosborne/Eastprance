@@ -5,6 +5,7 @@ import {
   faCalculator,
   faChartColumn,
   faChartLine,
+  faChartSimple,
   faClipboardCheck,
   faFilter,
   faMoon,
@@ -23,10 +24,17 @@ import {
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import {
+  BarPlot,
+  ChartsContainer,
+  ChartsGrid,
   ChartsTooltipContainer,
+  ChartsXAxis,
+  ChartsYAxis,
+  LinePlot,
+  MarkPlot,
   useAxesTooltip,
   useItemTooltip
-} from '@mui/x-charts/ChartsTooltip';
+} from '@mui/x-charts';
 import { DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 
 const ALL_FILTER_VALUE = '__all__';
@@ -95,6 +103,74 @@ const CONTROLLABLE_COSTS_VIEW_CONFIG = {
     label: 'Annual'
   }
 };
+
+const CONTROLLABLE_CHART_FILTER_FIELDS = [
+  {
+    value: 'address',
+    label: 'Facility',
+    allLabel: 'All facilities'
+  },
+  {
+    value: 'cost_element_description',
+    label: 'Cost element',
+    allLabel: 'All cost elements'
+  }
+];
+
+const OTD_CHART_FILTER_FIELDS = [
+  {
+    value: 'program',
+    label: 'Program',
+    allLabel: 'All programs'
+  },
+  {
+    value: 'bu',
+    label: 'BU',
+    allLabel: 'All BUs'
+  },
+  {
+    value: 'site',
+    label: 'Site',
+    allLabel: 'All sites'
+  },
+  {
+    value: 'type',
+    label: 'Type',
+    allLabel: 'All types'
+  }
+];
+
+const OTD_PARETO_FILTER_FIELDS = [OTD_CHART_FILTER_FIELDS[1]];
+
+const LABOR_CHART_FILTER_FIELDS = [
+  {
+    value: 'forecasted_cc',
+    label: 'Facility',
+    allLabel: 'All facilities'
+  },
+  {
+    value: 'pool',
+    label: 'Pool',
+    allLabel: 'All pools'
+  },
+  {
+    value: 'union_type',
+    label: 'Union type',
+    allLabel: 'All union types'
+  },
+  {
+    value: 'worker_type',
+    label: 'Worker type',
+    allLabel: 'All worker types'
+  },
+  {
+    value: 'time_type',
+    label: 'Time type',
+    allLabel: 'All time types'
+  }
+];
+
+const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
 
 const CARD_CHIP_OPTIONS = [
   {
@@ -285,6 +361,28 @@ const chartTypeToggleGroupSx = {
   '& .MuiToggleButtonGroup-grouped': {
     margin: 0,
     border: 0
+  }
+};
+
+const chartTypeToggleGroupFilterSx = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gridAutoRows: 'minmax(0, 1fr)',
+  width: '88px',
+  minWidth: '88px',
+  padding: '0.18rem',
+  gap: '0.18rem',
+  borderRadius: '14px',
+  '& .MuiToggleButtonGroup-grouped': {
+    flex: 'none',
+    width: '100%',
+    minWidth: 0,
+    margin: 0,
+    border: 0
+  },
+  '& .MuiToggleButton-root': {
+    width: '100%',
+    minWidth: 0
   }
 };
 
@@ -838,6 +936,84 @@ function buildOtdChartData(rows, viewMode, selectedDateRange) {
   };
 }
 
+function normalizeParetoCategoryLabel(value) {
+  const normalizedValue = String(value ?? '').trim();
+  return normalizedValue || 'Unspecified';
+}
+
+function buildParetoChartData(entries) {
+  const totalsByCategory = new Map();
+
+  entries.forEach(({ category, value }) => {
+    const numericValue = Number(value);
+
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return;
+    }
+
+    const categoryLabel = normalizeParetoCategoryLabel(category);
+    totalsByCategory.set(categoryLabel, (totalsByCategory.get(categoryLabel) ?? 0) + numericValue);
+  });
+
+  const sortedEntries = Array.from(totalsByCategory.entries())
+    .map(([label, total]) => ({
+      label,
+      total: Number(total.toFixed(2))
+    }))
+    .sort((left, right) => {
+      if (right.total !== left.total) {
+        return right.total - left.total;
+      }
+
+      return left.label.localeCompare(right.label);
+    });
+
+  const grandTotal = sortedEntries.reduce((sum, entry) => sum + entry.total, 0);
+  let runningTotal = 0;
+
+  return {
+    labels: sortedEntries.map((entry) => entry.label),
+    values: sortedEntries.map((entry) => entry.total),
+    cumulativeShares: sortedEntries.map((entry) => {
+      runningTotal += entry.total;
+      return grandTotal > 0 ? Number((runningTotal / grandTotal).toFixed(4)) : 0;
+    })
+  };
+}
+
+function buildControllableCostsParetoChartData(rows, fieldName, selectedDateRange) {
+  return buildParetoChartData(
+    rows
+      .filter((row) => isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange))
+      .map((row) => ({
+        category: row[fieldName],
+        value: row.cost
+      }))
+  );
+}
+
+function buildOtdParetoChartData(rows, fieldName, selectedDateRange) {
+  const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
+    (monthIndex) =>
+      isStampWithinDateRange(
+        getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
+        selectedDateRange
+      )
+  );
+
+  return buildParetoChartData(
+    rows
+      .filter((row) => row.measure_type === 'Actuals Delivered')
+      .map((row) => ({
+        category: row[fieldName],
+        value: monthIndicesInRange.reduce((sum, monthIndex) => {
+          const numericValue = Number(row[OTD_MONTH_COLUMNS[monthIndex].key]);
+          return Number.isFinite(numericValue) ? sum + numericValue : sum;
+        }, 0)
+      }))
+  );
+}
+
 function getLaborCategoryGroup(laborCategory) {
   const normalizedValue = String(laborCategory ?? '').toLowerCase();
 
@@ -1193,6 +1369,82 @@ function MetricTrendChart({
   return <LineChart {...chartProps} />;
 }
 
+function ParetoMetricChart({
+  width,
+  height,
+  margin,
+  labels,
+  values,
+  cumulativeShares,
+  barLabel,
+  barColor,
+  barAxis,
+  barValueFormatter,
+  sx = sharedChartSx
+}) {
+  return (
+    <ChartsContainer
+      width={width}
+      height={height}
+      margin={margin}
+      series={[
+        {
+          type: 'bar',
+          id: 'pareto-bars',
+          data: values,
+          label: barLabel,
+          color: barColor,
+          valueFormatter: barValueFormatter,
+          yAxisId: 'value-axis'
+        },
+        {
+          type: 'line',
+          id: 'pareto-cumulative',
+          data: cumulativeShares,
+          label: 'Cumulative share',
+          color: 'var(--chart-accent-line)',
+          valueFormatter: formatPercentValue,
+          yAxisId: 'cumulative-axis',
+          showMark: false
+        }
+      ]}
+      xAxis={[
+        {
+          id: 'pareto-categories',
+          scaleType: 'band',
+          height: 28,
+          data: labels
+        }
+      ]}
+      yAxis={[
+        {
+          id: 'value-axis',
+          ...barAxis[0]
+        },
+        {
+          id: 'cumulative-axis',
+          position: 'right',
+          min: 0,
+          max: 1,
+          width: 44,
+          valueFormatter: formatPercentAxis,
+          tickLabelStyle: { fontSize: 11 }
+        }
+      ]}
+      sx={sx}
+    >
+      <ChartsGrid horizontal />
+      <BarPlot />
+      <LinePlot />
+      <MarkPlot />
+      <ChartsXAxis axisId="pareto-categories" />
+      <ChartsYAxis axisId="value-axis" />
+      <ChartsYAxis axisId="cumulative-axis" />
+      <StandardChartTooltip trigger="axis" />
+    </ChartsContainer>
+  );
+}
+
 function ChartTypeToggle(props) {
   return (
     <ChartTypeToggleWithFilter
@@ -1205,17 +1457,32 @@ function ChartTypeToggleWithFilter({
   value,
   onChange,
   supportsFilter = false,
+  supportsPareto = false,
+  filterToggleAriaLabel = 'Filter chart',
+  filterFieldValue = '',
+  filterFieldOptions = [],
+  paretoFieldOptions = [],
+  filterFieldAriaLabel = 'Filter field',
+  onFilterFieldChange = null,
   filterValue = ALL_FILTER_VALUE,
-  filterOptions = [],
-  filterAllLabel = 'All',
-  filterAriaLabel = 'Chart filter',
-  onFilterChange = null
+  filterValueOptions = [],
+  filterValueAllLabel = 'All',
+  filterValueAriaLabel = 'Filter value',
+  onFilterValueChange = null
 }) {
   const isFilterMode = supportsFilter && value === 'filter';
+  const isParetoMode = supportsPareto && value === 'pareto';
+  const isExpandedFilterMode = isFilterMode || isParetoMode;
+  const activeFieldOptions =
+    isParetoMode && paretoFieldOptions.length > 0 ? paretoFieldOptions : filterFieldOptions;
+  const activeFilterFieldLabel =
+    activeFieldOptions.find((option) => option.value === filterFieldValue)?.label ??
+    activeFieldOptions[0]?.label ??
+    'Field';
 
   return (
     <div
-      className={`chart-type-toggle-bar${isFilterMode ? ' chart-type-toggle-bar-with-filter' : ''}`}
+      className={`chart-type-toggle-bar${isExpandedFilterMode ? ' chart-type-toggle-bar-with-filter' : ''}`}
     >
       <ToggleButtonGroup
         value={value}
@@ -1226,7 +1493,7 @@ function ChartTypeToggleWithFilter({
             onChange(nextVariant);
           }
         }}
-        sx={chartTypeToggleGroupSx}
+        sx={isExpandedFilterMode ? [chartTypeToggleGroupSx, chartTypeToggleGroupFilterSx] : chartTypeToggleGroupSx}
         aria-label="Chart type"
       >
         <ToggleButton value="line" sx={chartTypeToggleButtonSx} aria-label="Line chart">
@@ -1236,37 +1503,66 @@ function ChartTypeToggleWithFilter({
           <FontAwesomeIcon icon={faChartColumn} />
         </ToggleButton>
         {supportsFilter && (
-          <ToggleButton value="filter" sx={chartTypeToggleButtonSx} aria-label={filterAriaLabel}>
+          <ToggleButton
+            value="filter"
+            sx={chartTypeToggleButtonSx}
+            aria-label={filterToggleAriaLabel}
+          >
             <FontAwesomeIcon icon={faFilter} />
+          </ToggleButton>
+        )}
+        {supportsPareto && (
+          <ToggleButton value="pareto" sx={chartTypeToggleButtonSx} aria-label="Pareto chart">
+            <FontAwesomeIcon icon={faChartSimple} />
           </ToggleButton>
         )}
       </ToggleButtonGroup>
 
       {supportsFilter && (
         <div
-          className={`chart-type-inline-filter${isFilterMode ? ' chart-type-inline-filter-visible' : ''}`}
+          className={`chart-type-inline-filter${isExpandedFilterMode ? ' chart-type-inline-filter-visible' : ''}${isParetoMode ? ' chart-type-inline-filter-single' : ''}`}
         >
           <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
             <Select
-              value={filterValue}
-              displayEmpty
+              value={filterFieldValue}
               onChange={(event) => {
-                onFilterChange?.(event.target.value);
+                onFilterFieldChange?.(event.target.value);
               }}
-              renderValue={(selectedValue) =>
-                selectedValue === ALL_FILTER_VALUE ? filterAllLabel : selectedValue
-              }
+              renderValue={() => activeFilterFieldLabel}
               MenuProps={selectMenuProps}
-              inputProps={{ 'aria-label': filterAriaLabel }}
+              inputProps={{ 'aria-label': filterFieldAriaLabel }}
             >
-              <MenuItem value={ALL_FILTER_VALUE}>{filterAllLabel}</MenuItem>
-              {filterOptions.map((option) => (
-                <MenuItem key={option} value={option}>
-                  {option}
+              {activeFieldOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
+
+          {isFilterMode && (
+            <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
+              <Select
+                value={filterValue}
+                displayEmpty
+                onChange={(event) => {
+                  onFilterValueChange?.(event.target.value);
+                }}
+                renderValue={(selectedValue) =>
+                  selectedValue === ALL_FILTER_VALUE ? filterValueAllLabel : selectedValue
+                }
+                MenuProps={selectMenuProps}
+                inputProps={{ 'aria-label': filterValueAriaLabel }}
+              >
+                <MenuItem value={ALL_FILTER_VALUE}>{filterValueAllLabel}</MenuItem>
+                {filterValueOptions.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {option}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
         </div>
       )}
     </div>
@@ -1274,61 +1570,117 @@ function ChartTypeToggleWithFilter({
 }
 
 function renderMetricInfoContent(info) {
-  if (Array.isArray(info)) {
-    const bulletItems = info
-      .map((item) => String(item ?? '').trim())
-      .filter(Boolean);
+  function normalizeMetricInfoEntry(item, { defaultBullet = false } = {}) {
+    if (item == null) {
+      return null;
+    }
 
-    return bulletItems.length > 0 ? (
-      <ul className="metric-info-list">
-        {bulletItems.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    ) : (
-      <p className="metric-info-paragraph">{DEFAULT_METRIC_INFO}</p>
-    );
+    if (typeof item === 'object' && !Array.isArray(item)) {
+      const text = String(item.text ?? '').trim();
+
+      if (!text) {
+        return null;
+      }
+
+      return {
+        text,
+        bullet: item.bullet ?? defaultBullet,
+        bold: Boolean(item.bold),
+        underline: Boolean(item.underline)
+      };
+    }
+
+    const rawText = String(item).trim();
+
+    if (!rawText) {
+      return null;
+    }
+
+    const bulletMatch = /^[-*•]\s*(.+)$/.exec(rawText);
+    const bullet = bulletMatch ? true : defaultBullet;
+    let text = (bulletMatch ? bulletMatch[1] : rawText).trim();
+    let bold = false;
+    let underline = false;
+    let hasChanged = true;
+
+    while (hasChanged && text.length > 0) {
+      hasChanged = false;
+
+      if (text.startsWith('**') && text.endsWith('**') && text.length > 4) {
+        text = text.slice(2, -2).trim();
+        bold = true;
+        hasChanged = true;
+      }
+
+      if (text.startsWith('__') && text.endsWith('__') && text.length > 4) {
+        text = text.slice(2, -2).trim();
+        underline = true;
+        hasChanged = true;
+      }
+    }
+
+    return text
+      ? {
+          text,
+          bullet,
+          bold,
+          underline
+        }
+      : null;
   }
 
-  const normalizedInfo = String(info || DEFAULT_METRIC_INFO);
-  const lines = normalizedInfo
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
+  function renderMetricInfoText(entry) {
+    let content = entry.text;
 
-  if (lines.length === 0) {
+    if (entry.underline) {
+      content = <span className="metric-info-underline">{content}</span>;
+    }
+
+    if (entry.bold) {
+      content = <strong className="metric-info-strong">{content}</strong>;
+    }
+
+    return content;
+  }
+
+  const normalizedEntries = Array.isArray(info)
+    ? info
+        .map((item) => normalizeMetricInfoEntry(item, { defaultBullet: true }))
+        .filter(Boolean)
+    : typeof info === 'object' && info !== null
+      ? [normalizeMetricInfoEntry(info)].filter(Boolean)
+      : String(info || DEFAULT_METRIC_INFO)
+          .split('\n')
+          .map((line) => normalizeMetricInfoEntry(line))
+          .filter(Boolean);
+
+  if (normalizedEntries.length === 0) {
     return <p className="metric-info-paragraph">{DEFAULT_METRIC_INFO}</p>;
   }
 
-  const bulletItems = [];
-  const paragraphs = [];
-
-  lines.forEach((line) => {
-    const bulletMatch = /^[-*•]\s*(.+)$/.exec(line);
-
-    if (bulletMatch) {
-      bulletItems.push(bulletMatch[1]);
-      return;
-    }
-
-    paragraphs.push(line);
-  });
+  const bulletItems = normalizedEntries.filter((entry) => entry.bullet);
+  const paragraphs = normalizedEntries.filter((entry) => !entry.bullet);
 
   if (bulletItems.length === 0 && paragraphs.length === 1) {
-    return <p className="metric-info-paragraph">{paragraphs[0]}</p>;
+    return <p className="metric-info-paragraph">{renderMetricInfoText(paragraphs[0])}</p>;
   }
 
   return (
     <div className="metric-info-copy">
       {paragraphs.map((paragraph) => (
-        <p key={paragraph} className="metric-info-paragraph">
-          {paragraph}
+        <p
+          key={`${paragraph.text}-${paragraph.bold}-${paragraph.underline}`}
+          className="metric-info-paragraph"
+        >
+          {renderMetricInfoText(paragraph)}
         </p>
       ))}
       {bulletItems.length > 0 && (
         <ul className="metric-info-list">
           {bulletItems.map((item) => (
-            <li key={item}>{item}</li>
+            <li key={`${item.text}-${item.bold}-${item.underline}`}>
+              {renderMetricInfoText(item)}
+            </li>
           ))}
         </ul>
       )}
@@ -1358,9 +1710,9 @@ function CardHeader({ title, info }) {
   );
 }
 
-function MetricSummaryPanel({ title, value }) {
+function MetricSummaryPanel({ title, value, className = '' }) {
   return (
-    <section className="filter-panel filter-panel-collapsed metric-summary-panel">
+    <section className={`filter-panel metric-summary-panel ${className}`.trim()}>
       <p className="metric-summary-title">{title}</p>
       <p className="metric-summary-value">{value}</p>
     </section>
@@ -1611,34 +1963,30 @@ export default function App() {
     error: '',
     source: ''
   });
-  const [selectedControllableAddress, setSelectedControllableAddress] = useState(ALL_FILTER_VALUE);
-  const [selectedControllableFacilityView, setSelectedControllableFacilityView] =
-    useState(ALL_FILTER_VALUE);
-  const [selectedControllableCostElementDescription, setSelectedControllableCostElementDescription] =
+  const [selectedControllableChartFilterField, setSelectedControllableChartFilterField] = useState(
+    CONTROLLABLE_CHART_FILTER_FIELDS[0].value
+  );
+  const [selectedControllableChartFilterValue, setSelectedControllableChartFilterValue] =
     useState(ALL_FILTER_VALUE);
   const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
   const [sifViewMode, setSifViewMode] = useState('monthly');
   const [potentialSifViewMode, setPotentialSifViewMode] = useState('monthly');
   const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
-  const [selectedProgram, setSelectedProgram] = useState(ALL_FILTER_VALUE);
-  const [selectedOtdBu, setSelectedOtdBu] = useState(ALL_FILTER_VALUE);
-  const [selectedOtdBuView, setSelectedOtdBuView] = useState(ALL_FILTER_VALUE);
-  const [selectedSite, setSelectedSite] = useState(ALL_FILTER_VALUE);
-  const [selectedOtdType, setSelectedOtdType] = useState(ALL_FILTER_VALUE);
+  const [selectedOtdChartFilterField, setSelectedOtdChartFilterField] = useState(
+    OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'bu')?.value ?? OTD_CHART_FILTER_FIELDS[0].value
+  );
+  const [selectedOtdChartFilterValue, setSelectedOtdChartFilterValue] = useState(ALL_FILTER_VALUE);
   const [otdViewMode, setOtdViewMode] = useState('monthly');
-  const [selectedForecastedCc, setSelectedForecastedCc] = useState(ALL_FILTER_VALUE);
-  const [selectedPool, setSelectedPool] = useState(ALL_FILTER_VALUE);
-  const [selectedUnionType, setSelectedUnionType] = useState(ALL_FILTER_VALUE);
-  const [selectedWorkerType, setSelectedWorkerType] = useState(ALL_FILTER_VALUE);
-  const [selectedTimeType, setSelectedTimeType] = useState(ALL_FILTER_VALUE);
+  const [selectedLaborChartFilterField, setSelectedLaborChartFilterField] = useState(
+    LABOR_CHART_FILTER_FIELDS[0].value
+  );
+  const [selectedLaborChartFilterValue, setSelectedLaborChartFilterValue] =
+    useState(ALL_FILTER_VALUE);
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [selectedCardGroup, setSelectedCardGroup] = useState('all');
   const [chartVariants, setChartVariants] = useState(DEFAULT_CHART_VARIANTS);
   const [selectedDateRangeIndices, setSelectedDateRangeIndices] = useState([0, 0]);
   const [hasCustomizedDateRange, setHasCustomizedDateRange] = useState(false);
-  const [isControllableCostsFiltersOpen, setIsControllableCostsFiltersOpen] = useState(false);
-  const [isOtdFiltersOpen, setIsOtdFiltersOpen] = useState(false);
-  const [isLaborFiltersOpen, setIsLaborFiltersOpen] = useState(false);
   const {
     chartHostRef: controllableCostsChartHostRef,
     chartWidth: controllableCostsChartWidth
@@ -1673,9 +2021,8 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSelectedControllableAddress(ALL_FILTER_VALUE);
-        setSelectedControllableFacilityView(ALL_FILTER_VALUE);
-        setSelectedControllableCostElementDescription(ALL_FILTER_VALUE);
+        setSelectedControllableChartFilterField(CONTROLLABLE_CHART_FILTER_FIELDS[0].value);
+        setSelectedControllableChartFilterValue(ALL_FILTER_VALUE);
         setControllableCostsViewMode('quarterly');
 
         logClientDebug('controllable-costs', 'Controllable costs state updated.', {
@@ -1864,11 +2211,11 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSelectedProgram(ALL_FILTER_VALUE);
-        setSelectedOtdBu(ALL_FILTER_VALUE);
-        setSelectedOtdBuView(ALL_FILTER_VALUE);
-        setSelectedSite(ALL_FILTER_VALUE);
-        setSelectedOtdType(ALL_FILTER_VALUE);
+        setSelectedOtdChartFilterField(
+          OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'bu')?.value ??
+            OTD_CHART_FILTER_FIELDS[0].value
+        );
+        setSelectedOtdChartFilterValue(ALL_FILTER_VALUE);
         setOtdViewMode('monthly');
 
         logClientDebug('otd', 'OTD state updated.', {
@@ -1915,11 +2262,8 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSelectedForecastedCc(ALL_FILTER_VALUE);
-        setSelectedPool(ALL_FILTER_VALUE);
-        setSelectedUnionType(ALL_FILTER_VALUE);
-        setSelectedWorkerType(ALL_FILTER_VALUE);
-        setSelectedTimeType(ALL_FILTER_VALUE);
+        setSelectedLaborChartFilterField(LABOR_CHART_FILTER_FIELDS[0].value);
+        setSelectedLaborChartFilterValue(ALL_FILTER_VALUE);
         setLaborViewMode('monthly');
 
         logClientDebug('labor', 'Labor state updated.', {
@@ -2011,7 +2355,6 @@ export default function App() {
     });
   }, [availableTimelineKey, availableTimelineStamps.length, hasCustomizedDateRange]);
 
-  const controllableAddressOptions = getFilterOptions(controllableCostsState.rows, 'address');
   const maximumDateIndex = Math.max(availableTimelineStamps.length - 1, 0);
   const ytdRangeIndices = getYtdRangeIndices(availableTimelineStamps);
   const activeDateRangeIndices = [
@@ -2041,34 +2384,28 @@ export default function App() {
     availableTimelineStamps.length > 0
       ? formatMonthStamp(availableTimelineStamps[maximumDateIndex])
       : '';
-  const controllableCostElementDescriptionOptions = getFilterOptions(
-    controllableCostsState.rows,
-    'cost_element_description'
+  const activeControllableChartFilterField =
+    CONTROLLABLE_CHART_FILTER_FIELDS.find(
+      (option) => option.value === selectedControllableChartFilterField
+    ) ?? CONTROLLABLE_CHART_FILTER_FIELDS[0];
+  const baseFilteredControllableCostsRows = controllableCostsState.rows;
+  const controllableChartFilterValueOptions = getFilterOptions(
+    baseFilteredControllableCostsRows,
+    activeControllableChartFilterField.value
   );
-  const activeControllableAddress = normalizeFilterValue(
-    selectedControllableAddress,
-    controllableAddressOptions
+  const activeControllableChartFilterValue = normalizeFilterValue(
+    selectedControllableChartFilterValue,
+    controllableChartFilterValueOptions
   );
-  const activeControllableFacilityView = normalizeFilterValue(
-    selectedControllableFacilityView,
-    controllableAddressOptions
-  );
-  const activeControllableCostElementDescription = normalizeFilterValue(
-    selectedControllableCostElementDescription,
-    controllableCostElementDescriptionOptions
-  );
-  const effectiveControllableAddress =
-    chartVariants.controllableCosts === 'filter'
-      ? activeControllableFacilityView
-      : activeControllableAddress;
-  const filteredControllableCostsRows = controllableCostsState.rows.filter((row) => {
-    const addressMatches =
-      effectiveControllableAddress === ALL_FILTER_VALUE || row.address === effectiveControllableAddress;
-    const costElementDescriptionMatches =
-      activeControllableCostElementDescription === ALL_FILTER_VALUE ||
-      row.cost_element_description === activeControllableCostElementDescription;
+  const filteredControllableCostsRows = baseFilteredControllableCostsRows.filter((row) => {
+    if (chartVariants.controllableCosts !== 'filter') {
+      return true;
+    }
 
-    return addressMatches && costElementDescriptionMatches;
+    return (
+      activeControllableChartFilterValue === ALL_FILTER_VALUE ||
+      row[activeControllableChartFilterField.value] === activeControllableChartFilterValue
+    );
   });
   const globallyFilteredControllableCostsRows = filteredControllableCostsRows.filter((row) =>
     isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
@@ -2078,6 +2415,12 @@ export default function App() {
     controllableCostsViewMode,
     selectedDateRange
   );
+  const controllableCostsParetoChartData = buildControllableCostsParetoChartData(
+    baseFilteredControllableCostsRows,
+    activeControllableChartFilterField.value,
+    selectedDateRange
+  );
+  const isControllableCostsPareto = chartVariants.controllableCosts === 'pareto';
   const filteredSifRows = sifState.rows.filter(
     (row) => Number(row.kpi_id) === SIF_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
@@ -2127,53 +2470,55 @@ export default function App() {
   const nmfrAverageValue = averageActualValues(globallyFilteredNmfrRows);
   const nmfrSummaryValue = nmfrAverageValue == null ? '--' : formatNumber(nmfrAverageValue);
 
-  const programOptions = getFilterOptions(otdState.rows, 'program');
-  const otdBuOptions = getFilterOptions(otdState.rows, 'bu');
-  const siteOptions = getFilterOptions(otdState.rows, 'site');
-  const otdTypeOptions = getFilterOptions(otdState.rows, 'type');
-  const activeProgram = normalizeFilterValue(selectedProgram, programOptions);
-  const activeOtdBu = normalizeFilterValue(selectedOtdBu, otdBuOptions);
-  const activeOtdBuView = normalizeFilterValue(selectedOtdBuView, otdBuOptions);
-  const activeSite = normalizeFilterValue(selectedSite, siteOptions);
-  const activeOtdType = normalizeFilterValue(selectedOtdType, otdTypeOptions);
-  const effectiveOtdBu = chartVariants.otd === 'filter' ? activeOtdBuView : activeOtdBu;
-  const filteredOtdRows = otdState.rows.filter((row) => {
-    const programMatches = activeProgram === ALL_FILTER_VALUE || row.program === activeProgram;
-    const buMatches = effectiveOtdBu === ALL_FILTER_VALUE || row.bu === effectiveOtdBu;
-    const siteMatches = activeSite === ALL_FILTER_VALUE || row.site === activeSite;
-    const typeMatches = activeOtdType === ALL_FILTER_VALUE || row.type === activeOtdType;
-
-    return programMatches && buMatches && siteMatches && typeMatches;
-  });
-  const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
-
-  const forecastedCcOptions = getFilterOptions(laborState.rows, 'forecasted_cc');
-  const poolOptions = getFilterOptions(laborState.rows, 'pool');
-  const unionTypeOptions = getFilterOptions(laborState.rows, 'union_type');
-  const workerTypeOptions = getFilterOptions(laborState.rows, 'worker_type');
-  const timeTypeOptions = getFilterOptions(laborState.rows, 'time_type');
-  const activeForecastedCc = normalizeFilterValue(selectedForecastedCc, forecastedCcOptions);
-  const activePool = normalizeFilterValue(selectedPool, poolOptions);
-  const activeUnionType = normalizeFilterValue(selectedUnionType, unionTypeOptions);
-  const activeWorkerType = normalizeFilterValue(selectedWorkerType, workerTypeOptions);
-  const activeTimeType = normalizeFilterValue(selectedTimeType, timeTypeOptions);
-  const filteredLaborRows = laborState.rows.filter((row) => {
-    const facilityMatches =
-      activeForecastedCc === ALL_FILTER_VALUE || row.forecasted_cc === activeForecastedCc;
-    const poolMatches = activePool === ALL_FILTER_VALUE || row.pool === activePool;
-    const unionTypeMatches =
-      activeUnionType === ALL_FILTER_VALUE || row.union_type === activeUnionType;
-    const workerTypeMatches =
-      activeWorkerType === ALL_FILTER_VALUE || row.worker_type === activeWorkerType;
-    const timeTypeMatches =
-      activeTimeType === ALL_FILTER_VALUE || row.time_type === activeTimeType;
+  const activeOtdChartFilterField =
+    OTD_CHART_FILTER_FIELDS.find((option) => option.value === selectedOtdChartFilterField) ??
+    OTD_CHART_FILTER_FIELDS[0];
+  const baseFilteredOtdRows = otdState.rows;
+  const otdChartFilterValueOptions = getFilterOptions(
+    baseFilteredOtdRows,
+    activeOtdChartFilterField.value
+  );
+  const activeOtdChartFilterValue = normalizeFilterValue(
+    selectedOtdChartFilterValue,
+    otdChartFilterValueOptions
+  );
+  const filteredOtdRows = baseFilteredOtdRows.filter((row) => {
+    if (chartVariants.otd !== 'filter') {
+      return true;
+    }
 
     return (
-      facilityMatches &&
-      poolMatches &&
-      unionTypeMatches &&
-      workerTypeMatches &&
-      timeTypeMatches
+      activeOtdChartFilterValue === ALL_FILTER_VALUE ||
+      row[activeOtdChartFilterField.value] === activeOtdChartFilterValue
+    );
+  });
+  const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
+  const otdParetoChartData = buildOtdParetoChartData(
+    baseFilteredOtdRows,
+    activeOtdChartFilterField.value,
+    selectedDateRange
+  );
+  const isOtdPareto = chartVariants.otd === 'pareto';
+
+  const activeLaborChartFilterField =
+    LABOR_CHART_FILTER_FIELDS.find((option) => option.value === selectedLaborChartFilterField) ??
+    LABOR_CHART_FILTER_FIELDS[0];
+  const laborChartFilterValueOptions = getFilterOptions(
+    laborState.rows,
+    activeLaborChartFilterField.value
+  );
+  const activeLaborChartFilterValue = normalizeFilterValue(
+    selectedLaborChartFilterValue,
+    laborChartFilterValueOptions
+  );
+  const filteredLaborRows = laborState.rows.filter((row) => {
+    if (chartVariants.labor !== 'filter') {
+      return true;
+    }
+
+    return (
+      activeLaborChartFilterValue === ALL_FILTER_VALUE ||
+      row[activeLaborChartFilterField.value] === activeLaborChartFilterValue
     );
   });
   const laborChartData = buildLaborUtilizationChartData(
@@ -2349,102 +2694,6 @@ export default function App() {
                 />
 
                 <div className="dashboard-grid">
-                  <aside
-                    className={`filter-panel${isControllableCostsFiltersOpen ? '' : ' filter-panel-collapsed'}`}
-                  >
-                    <div className="filter-panel-header">
-                      <div className="filter-panel-title-row">
-                        <p className="filter-heading">Filters</p>
-                        <button
-                          type="button"
-                          className="filter-toggle"
-                          onClick={() => {
-                            setIsControllableCostsFiltersOpen((currentValue) => !currentValue);
-                          }}
-                        >
-                          {isControllableCostsFiltersOpen ? 'Hide filters' : 'Show filters'}
-                        </button>
-                      </div>
-
-                      {isControllableCostsFiltersOpen && (
-                        <p className="filter-copy">
-                          Narrow the controllable costs chart by address and cost element
-                          description.
-                        </p>
-                      )}
-                    </div>
-
-                    {isControllableCostsFiltersOpen && (
-                      <div className="filter-panel-body">
-                        <div className="filter-fields">
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="controllable-address-filter">
-                              Address
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="controllable-address-filter"
-                                value={activeControllableAddress}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedControllableAddress(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All addresses' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All addresses</MenuItem>
-                                {controllableAddressOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label
-                              className="filter-label"
-                              htmlFor="controllable-cost-element-description-filter"
-                            >
-                              Cost element description
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="controllable-cost-element-description-filter"
-                                value={activeControllableCostElementDescription}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedControllableCostElementDescription(
-                                    event.target.value
-                                  );
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All descriptions' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All descriptions</MenuItem>
-                                {controllableCostElementDescriptionOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-                        </div>
-
-                        <p className="filter-summary">
-                          Showing {filteredControllableCostsRows.length} of{' '}
-                          {controllableCostsState.rows.length} controllable cost rows.
-                        </p>
-                      </div>
-                    )}
-                  </aside>
-
                   <div className="visual-column">
                     <div ref={controllableCostsChartHostRef} className="chart-host">
                       {controllableCostsState.loading && (
@@ -2459,12 +2708,14 @@ export default function App() {
 
                       {!controllableCostsState.loading &&
                         !controllableCostsState.error &&
-                        (filteredControllableCostsRows.length === 0 ||
-                          globallyFilteredControllableCostsRows.length === 0) && (
+                        (baseFilteredControllableCostsRows.length === 0 ||
+                          (isControllableCostsPareto
+                            ? controllableCostsParetoChartData.labels.length === 0
+                            : globallyFilteredControllableCostsRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsState.rows.length === 0
                               ? 'No controllable cost rows are available for charting.'
-                              : filteredControllableCostsRows.length === 0
+                              : baseFilteredControllableCostsRows.length === 0
                                 ? 'No controllable cost rows match the selected filters.'
                                 : 'No controllable cost rows fall within the selected date range.'}
                           </p>
@@ -2472,60 +2723,97 @@ export default function App() {
 
                       {!controllableCostsState.loading &&
                         !controllableCostsState.error &&
-                        controllableCostsChartData.labels.length > 0 &&
+                        (isControllableCostsPareto
+                          ? controllableCostsParetoChartData.labels.length > 0
+                          : controllableCostsChartData.labels.length > 0) &&
                         controllableCostsChartWidth > 0 && (
-                          <MetricTrendChart
-                            variant={chartVariants.controllableCosts}
-                            width={controllableCostsChartWidth}
-                            height={CHART_HEIGHT}
-                            margin={DEFAULT_CHART_MARGIN}
-                            labels={controllableCostsChartData.labels}
-                            yAxis={OTD_Y_AXIS}
-                            series={[
-                              {
-                                data: controllableCostsChartData.controllable,
-                                label: 'Controllable',
-                                color: 'var(--chart-line)',
-                                valueFormatter: formatCurrency,
-                                showMark: false
-                              },
-                              {
-                                data: controllableCostsChartData.uncontrollable,
-                                label: 'Uncontrollable',
-                                color: 'var(--chart-accent-line)',
-                                valueFormatter: formatCurrency,
-                                showMark: false
-                              }
-                            ]}
-                            sx={sharedChartSx}
-                          />
+                          isControllableCostsPareto ? (
+                            <ParetoMetricChart
+                              width={controllableCostsChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsParetoChartData.labels}
+                              values={controllableCostsParetoChartData.values}
+                              cumulativeShares={controllableCostsParetoChartData.cumulativeShares}
+                              barLabel="Total cost"
+                              barColor="var(--chart-line)"
+                              barAxis={[
+                                {
+                                  width: 66,
+                                  valueFormatter: formatCompactCurrency,
+                                  tickLabelStyle: { fontSize: 11 }
+                                }
+                              ]}
+                              barValueFormatter={formatCurrency}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.controllableCosts}
+                              width={controllableCostsChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsChartData.labels}
+                              yAxis={OTD_Y_AXIS}
+                              series={[
+                                {
+                                  data: controllableCostsChartData.controllable,
+                                  label: 'Controllable',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: false
+                                },
+                                {
+                                  data: controllableCostsChartData.uncontrollable,
+                                  label: 'Uncontrollable',
+                                  color: 'var(--chart-accent-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: false
+                                }
+                              ]}
+                              sx={sharedChartSx}
+                            />
+                          )
                         )}
                     </div>
 
-                    <ChartTypeToggle
-                      value={chartVariants.controllableCosts}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          controllableCosts: nextVariant
-                        }));
-                      }}
-                      supportsFilter
-                      filterValue={activeControllableFacilityView}
-                      filterOptions={controllableAddressOptions}
-                      filterAllLabel="All facilities"
-                      filterAriaLabel="Filter controllable costs by facility"
-                      onFilterChange={setSelectedControllableFacilityView}
-                    />
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.controllableCosts}
+                          onChange={(nextVariant) => {
+                            if (nextVariant === 'pareto') {
+                              setSelectedControllableChartFilterField(
+                                CONTROLLABLE_PARETO_FILTER_FIELDS[0].value
+                              );
+                            }
+
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              controllableCosts: nextVariant
+                            }));
+                          }}
+                          supportsFilter
+                          supportsPareto
+                          filterToggleAriaLabel="Filter controllable costs chart"
+                          filterFieldValue={activeControllableChartFilterField.value}
+                          filterFieldOptions={CONTROLLABLE_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={CONTROLLABLE_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select controllable costs filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedControllableChartFilterField(nextField);
+                            setSelectedControllableChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activeControllableChartFilterValue}
+                          filterValueOptions={controllableChartFilterValueOptions}
+                          filterValueAllLabel={activeControllableChartFilterField.allLabel}
+                          filterValueAriaLabel="Select controllable costs filter value"
+                          onFilterValueChange={setSelectedControllableChartFilterValue}
+                        />
+                      </div>
+                    </div>
 
                     <div className="chart-footer chart-footer-match-labor">
-                      <div className="chart-note-shell">
-                        <p className="chart-note">
-                          {CONTROLLABLE_COSTS_VIEW_CONFIG[controllableCostsViewMode].label} totals
-                          compare controllable and uncontrollable costs for the selected filters.
-                        </p>
-                      </div>
-
                       <ToggleButtonGroup
                         value={controllableCostsViewMode}
                         exclusive
@@ -2597,29 +2885,26 @@ export default function App() {
                         )}
                     </div>
 
-                    <ChartTypeToggle
-                      value={chartVariants.sif}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          sif: nextVariant
-                        }));
-                      }}
-                    />
-
-                    <MetricSummaryPanel
-                      title="SIF Incidents"
-                      value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
-                    />
+                    <div className="chart-control-row chart-control-row-summary">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.sif}
+                          onChange={(nextVariant) => {
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              sif: nextVariant
+                            }));
+                          }}
+                        />
+                      </div>
+                      <MetricSummaryPanel
+                        title="SIF Incidents"
+                        value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
+                        className="metric-summary-panel-inline"
+                      />
+                    </div>
 
                     <div className="chart-footer chart-footer-match-labor">
-                      <div className="chart-note-shell">
-                        <p className="chart-note">
-                          {INCIDENT_VIEW_CONFIG[sifViewMode].label} totals sum Defense SIF incidents
-                          for the selected KPI.
-                        </p>
-                      </div>
-
                       <ToggleButtonGroup
                         value={sifViewMode}
                         exclusive
@@ -2700,33 +2985,30 @@ export default function App() {
                         )}
                     </div>
 
-                    <ChartTypeToggle
-                      value={chartVariants.potentialSif}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          potentialSif: nextVariant
-                        }));
-                      }}
-                    />
-
-                    <MetricSummaryPanel
-                      title="Potential SIF Incidents"
-                      value={
-                        potentialSifState.loading || potentialSifState.error
-                          ? '--'
-                          : potentialSifSummaryValue
-                      }
-                    />
+                    <div className="chart-control-row chart-control-row-summary">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.potentialSif}
+                          onChange={(nextVariant) => {
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              potentialSif: nextVariant
+                            }));
+                          }}
+                        />
+                      </div>
+                      <MetricSummaryPanel
+                        title="Potential SIF Incidents"
+                        value={
+                          potentialSifState.loading || potentialSifState.error
+                            ? '--'
+                            : potentialSifSummaryValue
+                        }
+                        className="metric-summary-panel-inline"
+                      />
+                    </div>
 
                     <div className="chart-footer chart-footer-match-labor">
-                      <div className="chart-note-shell">
-                        <p className="chart-note">
-                          {INCIDENT_VIEW_CONFIG[potentialSifViewMode].label} totals sum Defense
-                          potential SIF incidents for the selected KPI.
-                        </p>
-                      </div>
-
                       <ToggleButtonGroup
                         value={potentialSifViewMode}
                         exclusive
@@ -2801,29 +3083,26 @@ export default function App() {
                         )}
                     </div>
 
-                    <ChartTypeToggle
-                      value={chartVariants.nmfr}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          nmfr: nextVariant
-                        }));
-                      }}
-                    />
-
-                    <MetricSummaryPanel
-                      title="Near Miss Frequency Rate"
-                      value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
-                    />
+                    <div className="chart-control-row chart-control-row-summary">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.nmfr}
+                          onChange={(nextVariant) => {
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              nmfr: nextVariant
+                            }));
+                          }}
+                        />
+                      </div>
+                      <MetricSummaryPanel
+                        title="Near Miss Frequency Rate"
+                        value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
+                        className="metric-summary-panel-inline"
+                      />
+                    </div>
 
                     <div className="chart-footer chart-footer-match-labor">
-                      <div className="chart-note-shell">
-                        <p className="chart-note">
-                          Monthly values show Defense NMFR. Quarterly and annual views average the
-                          included months.
-                        </p>
-                      </div>
-
                       <ToggleButtonGroup
                         value={nmfrViewMode}
                         exclusive
@@ -2855,149 +3134,6 @@ export default function App() {
                 />
 
                 <div className="dashboard-grid">
-                  <aside
-                    className={`filter-panel${isOtdFiltersOpen ? '' : ' filter-panel-collapsed'}`}
-                  >
-                    <div className="filter-panel-header">
-                      <div className="filter-panel-title-row">
-                        <p className="filter-heading">Filters</p>
-                        <button
-                          type="button"
-                          className="filter-toggle"
-                          onClick={() => {
-                            setIsOtdFiltersOpen((currentValue) => !currentValue);
-                          }}
-                        >
-                          {isOtdFiltersOpen ? 'Hide filters' : 'Show filters'}
-                        </button>
-                      </div>
-
-                      {isOtdFiltersOpen && (
-                        <p className="filter-copy">
-                          Narrow the OTD chart by program, BU, site, and type.
-                        </p>
-                      )}
-                    </div>
-
-                    {isOtdFiltersOpen && (
-                      <div className="filter-panel-body">
-                        <div className="filter-fields">
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="program-filter">
-                              Program
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="program-filter"
-                                value={activeProgram}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedProgram(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All programs' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All programs</MenuItem>
-                                {programOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="otd-bu-filter">
-                              BU
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="otd-bu-filter"
-                                value={activeOtdBu}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedOtdBu(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All BUs' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All BUs</MenuItem>
-                                {otdBuOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="site-filter">
-                              Site
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="site-filter"
-                                value={activeSite}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedSite(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All sites' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All sites</MenuItem>
-                                {siteOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="otd-type-filter">
-                              Type
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="otd-type-filter"
-                                value={activeOtdType}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedOtdType(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All types' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All types</MenuItem>
-                                {otdTypeOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-                        </div>
-
-                        <p className="filter-summary">
-                          Showing {filteredOtdRows.length} of {otdState.rows.length} OTD rows.
-                        </p>
-                      </div>
-                    )}
-                  </aside>
-
                   <div className="visual-column">
                     <div ref={otdChartHostRef} className="chart-host">
                       {otdState.loading && <p className="chart-message">Loading OTD data...</p>}
@@ -3008,11 +3144,14 @@ export default function App() {
 
                       {!otdState.loading &&
                         !otdState.error &&
-                        (filteredOtdRows.length === 0 || otdChartData.labels.length === 0) && (
+                        (baseFilteredOtdRows.length === 0 ||
+                          (isOtdPareto
+                            ? otdParetoChartData.labels.length === 0
+                            : otdChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {otdState.rows.length === 0
                               ? 'No OTD rows are available for charting.'
-                              : filteredOtdRows.length === 0
+                              : baseFilteredOtdRows.length === 0
                                 ? 'No OTD rows match the selected filters.'
                                 : 'No OTD months fall within the selected date range.'}
                           </p>
@@ -3020,60 +3159,87 @@ export default function App() {
 
                       {!otdState.loading &&
                         !otdState.error &&
-                        otdChartData.labels.length > 0 &&
+                        (isOtdPareto ? otdParetoChartData.labels.length > 0 : otdChartData.labels.length > 0) &&
                         otdChartWidth > 0 && (
-                          <MetricTrendChart
-                            variant={chartVariants.otd}
-                            width={otdChartWidth}
-                            height={CHART_HEIGHT}
-                            margin={DEFAULT_CHART_MARGIN}
-                            labels={otdChartData.labels}
-                            yAxis={OTD_Y_AXIS}
-                            series={[
-                              {
-                                data: otdChartData.contract,
-                                label: 'Contract Commitment',
-                                color: 'var(--chart-line)',
-                                valueFormatter: formatUnits,
-                                showMark: false
-                              },
-                              {
-                                data: otdChartData.delivered,
-                                label: 'Actuals Delivered',
-                                color: 'var(--chart-accent-line)',
-                                valueFormatter: formatUnits,
-                                showMark: false
-                              }
-                            ]}
-                            sx={sharedChartSx}
-                          />
+                          isOtdPareto ? (
+                            <ParetoMetricChart
+                              width={otdChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={otdParetoChartData.labels}
+                              values={otdParetoChartData.values}
+                              cumulativeShares={otdParetoChartData.cumulativeShares}
+                              barLabel="Actuals Delivered"
+                              barColor="var(--chart-line)"
+                              barAxis={OTD_Y_AXIS}
+                              barValueFormatter={formatUnits}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.otd}
+                              width={otdChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={otdChartData.labels}
+                              yAxis={OTD_Y_AXIS}
+                              series={[
+                                {
+                                  data: otdChartData.contract,
+                                  label: 'Contract Commitment',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatUnits,
+                                  showMark: false
+                                },
+                                {
+                                  data: otdChartData.delivered,
+                                  label: 'Actuals Delivered',
+                                  color: 'var(--chart-accent-line)',
+                                  valueFormatter: formatUnits,
+                                  showMark: false
+                                }
+                              ]}
+                              sx={sharedChartSx}
+                            />
+                          )
                         )}
                     </div>
 
-                    <ChartTypeToggle
-                      value={chartVariants.otd}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          otd: nextVariant
-                        }));
-                      }}
-                      supportsFilter
-                      filterValue={activeOtdBuView}
-                      filterOptions={otdBuOptions}
-                      filterAllLabel="All BUs"
-                      filterAriaLabel="Filter OTD by BU"
-                      onFilterChange={setSelectedOtdBuView}
-                    />
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.otd}
+                          onChange={(nextVariant) => {
+                            if (nextVariant === 'pareto') {
+                              setSelectedOtdChartFilterField(OTD_PARETO_FILTER_FIELDS[0].value);
+                            }
+
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              otd: nextVariant
+                            }));
+                          }}
+                          supportsFilter
+                          supportsPareto
+                          filterToggleAriaLabel="Filter OTD chart"
+                          filterFieldValue={activeOtdChartFilterField.value}
+                          filterFieldOptions={OTD_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={OTD_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select OTD filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedOtdChartFilterField(nextField);
+                            setSelectedOtdChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activeOtdChartFilterValue}
+                          filterValueOptions={otdChartFilterValueOptions}
+                          filterValueAllLabel={activeOtdChartFilterField.allLabel}
+                          filterValueAriaLabel="Select OTD filter value"
+                          onFilterValueChange={setSelectedOtdChartFilterValue}
+                        />
+                      </div>
+                    </div>
 
                     <div className="chart-footer chart-footer-match-labor">
-                      <div className="chart-note-shell">
-                        <p className="chart-note">
-                          {OTD_VIEW_CONFIG[otdViewMode].label} totals compare commitment and actual
-                          delivery.
-                        </p>
-                      </div>
-
                       <ToggleButtonGroup
                         value={otdViewMode}
                         exclusive
@@ -3105,179 +3271,6 @@ export default function App() {
                 />
 
                 <div className="dashboard-grid">
-                  <aside
-                    className={`filter-panel${isLaborFiltersOpen ? '' : ' filter-panel-collapsed'}`}
-                  >
-                    <div className="filter-panel-header">
-                      <div className="filter-panel-title-row">
-                        <p className="filter-heading">Filters</p>
-                        <button
-                          type="button"
-                          className="filter-toggle"
-                          onClick={() => {
-                            setIsLaborFiltersOpen((currentValue) => !currentValue);
-                          }}
-                        >
-                          {isLaborFiltersOpen ? 'Hide filters' : 'Show filters'}
-                        </button>
-                      </div>
-
-                      {isLaborFiltersOpen && (
-                        <p className="filter-copy">
-                          Narrow the labor utilization chart by facility, pool, union status, worker
-                          type, and time type.
-                        </p>
-                      )}
-                    </div>
-
-                    {isLaborFiltersOpen && (
-                      <div className="filter-panel-body">
-                        <div className="filter-fields">
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="forecasted-cc-filter">
-                              Forecasted CC
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="forecasted-cc-filter"
-                                value={activeForecastedCc}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedForecastedCc(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All facilities' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All facilities</MenuItem>
-                                {forecastedCcOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="pool-filter">
-                              Pool
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="pool-filter"
-                                value={activePool}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedPool(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All pools' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All pools</MenuItem>
-                                {poolOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="union-type-filter">
-                              Union type
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="union-type-filter"
-                                value={activeUnionType}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedUnionType(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All union types' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All union types</MenuItem>
-                                {unionTypeOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="worker-type-filter">
-                              Worker type
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="worker-type-filter"
-                                value={activeWorkerType}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedWorkerType(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All worker types' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All worker types</MenuItem>
-                                {workerTypeOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-
-                          <div className="filter-group">
-                            <label className="filter-label" htmlFor="time-type-filter">
-                              Time type
-                            </label>
-                            <FormControl fullWidth size="small" sx={filterSelectStyles}>
-                              <Select
-                                id="time-type-filter"
-                                value={activeTimeType}
-                                displayEmpty
-                                onChange={(event) => {
-                                  setSelectedTimeType(event.target.value);
-                                }}
-                                renderValue={(value) =>
-                                  value === ALL_FILTER_VALUE ? 'All time types' : value
-                                }
-                                MenuProps={selectMenuProps}
-                              >
-                                <MenuItem value={ALL_FILTER_VALUE}>All time types</MenuItem>
-                                {timeTypeOptions.map((option) => (
-                                  <MenuItem key={option} value={option}>
-                                    {option}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          </div>
-                        </div>
-
-                        <p className="filter-summary">
-                          Using {filteredLaborRows.length} filtered labor rows:{' '}
-                          {laborChartData.directRowCount} direct, {laborChartData.indirectRowCount}{' '}
-                          indirect, {laborChartData.otherRowCount} other.
-                        </p>
-                      </div>
-                    )}
-                  </aside>
-
                   <div className="visual-column">
                     <div ref={laborChartHostRef} className="chart-host chart-host-with-axis-unit">
                       {laborState.loading && (
@@ -3325,24 +3318,35 @@ export default function App() {
                         )}
                     </div>
 
-                    <ChartTypeToggle
-                      value={chartVariants.labor}
-                      onChange={(nextVariant) => {
-                        setChartVariants((currentValue) => ({
-                          ...currentValue,
-                          labor: nextVariant
-                        }));
-                      }}
-                    />
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.labor}
+                          onChange={(nextVariant) => {
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              labor: nextVariant
+                            }));
+                          }}
+                          supportsFilter
+                          filterToggleAriaLabel="Filter labor chart"
+                          filterFieldValue={activeLaborChartFilterField.value}
+                          filterFieldOptions={LABOR_CHART_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select labor filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedLaborChartFilterField(nextField);
+                            setSelectedLaborChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activeLaborChartFilterValue}
+                          filterValueOptions={laborChartFilterValueOptions}
+                          filterValueAllLabel={activeLaborChartFilterField.allLabel}
+                          filterValueAriaLabel="Select labor filter value"
+                          onFilterValueChange={setSelectedLaborChartFilterValue}
+                        />
+                      </div>
+                    </div>
 
                     <div className="chart-footer chart-footer-match-labor">
-                      <div className="chart-note-shell">
-                        <p className="chart-note">
-                          Displays the percentage of total hours that are direct labor for the
-                          selected cadence.
-                        </p>
-                      </div>
-
                       <ToggleButtonGroup
                         value={laborViewMode}
                         exclusive

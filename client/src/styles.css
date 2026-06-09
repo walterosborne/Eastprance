@@ -389,7 +389,7 @@ body {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: .8rem;
+  padding: 0.8rem 0.8rem 0.25rem;
   border-radius: 14px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -450,8 +450,8 @@ body {
   top: calc(100% + 0.35rem);
   right: 0;
   z-index: 5;
-  min-width: 220px;
-  max-width: min(360px, 80vw);
+  min-width: 330px;
+  max-width: min(540px, 85vw);
   padding: 0.7rem 0.8rem;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -480,6 +480,15 @@ body {
 .metric-info-paragraph {
   margin: 0;
   white-space: pre-wrap;
+}
+
+.metric-info-strong {
+  font-weight: 700;
+}
+
+.metric-info-underline {
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
 }
 
 .metric-info-list {
@@ -569,30 +578,55 @@ h1 {
 }
 
 .chart-type-toggle-bar-with-filter {
-  justify-content: center;
-  gap: 0.45rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 1fr) 176px minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+}
+
+.chart-type-toggle-bar-with-filter > .MuiToggleButtonGroup-root {
+  grid-column: 2;
+}
+
+.chart-type-toggle-bar-with-filter > .chart-type-inline-filter {
+  grid-column: 4;
 }
 
 .chart-type-inline-filter {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
   width: 0;
   min-width: 0;
+  max-width: 0;
+  max-height: 0;
   opacity: 0;
   overflow: hidden;
   pointer-events: none;
-  transition: width 160ms ease, opacity 160ms ease;
+  transition: max-width 160ms ease, max-height 160ms ease, opacity 160ms ease;
 }
 
 .chart-type-inline-filter-visible {
-  width: 156px;
+  width: 176px;
+  max-width: 176px;
+  max-height: 76px;
   opacity: 1;
   pointer-events: auto;
+}
+
+.chart-type-inline-filter-single {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.chart-type-inline-filter-single.chart-type-inline-filter-visible {
+  max-height: 36px;
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto auto;
-  gap: 1rem;
+  grid-template-rows: auto;
+  gap: 0;
   align-items: start;
   min-width: 0;
 }
@@ -706,7 +740,16 @@ h1 {
   justify-content: center;
   align-items: center;
   gap: 0.15rem;
+  padding: 0.45rem 0.75rem;
   text-align: center;
+}
+
+.metric-summary-panel-inline {
+  width: 164px;
+  min-width: 164px;
+  min-height: 60px;
+  height: 60px;
+  padding: 0.45rem 0.75rem;
 }
 
 .metric-summary-title {
@@ -779,52 +822,61 @@ h1 {
 }
 
 .chart-footer {
-  display: grid;
-  grid-template-rows: 56px 44px;
-  align-content: start;
-  gap: 0.6rem;
-  min-height: 124px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 52px;
   min-width: 0;
   max-width: 100%;
-  padding: 0.85rem 1rem;
+  padding: 0.2rem 0.6rem 0.05rem;
   border-radius: 14px;
   background: var(--surface-muted);
   border: 1px solid var(--border);
 }
 
-.chart-note-shell {
-  display: flex;
-  align-items: flex-start;
-  min-height: 56px;
+.chart-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 60px;
   min-width: 0;
 }
 
-.chart-note {
-  margin: 0;
-  font-size: 0.88rem;
-  color: var(--text-primary);
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+.chart-control-row-toggle {
+  min-width: 0;
 }
 
-.chart-footer-spacer {
-  min-height: 44px;
+.chart-control-row-summary {
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr) 164px minmax(0, 1fr);
+  width: 100%;
+}
+
+.chart-control-row-summary .chart-control-row-toggle {
+  grid-column: 2;
+}
+
+.chart-control-row-summary .metric-summary-panel-inline {
+  grid-column: 4;
+}
+
+.chart-control-row-single {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.chart-control-row-single .chart-control-row-toggle {
+  width: 100%;
+}
+
+.chart-control-row-single .chart-type-toggle-bar:not(.chart-type-toggle-bar-with-filter) {
+  min-height: 100%;
+  margin-top: 0;
 }
 
 .chart-footer-match-labor {
-  grid-template-rows: 48px 40px;
-  gap: 0.5rem;
-  min-height: 108px;
-  padding-top: 0.75rem;
-  padding-bottom: 0.75rem;
-}
-
-.chart-footer-match-labor .chart-note-shell {
-  min-height: 48px;
-}
-
-.chart-footer-match-labor .chart-footer-spacer {
-  min-height: 40px;
+  min-height: 52px;
 }
 
 @media (max-width: 900px) {

@@ -562,8 +562,30 @@ h1 {
   display: flex;
   justify-content: center;
   align-items: center;
+  gap: 0;
   min-height: 1.65rem;
   margin-top: -0.15rem;
+  min-width: 0;
+}
+
+.chart-type-toggle-bar-with-filter {
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.chart-type-inline-filter {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: width 160ms ease, opacity 160ms ease;
+}
+
+.chart-type-inline-filter-visible {
+  width: 156px;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .dashboard-grid {

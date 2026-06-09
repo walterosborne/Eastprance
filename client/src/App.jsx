@@ -6,6 +6,7 @@ import {
   faChartColumn,
   faChartLine,
   faClipboardCheck,
+  faFilter,
   faMoon,
   faSeedling,
   faSun
@@ -1192,9 +1193,30 @@ function MetricTrendChart({
   return <LineChart {...chartProps} />;
 }
 
-function ChartTypeToggle({ value, onChange }) {
+function ChartTypeToggle(props) {
   return (
-    <div className="chart-type-toggle-bar">
+    <ChartTypeToggleWithFilter
+      {...props}
+    />
+  );
+}
+
+function ChartTypeToggleWithFilter({
+  value,
+  onChange,
+  supportsFilter = false,
+  filterValue = ALL_FILTER_VALUE,
+  filterOptions = [],
+  filterAllLabel = 'All',
+  filterAriaLabel = 'Chart filter',
+  onFilterChange = null
+}) {
+  const isFilterMode = supportsFilter && value === 'filter';
+
+  return (
+    <div
+      className={`chart-type-toggle-bar${isFilterMode ? ' chart-type-toggle-bar-with-filter' : ''}`}
+    >
       <ToggleButtonGroup
         value={value}
         exclusive
@@ -1213,7 +1235,40 @@ function ChartTypeToggle({ value, onChange }) {
         <ToggleButton value="bar" sx={chartTypeToggleButtonSx} aria-label="Bar chart">
           <FontAwesomeIcon icon={faChartColumn} />
         </ToggleButton>
+        {supportsFilter && (
+          <ToggleButton value="filter" sx={chartTypeToggleButtonSx} aria-label={filterAriaLabel}>
+            <FontAwesomeIcon icon={faFilter} />
+          </ToggleButton>
+        )}
       </ToggleButtonGroup>
+
+      {supportsFilter && (
+        <div
+          className={`chart-type-inline-filter${isFilterMode ? ' chart-type-inline-filter-visible' : ''}`}
+        >
+          <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
+            <Select
+              value={filterValue}
+              displayEmpty
+              onChange={(event) => {
+                onFilterChange?.(event.target.value);
+              }}
+              renderValue={(selectedValue) =>
+                selectedValue === ALL_FILTER_VALUE ? filterAllLabel : selectedValue
+              }
+              MenuProps={selectMenuProps}
+              inputProps={{ 'aria-label': filterAriaLabel }}
+            >
+              <MenuItem value={ALL_FILTER_VALUE}>{filterAllLabel}</MenuItem>
+              {filterOptions.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {option}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </div>
+      )}
     </div>
   );
 }
@@ -1557,6 +1612,8 @@ export default function App() {
     source: ''
   });
   const [selectedControllableAddress, setSelectedControllableAddress] = useState(ALL_FILTER_VALUE);
+  const [selectedControllableFacilityView, setSelectedControllableFacilityView] =
+    useState(ALL_FILTER_VALUE);
   const [selectedControllableCostElementDescription, setSelectedControllableCostElementDescription] =
     useState(ALL_FILTER_VALUE);
   const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
@@ -1565,6 +1622,7 @@ export default function App() {
   const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
   const [selectedProgram, setSelectedProgram] = useState(ALL_FILTER_VALUE);
   const [selectedOtdBu, setSelectedOtdBu] = useState(ALL_FILTER_VALUE);
+  const [selectedOtdBuView, setSelectedOtdBuView] = useState(ALL_FILTER_VALUE);
   const [selectedSite, setSelectedSite] = useState(ALL_FILTER_VALUE);
   const [selectedOtdType, setSelectedOtdType] = useState(ALL_FILTER_VALUE);
   const [otdViewMode, setOtdViewMode] = useState('monthly');
@@ -1616,6 +1674,7 @@ export default function App() {
           source: getSourceLabel(payload.source)
         });
         setSelectedControllableAddress(ALL_FILTER_VALUE);
+        setSelectedControllableFacilityView(ALL_FILTER_VALUE);
         setSelectedControllableCostElementDescription(ALL_FILTER_VALUE);
         setControllableCostsViewMode('quarterly');
 
@@ -1807,6 +1866,7 @@ export default function App() {
         });
         setSelectedProgram(ALL_FILTER_VALUE);
         setSelectedOtdBu(ALL_FILTER_VALUE);
+        setSelectedOtdBuView(ALL_FILTER_VALUE);
         setSelectedSite(ALL_FILTER_VALUE);
         setSelectedOtdType(ALL_FILTER_VALUE);
         setOtdViewMode('monthly');
@@ -1989,13 +2049,21 @@ export default function App() {
     selectedControllableAddress,
     controllableAddressOptions
   );
+  const activeControllableFacilityView = normalizeFilterValue(
+    selectedControllableFacilityView,
+    controllableAddressOptions
+  );
   const activeControllableCostElementDescription = normalizeFilterValue(
     selectedControllableCostElementDescription,
     controllableCostElementDescriptionOptions
   );
+  const effectiveControllableAddress =
+    chartVariants.controllableCosts === 'filter'
+      ? activeControllableFacilityView
+      : activeControllableAddress;
   const filteredControllableCostsRows = controllableCostsState.rows.filter((row) => {
     const addressMatches =
-      activeControllableAddress === ALL_FILTER_VALUE || row.address === activeControllableAddress;
+      effectiveControllableAddress === ALL_FILTER_VALUE || row.address === effectiveControllableAddress;
     const costElementDescriptionMatches =
       activeControllableCostElementDescription === ALL_FILTER_VALUE ||
       row.cost_element_description === activeControllableCostElementDescription;
@@ -2065,11 +2133,13 @@ export default function App() {
   const otdTypeOptions = getFilterOptions(otdState.rows, 'type');
   const activeProgram = normalizeFilterValue(selectedProgram, programOptions);
   const activeOtdBu = normalizeFilterValue(selectedOtdBu, otdBuOptions);
+  const activeOtdBuView = normalizeFilterValue(selectedOtdBuView, otdBuOptions);
   const activeSite = normalizeFilterValue(selectedSite, siteOptions);
   const activeOtdType = normalizeFilterValue(selectedOtdType, otdTypeOptions);
+  const effectiveOtdBu = chartVariants.otd === 'filter' ? activeOtdBuView : activeOtdBu;
   const filteredOtdRows = otdState.rows.filter((row) => {
     const programMatches = activeProgram === ALL_FILTER_VALUE || row.program === activeProgram;
-    const buMatches = activeOtdBu === ALL_FILTER_VALUE || row.bu === activeOtdBu;
+    const buMatches = effectiveOtdBu === ALL_FILTER_VALUE || row.bu === effectiveOtdBu;
     const siteMatches = activeSite === ALL_FILTER_VALUE || row.site === activeSite;
     const typeMatches = activeOtdType === ALL_FILTER_VALUE || row.type === activeOtdType;
 
@@ -2440,6 +2510,12 @@ export default function App() {
                           controllableCosts: nextVariant
                         }));
                       }}
+                      supportsFilter
+                      filterValue={activeControllableFacilityView}
+                      filterOptions={controllableAddressOptions}
+                      filterAllLabel="All facilities"
+                      filterAriaLabel="Filter controllable costs by facility"
+                      onFilterChange={setSelectedControllableFacilityView}
                     />
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -2982,6 +3058,12 @@ export default function App() {
                           otd: nextVariant
                         }));
                       }}
+                      supportsFilter
+                      filterValue={activeOtdBuView}
+                      filterOptions={otdBuOptions}
+                      filterAllLabel="All BUs"
+                      filterAriaLabel="Filter OTD by BU"
+                      onFilterChange={setSelectedOtdBuView}
                     />
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -3331,5 +3413,37 @@ const filterSelectStyles = {
   '& .MuiSvgIcon-root': {
     color: 'var(--input-text)',
     fontSize: '1rem'
+  }
+};
+
+const inlineChartFilterSelectStyles = {
+  minWidth: 0,
+  '& .MuiOutlinedInput-root': {
+    minHeight: 32,
+    borderRadius: '999px',
+    fontSize: '0.75rem',
+    color: 'var(--input-text)',
+    backgroundColor: 'var(--input-bg)'
+  },
+  '& .MuiSelect-select': {
+    minWidth: 0,
+    padding: '6px 28px 6px 10px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis'
+  },
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--input-border)'
+  },
+  '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--text-primary)'
+  },
+  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--text-primary)'
+  },
+  '& .MuiSvgIcon-root': {
+    color: 'var(--input-text)',
+    fontSize: '0.95rem'
   }
 };

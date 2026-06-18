@@ -50,9 +50,20 @@ function normalizeControllable(value) {
     : 'Uncontrollable';
 }
 
+function normalizeCostCategory(costCategoryValue, costElementValue) {
+  const costCategory = String(costCategoryValue ?? '').trim();
+  const costElement = String(costElementValue ?? '').trim();
+
+  if (!costCategory && !costElement) {
+    return 'Other';
+  }
+
+  return costCategory;
+}
+
 function normalizeControllableCostsRow(row) {
   return {
-    cost_category: row['Cost Category'] ?? '',
+    cost_category: normalizeCostCategory(row['Cost Category'], row['Cost Element']),
     address: row.Address ?? '',
     cost_element: row['Cost Element'] ?? '',
     cost_element_description: row['Cost Element Description'] ?? '',

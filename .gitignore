@@ -21,4 +21,7 @@ Thumbs.db
 .vscode/
 .idea/
     
-data/
+data/*
+!data/sif_data.json
+
+Dockerfile copy

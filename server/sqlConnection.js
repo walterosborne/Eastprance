@@ -8,12 +8,24 @@ import {
 
 let poolPromise = null;
 
+function getFirstDefinedEnvValue(...keys) {
+  for (const key of keys) {
+    const value = process.env[key];
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
 export function getConnectionConfig() {
   const config = {
-    server: process.env.server,
-    database: process.env.database,
-    user: process.env.user,
-    password: process.env.password
+    server: getFirstDefinedEnvValue('server', 'SERVER'),
+    database: getFirstDefinedEnvValue('database', 'DATABASE'),
+    user: getFirstDefinedEnvValue('user', 'USER'),
+    password: getFirstDefinedEnvValue('password', 'PASSWORD')
   };
 
   const missing = Object.entries(config)

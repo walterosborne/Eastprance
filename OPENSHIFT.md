@@ -39,6 +39,17 @@ The server currently reads these SQL settings:
 
 You can provide those through an OpenShift secret or deployment env vars.
 
+Example deployment env wiring:
+
+```yaml
+envFrom:
+  - secretRef:
+      name: Supply
+```
+
+The app also accepts `database` as an alias for `db`, and accepts uppercase variants if your deployment tooling injects those instead.
+The app also accepts uppercase variants if your deployment tooling injects those instead.
+
 ## Port
 
 The container defaults to:

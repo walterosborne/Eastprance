@@ -2,7 +2,7 @@ kind: BuildConfig
 apiVersion: build.openshift.io/v1
 metadata:
   name: qmiscorecard
-  namespace: wosborne
+  namespace: qmi-scorecard-dev
   labels:
     app: qmiscorecard
     app.kubernetes.io/component: qmiscorecard
@@ -22,7 +22,10 @@ spec:
 
   strategy:
     type: Docker
-    dockerStrategy: {}
+    dockerStrategy:
+      buildArgs:
+        - name: BASE_IMAGE
+          value: registry.access.redhat.com/ubi9/nodejs-20:latest
 
   source:
     type: Git

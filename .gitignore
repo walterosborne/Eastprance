@@ -25,3 +25,5 @@ data/*
 !data/sif_data.json
 
 Dockerfile copy
+
+qmiscorecard-buildconfig.yaml

@@ -1,0 +1,39 @@
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: qmiscorecard
+  namespace: wosborne
+  labels:
+    app: qmiscorecard
+    app.kubernetes.io/component: qmiscorecard
+    app.kubernetes.io/instance: qmiscorecard
+    app.kubernetes.io/name: qmiscorecard
+    app.openshift.io/runtime: nodejs
+    app.openshift.io/runtime-version: 20-ubi9
+
+spec:
+  output:
+    to:
+      kind: DockerImage
+      name: 
+
+  successfulBuildsHistoryLimit: 5
+  failedBuildsHistoryLimit: 5
+
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+
+  source:
+    type: Git
+    git:
+      uri: ""
+      ref: main
+    contextDir: /
+    # This build expects a complete Dockerfile in the repo root at build time.
+    # If the repo is private, add a sourceSecret here.
+
+  triggers:
+    - type: ConfigChange
+
+  runPolicy: Serial

@@ -119,32 +119,61 @@ export async function readLaborUtilizationData() {
 
     const result = await pool.request().query(`
       SELECT
-        [MyID],
-        [Employee Name],
-        [Forecasted CC],
-        [Pool],
-        [Location Code],
-        [Union Type],
-        [Worker Type],
-        [Worker Subtype],
-        [Time Type],
-        [Labor Category],
-        [Measure],
-        [Jan],
-        [Feb],
-        [Mar],
-        [Apr],
-        [May],
-        [Jun],
-        [Jul],
-        [Aug],
-        [Sep],
-        [Oct],
-        [Nov],
-        [Dec],
-        [2026]
+        '' AS [MyID],
+        '' AS [Employee Name],
+        source.[Forecasted CC],
+        source.[Pool],
+        source.[Location Code],
+        source.[Union Type],
+        source.[Worker Type],
+        '' AS [Worker Subtype],
+        source.[Time Type],
+        source.[Labor Category],
+        source.[Measure],
+        SUM(COALESCE(source.[Jan], 0)) AS [Jan],
+        SUM(COALESCE(source.[Feb], 0)) AS [Feb],
+        SUM(COALESCE(source.[Mar], 0)) AS [Mar],
+        SUM(COALESCE(source.[Apr], 0)) AS [Apr],
+        SUM(COALESCE(source.[May], 0)) AS [May],
+        SUM(COALESCE(source.[Jun], 0)) AS [Jun],
+        SUM(COALESCE(source.[Jul], 0)) AS [Jul],
+        SUM(COALESCE(source.[Aug], 0)) AS [Aug],
+        SUM(COALESCE(source.[Sep], 0)) AS [Sep],
+        SUM(COALESCE(source.[Oct], 0)) AS [Oct],
+        SUM(COALESCE(source.[Nov], 0)) AS [Nov],
+        SUM(COALESCE(source.[Dec], 0)) AS [Dec],
+        SUM(
+          COALESCE(source.[Jan], 0) +
+          COALESCE(source.[Feb], 0) +
+          COALESCE(source.[Mar], 0) +
+          COALESCE(source.[Apr], 0) +
+          COALESCE(source.[May], 0) +
+          COALESCE(source.[Jun], 0) +
+          COALESCE(source.[Jul], 0) +
+          COALESCE(source.[Aug], 0) +
+          COALESCE(source.[Sep], 0) +
+          COALESCE(source.[Oct], 0) +
+          COALESCE(source.[Nov], 0) +
+          COALESCE(source.[Dec], 0)
+        ) AS [2026]
       FROM ${tableName}
-      ORDER BY [MyID] ASC;
+      AS source
+      GROUP BY
+        source.[Forecasted CC],
+        source.[Pool],
+        source.[Location Code],
+        source.[Union Type],
+        source.[Worker Type],
+        source.[Time Type],
+        source.[Labor Category],
+        source.[Measure]
+      ORDER BY
+        source.[Forecasted CC] ASC,
+        source.[Pool] ASC,
+        source.[Labor Category] ASC,
+        source.[Union Type] ASC,
+        source.[Worker Type] ASC,
+        source.[Time Type] ASC;
     `);
     const rows = result.recordset.map(normalizeLaborUtilizationRow);
 

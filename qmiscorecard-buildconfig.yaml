@@ -15,7 +15,7 @@ spec:
   output:
     to:
       kind: DockerImage
-      name: 
+      name: docker-ng-staging.northgrum.com/wosborne/qmiscorecard:latest
 
   successfulBuildsHistoryLimit: 5
   failedBuildsHistoryLimit: 5

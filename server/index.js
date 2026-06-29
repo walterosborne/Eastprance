@@ -15,12 +15,23 @@ import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
 import { readNmfrData, readPotentialSifData, readSifData } from './sifRepository.js';
 import { closeDatabaseConnection } from './sqlConnection.js';
+import {
+  getCachedSqlDataset,
+  registerSqlDatasetCache,
+  startSqlDatasetCacheScheduler,
+  stopSqlDatasetCacheScheduler,
+  warmAllSqlDatasetCaches
+} from './sqlDatasetCache.js';
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
 let requestCounter = 0;
+
+registerSqlDatasetCache('controllable-costs', readControllableCostsData);
+registerSqlDatasetCache('otd', readOtdData);
+registerSqlDatasetCache('labor', readLaborUtilizationData);
 
 app.use(cors());
 app.use(express.json());
@@ -89,7 +100,7 @@ app.get('/api/otd', async (request, response) => {
     request,
     response,
     'otd',
-    readOtdData,
+    () => getCachedSqlDataset('otd'),
     'Unable to read OTD data.'
   );
 });
@@ -99,7 +110,7 @@ app.get('/api/controllable-costs', async (request, response) => {
     request,
     response,
     'controllable-costs',
-    readControllableCostsData,
+    () => getCachedSqlDataset('controllable-costs'),
     'Unable to read controllable costs data.'
   );
 });
@@ -139,7 +150,7 @@ app.get('/api/labor-utilization', async (request, response) => {
     request,
     response,
     'labor',
-    readLaborUtilizationData,
+    () => getCachedSqlDataset('labor'),
     'Unable to read labor utilization data.'
   );
 });
@@ -201,8 +212,12 @@ const server = await startServer();
 
 console.log(`Server listening on http://${connectHost}:${port}`);
 
+startSqlDatasetCacheScheduler();
+void warmAllSqlDatasetCaches('server startup warm');
+
 async function shutdown() {
   try {
+    stopSqlDatasetCacheScheduler();
     await closeDatabaseConnection();
   } catch (error) {
     console.error('Error while closing the database connection.', error);

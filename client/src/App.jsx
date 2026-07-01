@@ -27,6 +27,7 @@ import {
   BarPlot,
   ChartsContainer,
   ChartsGrid,
+  ChartsReferenceLine,
   ChartsTooltipContainer,
   ChartsXAxis,
   ChartsYAxis,
@@ -36,6 +37,7 @@ import {
   useItemTooltip
 } from '@mui/x-charts';
 import { DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
+import { getMetricGoalLine } from './metricGoals';
 
 const ALL_FILTER_VALUE = '__all__';
 const OTD_MONTH_COLUMNS = [
@@ -304,6 +306,18 @@ const sharedChartSx = {
   '& .MuiChartsAxis-tickLabel, & .MuiChartsLegend-label': {
     fill: 'var(--chart-text)'
   }
+};
+
+const goalLineStyle = {
+  stroke: 'var(--text-primary)',
+  strokeDasharray: '6 4',
+  strokeWidth: 1.5
+};
+
+const goalLabelStyle = {
+  fill: 'var(--text-secondary)',
+  fontSize: 11,
+  fontWeight: 600
 };
 
 const timelineToggleGroupSx = {
@@ -1327,6 +1341,7 @@ function MetricTrendChart({
   tooltipComponent = StandardChartTooltip,
   tooltipTrigger = 'axis',
   tooltipProps = {},
+  goalLine = null,
   sx = sharedChartSx
 }) {
   const chartProps = {
@@ -1359,7 +1374,16 @@ function MetricTrendChart({
         trigger: tooltipTrigger,
         ...tooltipProps
       }
-    }
+    },
+    children: goalLine ? (
+      <ChartsReferenceLine
+        y={goalLine.value}
+        label={goalLine.label}
+        labelAlign="end"
+        lineStyle={goalLineStyle}
+        labelStyle={goalLabelStyle}
+      />
+    ) : null
   };
 
   if (variant === 'bar') {
@@ -1380,6 +1404,7 @@ function ParetoMetricChart({
   barColor,
   barAxis,
   barValueFormatter,
+  goalLine = null,
   sx = sharedChartSx
 }) {
   return (
@@ -1440,6 +1465,16 @@ function ParetoMetricChart({
       <ChartsXAxis axisId="pareto-categories" />
       <ChartsYAxis axisId="value-axis" />
       <ChartsYAxis axisId="cumulative-axis" />
+      {goalLine ? (
+        <ChartsReferenceLine
+          axisId="value-axis"
+          y={goalLine.value}
+          label={goalLine.label}
+          labelAlign="end"
+          lineStyle={goalLineStyle}
+          labelStyle={goalLabelStyle}
+        />
+      ) : null}
       <StandardChartTooltip trigger="axis" />
     </ChartsContainer>
   );
@@ -2537,6 +2572,15 @@ export default function App() {
       showMark: false
     }
   ];
+  const controllableCostsGoalLine = getMetricGoalLine(
+    'controllableCosts',
+    isControllableCostsPareto ? 'pareto' : controllableCostsViewMode
+  );
+  const sifGoalLine = getMetricGoalLine('sif', sifViewMode);
+  const potentialSifGoalLine = getMetricGoalLine('potentialSif', potentialSifViewMode);
+  const nmfrGoalLine = getMetricGoalLine('nmfr', nmfrViewMode);
+  const otdGoalLine = getMetricGoalLine('otd', isOtdPareto ? 'pareto' : otdViewMode);
+  const laborGoalLine = getMetricGoalLine('labor', laborViewMode);
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
       .cardKeys
@@ -2745,6 +2789,7 @@ export default function App() {
                                 }
                               ]}
                               barValueFormatter={formatCurrency}
+                              goalLine={controllableCostsGoalLine}
                               sx={sharedChartSx}
                             />
                           ) : (
@@ -2771,6 +2816,7 @@ export default function App() {
                                   showMark: false
                                 }
                               ]}
+                              goalLine={controllableCostsGoalLine}
                               sx={sharedChartSx}
                             />
                           )
@@ -2880,6 +2926,7 @@ export default function App() {
                                 showMark: false
                               }
                             ]}
+                            goalLine={sifGoalLine}
                             sx={sharedChartSx}
                           />
                         )}
@@ -2980,6 +3027,7 @@ export default function App() {
                                 showMark: false
                               }
                             ]}
+                            goalLine={potentialSifGoalLine}
                             sx={sharedChartSx}
                           />
                         )}
@@ -3078,6 +3126,7 @@ export default function App() {
                                 showMark: false
                               }
                             ]}
+                            goalLine={nmfrGoalLine}
                             sx={sharedChartSx}
                           />
                         )}
@@ -3173,6 +3222,7 @@ export default function App() {
                               barColor="var(--chart-line)"
                               barAxis={OTD_Y_AXIS}
                               barValueFormatter={formatUnits}
+                              goalLine={otdGoalLine}
                               sx={sharedChartSx}
                             />
                           ) : (
@@ -3199,6 +3249,7 @@ export default function App() {
                                   showMark: false
                                 }
                               ]}
+                              goalLine={otdGoalLine}
                               sx={sharedChartSx}
                             />
                           )
@@ -3313,6 +3364,7 @@ export default function App() {
                               tooltipProps={{
                                 chartData: laborChartData
                               }}
+                              goalLine={laborGoalLine}
                             />
                           </>
                         )}

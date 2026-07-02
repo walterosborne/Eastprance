@@ -9,6 +9,10 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import {
+  buildHeadersDebugPayload,
+  renderHeadersDebugPage
+} from './headerDiagnostics.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
@@ -93,6 +97,20 @@ app.get('/api/health', (_request, response) => {
     message: 'Express backend is running.',
     timestamp: new Date().toISOString()
   });
+});
+
+app.get(['/headers', '/api/headers'], (request, response) => {
+  const payload = buildHeadersDebugPayload(request);
+  const wantsJson = request.path.startsWith('/api/')
+    || String(request.query.format || '').toLowerCase() === 'json'
+    || String(request.get('accept') || '').includes('application/json');
+
+  if (wantsJson) {
+    response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+    return;
+  }
+
+  response.type('text/html').send(renderHeadersDebugPage(payload));
 });
 
 app.get('/api/otd', async (request, response) => {

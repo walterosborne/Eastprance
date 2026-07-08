@@ -15,9 +15,17 @@ import {
 } from './headerDiagnostics.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
+import { readCurrentUser } from './currentUserRepository.js';
+import {
+  readDashboardPresetsOverview,
+  saveDashboardPreset
+} from './dashboardPresetsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
-import { readNmfrData, readPotentialSifData, readSifData } from './sifRepository.js';
+import {
+  getSafetyMetricPayload,
+  readSafetyMetricsData
+} from './sifRepository.js';
 import { closeDatabaseConnection } from './sqlConnection.js';
 import {
   getCachedSqlDataset,
@@ -36,6 +44,7 @@ let requestCounter = 0;
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
+registerSqlDatasetCache('safety', readSafetyMetricsData);
 
 app.use(cors());
 app.use(express.json());
@@ -99,6 +108,105 @@ app.get('/api/health', (_request, response) => {
   });
 });
 
+app.get('/api/current-user', async (request, response) => {
+  const stopTimer = createTimer();
+
+  logDebug('current-user', `Handling request #${request.requestId ?? 'n/a'}.`);
+
+  try {
+    const currentUser = await readCurrentUser(request);
+
+    response.json({
+      currentUser
+    });
+
+    logDebug('current-user', `Request #${request.requestId ?? 'n/a'} resolved current user.`, {
+      myId: currentUser.my_id,
+      source: currentUser.source,
+      duration: formatDuration(stopTimer())
+    });
+  } catch (error) {
+    logError('current-user', `Request #${request.requestId ?? 'n/a'} failed.`, error, {
+      duration: formatDuration(stopTimer())
+    });
+
+    response.status(500).json({
+      message: 'Unable to resolve the current user.',
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/dashboard-presets', async (request, response) => {
+  const stopTimer = createTimer();
+
+  logDebug('presets', `Handling request #${request.requestId ?? 'n/a'}.`);
+
+  try {
+    const currentUser = await readCurrentUser(request);
+    const presetsOverview = await readDashboardPresetsOverview(currentUser);
+
+    response.json({
+      currentUser,
+      ...presetsOverview
+    });
+
+    logDebug('presets', `Request #${request.requestId ?? 'n/a'} loaded presets overview.`, {
+      myId: currentUser.my_id,
+      presetCount: presetsOverview.presets.length,
+      storageAvailable: presetsOverview.storageAvailable,
+      duration: formatDuration(stopTimer())
+    });
+  } catch (error) {
+    logError('presets', `Request #${request.requestId ?? 'n/a'} failed.`, error, {
+      duration: formatDuration(stopTimer())
+    });
+
+    response.status(500).json({
+      message: 'Unable to load dashboard presets.',
+      error: error.message
+    });
+  }
+});
+
+app.put('/api/dashboard-presets/:slot', async (request, response) => {
+  const stopTimer = createTimer();
+
+  logDebug('presets', `Handling request #${request.requestId ?? 'n/a'} save request.`, {
+    slot: request.params.slot
+  });
+
+  try {
+    const currentUser = await readCurrentUser(request);
+    const { name, state } = request.body ?? {};
+    const result = await saveDashboardPreset(currentUser, request.params.slot, name, state);
+
+    response.json({
+      currentUser,
+      storageAvailable: true,
+      storageMessage: '',
+      preset: result.preset,
+      presets: result.presets
+    });
+
+    logDebug('presets', `Request #${request.requestId ?? 'n/a'} saved dashboard preset.`, {
+      myId: currentUser.my_id,
+      slot: request.params.slot,
+      presetCount: result.presets.length,
+      duration: formatDuration(stopTimer())
+    });
+  } catch (error) {
+    logError('presets', `Request #${request.requestId ?? 'n/a'} save failed.`, error, {
+      duration: formatDuration(stopTimer())
+    });
+
+    response.status(500).json({
+      message: 'Unable to save dashboard preset.',
+      error: error.message
+    });
+  }
+});
+
 app.get(['/headers', '/api/headers'], (request, response) => {
   const payload = buildHeadersDebugPayload(request);
   const wantsJson = request.path.startsWith('/api/')
@@ -138,7 +246,7 @@ app.get('/api/sif-incidents', async (request, response) => {
     request,
     response,
     'sif',
-    readSifData,
+    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety'), 'sif'),
     'Unable to read SIF data.'
   );
 });
@@ -148,7 +256,7 @@ app.get('/api/potential-sif-incidents', async (request, response) => {
     request,
     response,
     'potential-sif',
-    readPotentialSifData,
+    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety'), 'potentialSif'),
     'Unable to read potential SIF data.'
   );
 });
@@ -158,7 +266,7 @@ app.get('/api/nmfr', async (request, response) => {
     request,
     response,
     'nmfr',
-    readNmfrData,
+    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety'), 'nmfr'),
     'Unable to read NMFR data.'
   );
 });

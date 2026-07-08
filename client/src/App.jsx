@@ -9,6 +9,7 @@ import {
   faClipboardCheck,
   faFilter,
   faMoon,
+  faPalette,
   faSeedling,
   faSun
 } from '@fortawesome/free-solid-svg-icons';
@@ -119,6 +120,47 @@ const CONTROLLABLE_CHART_FILTER_FIELDS = [
   }
 ];
 
+const CONTROLLABLE_PALETTE_FIELDS = [
+  {
+    value: 'address',
+    label: 'Facility'
+  },
+  {
+    value: 'cost_category',
+    label: 'Cost category'
+  },
+  {
+    value: 'controllable',
+    label: 'Controllability'
+  }
+];
+
+const SAFETY_CHART_FILTER_FIELDS = [
+  {
+    value: 'division',
+    label: 'Division',
+    allLabel: 'All divisions'
+  },
+  {
+    value: 'site',
+    label: 'Site',
+    allLabel: 'All sites'
+  }
+];
+
+const SAFETY_PALETTE_FIELDS = [
+  {
+    value: 'division',
+    label: 'Division'
+  },
+  {
+    value: 'site',
+    label: 'Site'
+  }
+];
+
+const SAFETY_PARETO_FILTER_FIELDS = SAFETY_CHART_FILTER_FIELDS;
+
 const OTD_CHART_FILTER_FIELDS = [
   {
     value: 'program',
@@ -143,6 +185,10 @@ const OTD_CHART_FILTER_FIELDS = [
 ];
 
 const OTD_PARETO_FILTER_FIELDS = [OTD_CHART_FILTER_FIELDS[1]];
+const OTD_PALETTE_FIELDS = OTD_CHART_FILTER_FIELDS.map((option) => ({
+  value: option.value,
+  label: option.label
+}));
 
 const LABOR_CHART_FILTER_FIELDS = [
   {
@@ -171,6 +217,11 @@ const LABOR_CHART_FILTER_FIELDS = [
     allLabel: 'All time types'
   }
 ];
+const LABOR_PALETTE_FIELDS = LABOR_CHART_FILTER_FIELDS.map((option) => ({
+  value: option.value,
+  label: option.label
+}));
+const LABOR_PARETO_FILTER_FIELDS = [LABOR_CHART_FILTER_FIELDS[0]];
 
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
 
@@ -202,13 +253,43 @@ const CARD_CHIP_OPTIONS = [
 ];
 
 const DEFAULT_CHART_VARIANTS = {
-  controllableCosts: 'line',
+  controllableCosts: 'filter',
   sif: 'line',
   potentialSif: 'line',
   nmfr: 'line',
-  otd: 'line',
-  labor: 'line'
+  otd: 'filter',
+  labor: 'filter'
 };
+const CARD_VARIANT_OPTIONS_BY_METRIC = {
+  controllableCosts: ['bar', 'filter', 'palette', 'pareto'],
+  sif: ['line', 'filter', 'palette', 'pareto'],
+  potentialSif: ['line', 'filter', 'palette', 'pareto'],
+  nmfr: ['line', 'filter', 'palette', 'pareto'],
+  otd: ['bar', 'filter', 'palette', 'pareto'],
+  labor: ['bar', 'filter', 'palette', 'pareto']
+};
+const PRESET_SLOT_OPTIONS = [1, 2, 3];
+const CONTROLLABLE_PALETTE_COLORS = [
+  '#28223c',
+  '#111827',
+  '#1f3b5c',
+  '#284b74',
+  '#34618d',
+  '#4a79a8',
+  '#5f8fc0',
+  '#7ba7d1',
+  '#9fc0e3',
+  '#343046',
+  '#403b50',
+  '#4b5563',
+  '#5b6170',
+  '#6b7280',
+  '#7c8591',
+  '#374151',
+  '#9aa4b3',
+  '#cbd5e1',
+  '#e7edf5'
+];
 
 const LABOR_VIEW_CONFIG = {
   monthly: {
@@ -242,6 +323,13 @@ const OTD_Y_AXIS = [
     tickLabelStyle: { fontSize: 11 }
   }
 ];
+const CONTROLLABLE_COSTS_Y_AXIS = [
+  {
+    width: 66,
+    valueFormatter: formatCompactCurrency,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
 const SIF_Y_AXIS = [
   {
     width: 44,
@@ -260,6 +348,13 @@ const LABOR_Y_AXIS = [
   {
     width: 52,
     valueFormatter: formatPercentAxis,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+const LABOR_HOURS_Y_AXIS = [
+  {
+    width: 60,
+    valueFormatter: formatCompactHoursAxis,
     tickLabelStyle: { fontSize: 11 }
   }
 ];
@@ -555,6 +650,45 @@ function averageActualValues(rows) {
   }
 
   return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+}
+
+function calculateNmfrValueFromRows(rows) {
+  let totalNearMissCount = 0;
+  let hasFormulaInputs = false;
+  const exposureHoursByMonth = new Map();
+
+  rows.forEach((row) => {
+    const nearMissCount = Number(row.near_miss_count);
+    const employeeCount = Number(row.employee_count);
+    const workingDays = Number(row.working_days);
+    const monthStamp = getIncidentRowStamp(row);
+
+    if (
+      Number.isFinite(nearMissCount) &&
+      Number.isFinite(employeeCount) &&
+      employeeCount > 0 &&
+      Number.isFinite(workingDays) &&
+      workingDays > 0 &&
+      monthStamp != null
+    ) {
+      totalNearMissCount += nearMissCount;
+      if (!exposureHoursByMonth.has(monthStamp)) {
+        exposureHoursByMonth.set(monthStamp, employeeCount * 8 * workingDays);
+      }
+      hasFormulaInputs = true;
+    }
+  });
+
+  const totalExposureHours = Array.from(exposureHoursByMonth.values()).reduce(
+    (sum, exposureHours) => sum + exposureHours,
+    0
+  );
+
+  if (hasFormulaInputs && totalExposureHours > 0) {
+    return Number(((200000 * totalNearMissCount) / totalExposureHours).toFixed(2));
+  }
+
+  return averageActualValues(rows);
 }
 
 function logClientDebug(scope, message, metadata) {
@@ -859,6 +993,227 @@ function buildIncidentChartData(
     }));
 }
 
+function buildNmfrChartData(rows, kpiId, orgUnitName, viewMode, selectedDateRange) {
+  const buckets = new Map();
+
+  rows.forEach((row) => {
+    if (Number(row.kpi_id) !== kpiId || normalizeText(row.org_unit_name) !== orgUnitName) {
+      return;
+    }
+
+    const stamp = getIncidentRowStamp(row);
+    const referenceDate = stamp == null ? new Date('') : new Date(stamp);
+
+    if (
+      Number.isNaN(referenceDate.getTime()) ||
+      !isStampWithinDateRange(stamp, selectedDateRange)
+    ) {
+      return;
+    }
+
+    const year = referenceDate.getUTCFullYear();
+    const monthIndex = referenceDate.getUTCMonth();
+    let bucketKey = '';
+    let bucketLabel = '';
+    let sortValue = 0;
+
+    if (viewMode === 'quarterly') {
+      const quarterNumber = Math.floor(monthIndex / 3) + 1;
+      bucketKey = `${year}-Q${quarterNumber}`;
+      bucketLabel = `Q${quarterNumber} ${year}`;
+      sortValue = year * 10 + quarterNumber;
+    } else if (viewMode === 'yearly') {
+      bucketKey = String(year);
+      bucketLabel = String(year);
+      sortValue = year;
+    } else {
+      const bucketDate = new Date(Date.UTC(year, monthIndex, 1));
+      bucketKey = bucketDate.toISOString().slice(0, 10);
+      bucketLabel = monthYearFormatter.format(bucketDate);
+      sortValue = bucketDate.getTime();
+    }
+
+    const currentBucket = buckets.get(bucketKey) ?? {
+      label: bucketLabel,
+      sortValue,
+      rows: []
+    };
+
+    currentBucket.rows.push(row);
+    buckets.set(bucketKey, currentBucket);
+  });
+
+  return Array.from(buckets.values())
+    .sort((left, right) => left.sortValue - right.sortValue)
+    .map((bucket) => ({
+      label: bucket.label,
+      total: Number((calculateNmfrValueFromRows(bucket.rows) ?? 0).toFixed(2))
+    }));
+}
+
+function getSafetyChartValue(row, metricKey) {
+  if (metricKey === 'nmfr') {
+    return Number(row.near_miss_count ?? 0);
+  }
+
+  return Number(row.actual_value ?? 0);
+}
+
+function getNmfrExposureHours(rows, selectedDateRange) {
+  const exposureHoursByMonth = new Map();
+
+  rows.forEach((row) => {
+    const monthStamp = getIncidentRowStamp(row);
+    const employeeCount = Number(row.employee_count);
+    const workingDays = Number(row.working_days);
+
+    if (
+      monthStamp == null ||
+      !isStampWithinDateRange(monthStamp, selectedDateRange) ||
+      !Number.isFinite(employeeCount) ||
+      employeeCount <= 0 ||
+      !Number.isFinite(workingDays) ||
+      workingDays <= 0
+    ) {
+      return;
+    }
+
+    if (!exposureHoursByMonth.has(monthStamp)) {
+      exposureHoursByMonth.set(monthStamp, employeeCount * 8 * workingDays);
+    }
+  });
+
+  return Array.from(exposureHoursByMonth.values()).reduce(
+    (sum, exposureHours) => sum + exposureHours,
+    0
+  );
+}
+
+function calculateNmfrFromNearMissCount(nearMissCount, exposureHours) {
+  if (!Number.isFinite(exposureHours) || exposureHours <= 0) {
+    return 0;
+  }
+
+  return Number(((200000 * nearMissCount) / exposureHours).toFixed(2));
+}
+
+function buildSafetyParetoChartData(rows, fieldName, selectedDateRange, metricKey) {
+  const rowsWithinRange = rows.filter((row) =>
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+  );
+
+  if (metricKey === 'nmfr') {
+    const exposureHours = getNmfrExposureHours(rowsWithinRange, selectedDateRange);
+    const nearMissTotalsByCategory = new Map();
+
+    rowsWithinRange.forEach((row) => {
+      const nearMissCount = Number(row.near_miss_count);
+
+      if (!Number.isFinite(nearMissCount) || nearMissCount <= 0) {
+        return;
+      }
+
+      const categoryLabel = normalizeParetoCategoryLabel(row[fieldName]);
+      nearMissTotalsByCategory.set(
+        categoryLabel,
+        (nearMissTotalsByCategory.get(categoryLabel) ?? 0) + nearMissCount
+      );
+    });
+
+    return buildParetoChartData(
+      Array.from(nearMissTotalsByCategory.entries()).map(([category, nearMissCount]) => ({
+        category,
+        value: calculateNmfrFromNearMissCount(nearMissCount, exposureHours)
+      }))
+    );
+  }
+
+  return buildParetoChartData(
+    rowsWithinRange.map((row) => ({
+      category: row[fieldName],
+      value: row.actual_value
+    }))
+  );
+}
+
+function buildSafetyPaletteChartData(
+  rows,
+  groupFieldName,
+  colorFieldName,
+  selectedDateRange,
+  metricKey
+) {
+  const rowsWithinRange = rows.filter((row) =>
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+  );
+  const groups = new Map();
+  const colorTotals = new Map();
+  const exposureHours = metricKey === 'nmfr'
+    ? getNmfrExposureHours(rowsWithinRange, selectedDateRange)
+    : 0;
+
+  rowsWithinRange.forEach((row) => {
+    const numericValue = getSafetyChartValue(row, metricKey);
+
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return;
+    }
+
+    const groupLabel = normalizeParetoCategoryLabel(row[groupFieldName]);
+    const colorLabel = normalizeParetoCategoryLabel(row[colorFieldName]);
+    const currentGroup =
+      groups.get(groupLabel)
+      ?? {
+        label: groupLabel,
+        total: 0,
+        breakdown: new Map()
+      };
+
+    currentGroup.total += numericValue;
+    currentGroup.breakdown.set(
+      colorLabel,
+      (currentGroup.breakdown.get(colorLabel) ?? 0) + numericValue
+    );
+    groups.set(groupLabel, currentGroup);
+    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + numericValue);
+  });
+
+  const sortedGroups = Array.from(groups.values()).sort((left, right) => {
+    if (right.total !== left.total) {
+      return right.total - left.total;
+    }
+
+    return left.label.localeCompare(right.label);
+  });
+  const sortedColorLabels = Array.from(colorTotals.entries())
+    .sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([label]) => label);
+
+  return {
+    labels: sortedGroups.map((group) => group.label),
+    series: sortedColorLabels.map((colorLabel, index) => ({
+      id: `safety-palette-${metricKey}-${colorLabel}`,
+      label: colorLabel,
+      color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
+      data: sortedGroups.map((group) => {
+        const rawValue = group.breakdown.get(colorLabel) ?? 0;
+        const chartValue =
+          metricKey === 'nmfr'
+            ? calculateNmfrFromNearMissCount(rawValue, exposureHours)
+            : Number(rawValue.toFixed(2));
+
+        return metricKey === 'nmfr' ? chartValue : Number(chartValue.toFixed(2));
+      })
+    }))
+  };
+}
+
 function getOtdBuckets(viewMode, selectedDateRange) {
   const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
     (monthIndex) =>
@@ -1006,6 +1361,74 @@ function buildControllableCostsParetoChartData(rows, fieldName, selectedDateRang
   );
 }
 
+function buildControllableCostsPaletteChartData(
+  rows,
+  groupFieldName,
+  colorFieldName,
+  selectedDateRange
+) {
+  const groups = new Map();
+  const colorTotals = new Map();
+
+  rows.forEach((row) => {
+    const cost = Number(row.cost);
+
+    if (
+      !Number.isFinite(cost)
+      || !isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
+    ) {
+      return;
+    }
+
+    const groupLabel = normalizeParetoCategoryLabel(row[groupFieldName]);
+    const colorLabel = normalizeParetoCategoryLabel(row[colorFieldName]);
+    const currentGroup =
+      groups.get(groupLabel)
+      ?? {
+        label: groupLabel,
+        total: 0,
+        breakdown: new Map()
+      };
+
+    currentGroup.total += cost;
+    currentGroup.breakdown.set(
+      colorLabel,
+      (currentGroup.breakdown.get(colorLabel) ?? 0) + cost
+    );
+    groups.set(groupLabel, currentGroup);
+    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + cost);
+  });
+
+  const sortedGroups = Array.from(groups.values()).sort((left, right) => {
+    if (right.total !== left.total) {
+      return right.total - left.total;
+    }
+
+    return left.label.localeCompare(right.label);
+  });
+  const sortedColorLabels = Array.from(colorTotals.entries())
+    .sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([label]) => label);
+
+  return {
+    labels: sortedGroups.map((group) => group.label),
+    series: sortedColorLabels.map((colorLabel, index) => ({
+      id: `controllable-palette-${colorLabel}`,
+      label: colorLabel,
+      color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
+      data: sortedGroups.map((group) =>
+        Number((group.breakdown.get(colorLabel) ?? 0).toFixed(2))
+      )
+    }))
+  };
+}
+
 function buildOtdParetoChartData(rows, fieldName, selectedDateRange) {
   const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
     (monthIndex) =>
@@ -1026,6 +1449,80 @@ function buildOtdParetoChartData(rows, fieldName, selectedDateRange) {
         }, 0)
       }))
   );
+}
+
+function buildOtdPaletteChartData(rows, groupFieldName, colorFieldName, selectedDateRange) {
+  const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
+    (monthIndex) =>
+      isStampWithinDateRange(
+        getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
+        selectedDateRange
+      )
+  );
+  const groups = new Map();
+  const colorTotals = new Map();
+
+  rows.forEach((row) => {
+    if (row.measure_type !== 'Actuals Delivered') {
+      return;
+    }
+
+    const deliveredTotal = monthIndicesInRange.reduce((sum, monthIndex) => {
+      const numericValue = Number(row[OTD_MONTH_COLUMNS[monthIndex].key]);
+      return Number.isFinite(numericValue) ? sum + numericValue : sum;
+    }, 0);
+
+    if (!Number.isFinite(deliveredTotal) || deliveredTotal <= 0) {
+      return;
+    }
+
+    const groupLabel = normalizeParetoCategoryLabel(row[groupFieldName]);
+    const colorLabel = normalizeParetoCategoryLabel(row[colorFieldName]);
+    const currentGroup =
+      groups.get(groupLabel)
+      ?? {
+        label: groupLabel,
+        total: 0,
+        breakdown: new Map()
+      };
+
+    currentGroup.total += deliveredTotal;
+    currentGroup.breakdown.set(
+      colorLabel,
+      (currentGroup.breakdown.get(colorLabel) ?? 0) + deliveredTotal
+    );
+    groups.set(groupLabel, currentGroup);
+    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + deliveredTotal);
+  });
+
+  const sortedGroups = Array.from(groups.values()).sort((left, right) => {
+    if (right.total !== left.total) {
+      return right.total - left.total;
+    }
+
+    return left.label.localeCompare(right.label);
+  });
+  const sortedColorLabels = Array.from(colorTotals.entries())
+    .sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([label]) => label);
+
+  return {
+    labels: sortedGroups.map((group) => group.label),
+    series: sortedColorLabels.map((colorLabel, index) => ({
+      id: `otd-palette-${colorLabel}`,
+      label: colorLabel,
+      color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
+      data: sortedGroups.map((group) =>
+        Number((group.breakdown.get(colorLabel) ?? 0).toFixed(2))
+      )
+    }))
+  };
 }
 
 function getLaborCategoryGroup(laborCategory) {
@@ -1198,6 +1695,97 @@ function buildLaborUtilizationChartData(rows, viewMode, selectedDateRange) {
     indirectRowCount,
     otherRowCount,
     tooltipLookup
+  };
+}
+
+function sumLaborHoursForRow(row, selectedDateRange) {
+  return LABOR_MONTH_COLUMNS.reduce((sum, { key }, monthIndex) => {
+    if (
+      !isStampWithinDateRange(
+        getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
+        selectedDateRange
+      )
+    ) {
+      return sum;
+    }
+
+    const numericValue = Number(row[key]);
+    return Number.isFinite(numericValue) ? sum + numericValue : sum;
+  }, 0);
+}
+
+function buildLaborParetoChartData(rows, fieldName, selectedDateRange) {
+  return buildParetoChartData(
+    rows
+      .filter((row) => getLaborCategoryGroup(row.labor_category) === 'direct')
+      .map((row) => ({
+        category: row[fieldName],
+        value: sumLaborHoursForRow(row, selectedDateRange)
+      }))
+  );
+}
+
+function buildLaborPaletteChartData(rows, groupFieldName, colorFieldName, selectedDateRange) {
+  const groups = new Map();
+  const colorTotals = new Map();
+
+  rows.forEach((row) => {
+    if (getLaborCategoryGroup(row.labor_category) !== 'direct') {
+      return;
+    }
+
+    const directHours = sumLaborHoursForRow(row, selectedDateRange);
+
+    if (!Number.isFinite(directHours) || directHours <= 0) {
+      return;
+    }
+
+    const groupLabel = normalizeParetoCategoryLabel(row[groupFieldName]);
+    const colorLabel = normalizeParetoCategoryLabel(row[colorFieldName]);
+    const currentGroup =
+      groups.get(groupLabel)
+      ?? {
+        label: groupLabel,
+        total: 0,
+        breakdown: new Map()
+      };
+
+    currentGroup.total += directHours;
+    currentGroup.breakdown.set(
+      colorLabel,
+      (currentGroup.breakdown.get(colorLabel) ?? 0) + directHours
+    );
+    groups.set(groupLabel, currentGroup);
+    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + directHours);
+  });
+
+  const sortedGroups = Array.from(groups.values()).sort((left, right) => {
+    if (right.total !== left.total) {
+      return right.total - left.total;
+    }
+
+    return left.label.localeCompare(right.label);
+  });
+  const sortedColorLabels = Array.from(colorTotals.entries())
+    .sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([label]) => label);
+
+  return {
+    labels: sortedGroups.map((group) => group.label),
+    series: sortedColorLabels.map((colorLabel, index) => ({
+      id: `labor-palette-${colorLabel}`,
+      label: colorLabel,
+      color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
+      data: sortedGroups.map((group) =>
+        Number((group.breakdown.get(colorLabel) ?? 0).toFixed(0))
+      )
+    }))
   };
 }
 
@@ -1393,6 +1981,61 @@ function MetricTrendChart({
   return <LineChart {...chartProps} />;
 }
 
+function StackedCategoryBarChart({
+  width,
+  height,
+  margin,
+  labels,
+  yAxis,
+  series,
+  sx = sharedChartSx
+}) {
+  return (
+    <BarChart
+      width={width}
+      height={height}
+      margin={margin}
+      hideLegend
+      xAxis={[
+        {
+          scaleType: 'band',
+          height: 28,
+          data: labels
+        }
+      ]}
+      yAxis={yAxis}
+      series={series.map((seriesConfig) => ({
+        ...seriesConfig,
+        stack: 'total'
+      }))}
+      grid={{ horizontal: true }}
+      sx={sx}
+      slots={{
+        tooltip: StandardChartTooltip
+      }}
+      slotProps={{
+        tooltip: {
+          trigger: 'axis'
+        }
+      }}
+    />
+  );
+}
+
+function buildTooltipLegend(title, series) {
+  if (!Array.isArray(series) || series.length === 0) {
+    return null;
+  }
+
+  return {
+    title,
+    items: series.map((seriesItem) => ({
+      label: seriesItem.label,
+      color: seriesItem.color
+    }))
+  };
+}
+
 function ParetoMetricChart({
   width,
   height,
@@ -1491,7 +2134,12 @@ function ChartTypeToggle(props) {
 function ChartTypeToggleWithFilter({
   value,
   onChange,
+  showLine = true,
+  showBar = true,
+  alwaysGridToggle = false,
   supportsFilter = false,
+  showFilterControlsOnBar = false,
+  supportsPalette = false,
   supportsPareto = false,
   filterToggleAriaLabel = 'Filter chart',
   filterFieldValue = '',
@@ -1503,17 +2151,37 @@ function ChartTypeToggleWithFilter({
   filterValueOptions = [],
   filterValueAllLabel = 'All',
   filterValueAriaLabel = 'Filter value',
-  onFilterValueChange = null
+  onFilterValueChange = null,
+  paletteToggleAriaLabel = 'Palette chart',
+  paletteGroupFieldValue = '',
+  paletteGroupFieldOptions = [],
+  paletteGroupFieldAriaLabel = 'Group field',
+  onPaletteGroupFieldChange = null,
+  paletteColorFieldValue = '',
+  paletteColorFieldOptions = [],
+  paletteColorFieldAriaLabel = 'Color field',
+  onPaletteColorFieldChange = null
 }) {
   const isFilterMode = supportsFilter && value === 'filter';
+  const isBarFilterMode = supportsFilter && showFilterControlsOnBar && value === 'bar';
+  const isPaletteMode = supportsPalette && value === 'palette';
   const isParetoMode = supportsPareto && value === 'pareto';
-  const isExpandedFilterMode = isFilterMode || isParetoMode;
+  const isExpandedFilterMode = isFilterMode || isBarFilterMode || isPaletteMode || isParetoMode;
+  const useGridToggleGroup = alwaysGridToggle || isExpandedFilterMode;
   const activeFieldOptions =
     isParetoMode && paretoFieldOptions.length > 0 ? paretoFieldOptions : filterFieldOptions;
   const activeFilterFieldLabel =
     activeFieldOptions.find((option) => option.value === filterFieldValue)?.label ??
     activeFieldOptions[0]?.label ??
     'Field';
+  const activePaletteGroupLabel =
+    paletteGroupFieldOptions.find((option) => option.value === paletteGroupFieldValue)?.label ??
+    paletteGroupFieldOptions[0]?.label ??
+    'Group by';
+  const activePaletteColorLabel =
+    paletteColorFieldOptions.find((option) => option.value === paletteColorFieldValue)?.label ??
+    paletteColorFieldOptions[0]?.label ??
+    'Color by';
 
   return (
     <div
@@ -1528,22 +2196,44 @@ function ChartTypeToggleWithFilter({
             onChange(nextVariant);
           }
         }}
-        sx={isExpandedFilterMode ? [chartTypeToggleGroupSx, chartTypeToggleGroupFilterSx] : chartTypeToggleGroupSx}
+        sx={useGridToggleGroup ? [chartTypeToggleGroupSx, chartTypeToggleGroupFilterSx] : chartTypeToggleGroupSx}
         aria-label="Chart type"
       >
-        <ToggleButton value="line" sx={chartTypeToggleButtonSx} aria-label="Line chart">
-          <FontAwesomeIcon icon={faChartLine} />
-        </ToggleButton>
-        <ToggleButton value="bar" sx={chartTypeToggleButtonSx} aria-label="Bar chart">
-          <FontAwesomeIcon icon={faChartColumn} />
-        </ToggleButton>
-        {supportsFilter && (
+        {supportsFilter && !showLine && (
           <ToggleButton
             value="filter"
             sx={chartTypeToggleButtonSx}
             aria-label={filterToggleAriaLabel}
           >
             <FontAwesomeIcon icon={faFilter} />
+          </ToggleButton>
+        )}
+        {showLine && (
+          <ToggleButton value="line" sx={chartTypeToggleButtonSx} aria-label="Line chart">
+            <FontAwesomeIcon icon={faChartLine} />
+          </ToggleButton>
+        )}
+        {showBar && (
+          <ToggleButton value="bar" sx={chartTypeToggleButtonSx} aria-label="Bar chart">
+            <FontAwesomeIcon icon={faChartColumn} />
+          </ToggleButton>
+        )}
+        {supportsFilter && showLine && (
+          <ToggleButton
+            value="filter"
+            sx={chartTypeToggleButtonSx}
+            aria-label={filterToggleAriaLabel}
+          >
+            <FontAwesomeIcon icon={faFilter} />
+          </ToggleButton>
+        )}
+        {supportsPalette && (
+          <ToggleButton
+            value="palette"
+            sx={chartTypeToggleButtonSx}
+            aria-label={paletteToggleAriaLabel}
+          >
+            <FontAwesomeIcon icon={faPalette} />
           </ToggleButton>
         )}
         {supportsPareto && (
@@ -1553,29 +2243,31 @@ function ChartTypeToggleWithFilter({
         )}
       </ToggleButtonGroup>
 
-      {supportsFilter && (
+      {(supportsFilter || supportsPalette) && (
         <div
           className={`chart-type-inline-filter${isExpandedFilterMode ? ' chart-type-inline-filter-visible' : ''}${isParetoMode ? ' chart-type-inline-filter-single' : ''}`}
         >
-          <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
-            <Select
-              value={filterFieldValue}
-              onChange={(event) => {
-                onFilterFieldChange?.(event.target.value);
-              }}
-              renderValue={() => activeFilterFieldLabel}
-              MenuProps={selectMenuProps}
-              inputProps={{ 'aria-label': filterFieldAriaLabel }}
-            >
-              {activeFieldOptions.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {(isFilterMode || isBarFilterMode || isParetoMode) && (
+            <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
+              <Select
+                value={filterFieldValue}
+                onChange={(event) => {
+                  onFilterFieldChange?.(event.target.value);
+                }}
+                renderValue={() => activeFilterFieldLabel}
+                MenuProps={selectMenuProps}
+                inputProps={{ 'aria-label': filterFieldAriaLabel }}
+              >
+                {activeFieldOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
-          {isFilterMode && (
+          {(isFilterMode || isBarFilterMode) && (
             <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
               <Select
                 value={filterValue}
@@ -1597,6 +2289,52 @@ function ChartTypeToggleWithFilter({
                 ))}
               </Select>
             </FormControl>
+          )}
+
+          {isPaletteMode && (
+            <>
+              <div className="chart-type-inline-field">
+                <span className="chart-type-inline-field-label">Group by</span>
+                <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
+                  <Select
+                    value={paletteGroupFieldValue}
+                    onChange={(event) => {
+                      onPaletteGroupFieldChange?.(event.target.value);
+                    }}
+                    renderValue={() => activePaletteGroupLabel}
+                    MenuProps={selectMenuProps}
+                    inputProps={{ 'aria-label': paletteGroupFieldAriaLabel }}
+                  >
+                    {paletteGroupFieldOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </div>
+
+              <div className="chart-type-inline-field">
+                <span className="chart-type-inline-field-label">Color by</span>
+                <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
+                  <Select
+                    value={paletteColorFieldValue}
+                    onChange={(event) => {
+                      onPaletteColorFieldChange?.(event.target.value);
+                    }}
+                    renderValue={() => activePaletteColorLabel}
+                    MenuProps={selectMenuProps}
+                    inputProps={{ 'aria-label': paletteColorFieldAriaLabel }}
+                  >
+                    {paletteColorFieldOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -1723,7 +2461,7 @@ function renderMetricInfoContent(info) {
   );
 }
 
-function CardHeader({ title, info }) {
+function CardHeader({ title, info, tooltipLegend = null }) {
   const metricInfo = info || DEFAULT_METRIC_INFO;
 
   return (
@@ -1739,6 +2477,23 @@ function CardHeader({ title, info }) {
         </button>
         <div className="card-info-tooltip" role="tooltip">
           {renderMetricInfoContent(metricInfo)}
+          {tooltipLegend?.items?.length > 0 && (
+            <div className="metric-info-legend">
+              <p className="metric-info-legend-title">{tooltipLegend.title || 'Color legend'}</p>
+              <div className="metric-info-legend-list">
+                {tooltipLegend.items.map((item) => (
+                  <div key={`${item.label}-${item.color}`} className="metric-info-legend-item">
+                    <span
+                      aria-hidden="true"
+                      className="metric-info-legend-swatch"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1954,6 +2709,175 @@ async function fetchJson(scope, url) {
   return payload;
 }
 
+async function fetchApiJson(scope, url, options = {}) {
+  const startTime = performance.now();
+
+  logClientDebug(scope, 'Starting API fetch.', {
+    url,
+    method: options.method || 'GET'
+  });
+
+  const response = await fetch(url, options);
+  const responseText = await response.text();
+  let payload = null;
+
+  try {
+    payload = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    payload = null;
+  }
+
+  logClientDebug(scope, 'Received API response.', {
+    url,
+    status: response.status,
+    ok: response.ok,
+    duration: formatDebugDuration(performance.now() - startTime)
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.error
+      || payload?.message
+      || `Request failed with status ${response.status}`
+    );
+  }
+
+  return payload;
+}
+
+function buildDashboardPresetState({
+  themeMode,
+  selectedCardGroup,
+  chartVariants,
+  controllableCostsViewMode,
+  selectedControllableChartFilterField,
+  selectedControllableChartFilterValue,
+  selectedControllablePaletteGroupField,
+  selectedControllablePaletteColorField,
+  sifViewMode,
+  selectedSifChartFilterField,
+  selectedSifChartFilterValue,
+  selectedSifPaletteGroupField,
+  selectedSifPaletteColorField,
+  potentialSifViewMode,
+  selectedPotentialSifChartFilterField,
+  selectedPotentialSifChartFilterValue,
+  selectedPotentialSifPaletteGroupField,
+  selectedPotentialSifPaletteColorField,
+  nmfrViewMode,
+  selectedNmfrChartFilterField,
+  selectedNmfrChartFilterValue,
+  selectedNmfrPaletteGroupField,
+  selectedNmfrPaletteColorField,
+  otdViewMode,
+  selectedOtdChartFilterField,
+  selectedOtdChartFilterValue,
+  selectedOtdPaletteGroupField,
+  selectedOtdPaletteColorField,
+  laborViewMode,
+  selectedLaborChartFilterField,
+  selectedLaborChartFilterValue,
+  selectedLaborPaletteGroupField,
+  selectedLaborPaletteColorField,
+  hasCustomizedDateRange,
+  selectedDateRange
+}) {
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    themeMode,
+    selectedCardGroup,
+    chartVariants,
+    dateRange: {
+      hasCustomizedDateRange,
+      startStamp: selectedDateRange?.startStamp ?? null,
+      endStamp: selectedDateRange?.endStamp ?? null
+    },
+    controllableCosts: {
+      viewMode: controllableCostsViewMode,
+      filterField: selectedControllableChartFilterField,
+      filterValue: selectedControllableChartFilterValue,
+      paletteGroupField: selectedControllablePaletteGroupField,
+      paletteColorField: selectedControllablePaletteColorField
+    },
+    sif: {
+      viewMode: sifViewMode,
+      filterField: selectedSifChartFilterField,
+      filterValue: selectedSifChartFilterValue,
+      paletteGroupField: selectedSifPaletteGroupField,
+      paletteColorField: selectedSifPaletteColorField
+    },
+    potentialSif: {
+      viewMode: potentialSifViewMode,
+      filterField: selectedPotentialSifChartFilterField,
+      filterValue: selectedPotentialSifChartFilterValue,
+      paletteGroupField: selectedPotentialSifPaletteGroupField,
+      paletteColorField: selectedPotentialSifPaletteColorField
+    },
+    nmfr: {
+      viewMode: nmfrViewMode,
+      filterField: selectedNmfrChartFilterField,
+      filterValue: selectedNmfrChartFilterValue,
+      paletteGroupField: selectedNmfrPaletteGroupField,
+      paletteColorField: selectedNmfrPaletteColorField
+    },
+    otd: {
+      viewMode: otdViewMode,
+      filterField: selectedOtdChartFilterField,
+      filterValue: selectedOtdChartFilterValue,
+      paletteGroupField: selectedOtdPaletteGroupField,
+      paletteColorField: selectedOtdPaletteColorField
+    },
+    labor: {
+      viewMode: laborViewMode,
+      filterField: selectedLaborChartFilterField,
+      filterValue: selectedLaborChartFilterValue,
+      paletteGroupField: selectedLaborPaletteGroupField,
+      paletteColorField: selectedLaborPaletteColorField
+    }
+  };
+}
+
+function resolvePresetDateRangeIndices(availableTimelineStamps, presetState) {
+  const presetDateRange = presetState?.dateRange;
+
+  if (
+    !presetDateRange?.hasCustomizedDateRange
+    || !Number.isFinite(presetDateRange.startStamp)
+    || !Number.isFinite(presetDateRange.endStamp)
+    || availableTimelineStamps.length === 0
+  ) {
+    return null;
+  }
+
+  let startIndex = availableTimelineStamps.findIndex(
+    (stamp) => stamp >= presetDateRange.startStamp
+  );
+
+  if (startIndex === -1) {
+    startIndex = availableTimelineStamps.length - 1;
+  }
+
+  let endIndex = -1;
+
+  for (let index = availableTimelineStamps.length - 1; index >= 0; index -= 1) {
+    if (availableTimelineStamps[index] <= presetDateRange.endStamp) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  if (endIndex === -1) {
+    endIndex = 0;
+  }
+
+  if (startIndex > endIndex) {
+    return [0, availableTimelineStamps.length - 1];
+  }
+
+  return [startIndex, endIndex];
+}
+
 export default function App() {
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === 'undefined') {
@@ -2003,25 +2927,86 @@ export default function App() {
   );
   const [selectedControllableChartFilterValue, setSelectedControllableChartFilterValue] =
     useState(ALL_FILTER_VALUE);
+  const [selectedControllablePaletteGroupField, setSelectedControllablePaletteGroupField] =
+    useState(CONTROLLABLE_PALETTE_FIELDS[0].value);
+  const [selectedControllablePaletteColorField, setSelectedControllablePaletteColorField] =
+    useState(CONTROLLABLE_PALETTE_FIELDS[1].value);
   const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
   const [sifViewMode, setSifViewMode] = useState('monthly');
   const [potentialSifViewMode, setPotentialSifViewMode] = useState('monthly');
   const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
+  const [selectedSifChartFilterField, setSelectedSifChartFilterField] = useState(
+    SAFETY_CHART_FILTER_FIELDS[0].value
+  );
+  const [selectedSifChartFilterValue, setSelectedSifChartFilterValue] = useState(ALL_FILTER_VALUE);
+  const [selectedSifPaletteGroupField, setSelectedSifPaletteGroupField] = useState(
+    SAFETY_PALETTE_FIELDS[0].value
+  );
+  const [selectedSifPaletteColorField, setSelectedSifPaletteColorField] = useState(
+    SAFETY_PALETTE_FIELDS[1].value
+  );
+  const [selectedPotentialSifChartFilterField, setSelectedPotentialSifChartFilterField] =
+    useState(SAFETY_CHART_FILTER_FIELDS[0].value);
+  const [selectedPotentialSifChartFilterValue, setSelectedPotentialSifChartFilterValue] =
+    useState(ALL_FILTER_VALUE);
+  const [selectedPotentialSifPaletteGroupField, setSelectedPotentialSifPaletteGroupField] =
+    useState(SAFETY_PALETTE_FIELDS[0].value);
+  const [selectedPotentialSifPaletteColorField, setSelectedPotentialSifPaletteColorField] =
+    useState(SAFETY_PALETTE_FIELDS[1].value);
+  const [selectedNmfrChartFilterField, setSelectedNmfrChartFilterField] = useState(
+    SAFETY_CHART_FILTER_FIELDS[0].value
+  );
+  const [selectedNmfrChartFilterValue, setSelectedNmfrChartFilterValue] = useState(ALL_FILTER_VALUE);
+  const [selectedNmfrPaletteGroupField, setSelectedNmfrPaletteGroupField] = useState(
+    SAFETY_PALETTE_FIELDS[0].value
+  );
+  const [selectedNmfrPaletteColorField, setSelectedNmfrPaletteColorField] = useState(
+    SAFETY_PALETTE_FIELDS[1].value
+  );
   const [selectedOtdChartFilterField, setSelectedOtdChartFilterField] = useState(
     OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'bu')?.value ?? OTD_CHART_FILTER_FIELDS[0].value
   );
   const [selectedOtdChartFilterValue, setSelectedOtdChartFilterValue] = useState(ALL_FILTER_VALUE);
+  const [selectedOtdPaletteGroupField, setSelectedOtdPaletteGroupField] = useState(
+    OTD_PALETTE_FIELDS[0].value
+  );
+  const [selectedOtdPaletteColorField, setSelectedOtdPaletteColorField] = useState(
+    OTD_PALETTE_FIELDS[1].value
+  );
   const [otdViewMode, setOtdViewMode] = useState('monthly');
   const [selectedLaborChartFilterField, setSelectedLaborChartFilterField] = useState(
     LABOR_CHART_FILTER_FIELDS[0].value
   );
   const [selectedLaborChartFilterValue, setSelectedLaborChartFilterValue] =
     useState(ALL_FILTER_VALUE);
+  const [selectedLaborPaletteGroupField, setSelectedLaborPaletteGroupField] = useState(
+    LABOR_PALETTE_FIELDS[0].value
+  );
+  const [selectedLaborPaletteColorField, setSelectedLaborPaletteColorField] = useState(
+    LABOR_PALETTE_FIELDS[1].value
+  );
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [selectedCardGroup, setSelectedCardGroup] = useState('all');
   const [chartVariants, setChartVariants] = useState(DEFAULT_CHART_VARIANTS);
   const [selectedDateRangeIndices, setSelectedDateRangeIndices] = useState([0, 0]);
   const [hasCustomizedDateRange, setHasCustomizedDateRange] = useState(false);
+  const [pendingPresetDateRange, setPendingPresetDateRange] = useState(null);
+  const [dashboardPresetsState, setDashboardPresetsState] = useState({
+    currentUser: null,
+    presets: [],
+    loading: true,
+    error: '',
+    storageAvailable: false,
+    storageMessage: ''
+  });
+  const [selectedPresetSlot, setSelectedPresetSlot] = useState(1);
+  const [presetNameInput, setPresetNameInput] = useState('Preset 1');
+  const [presetStatus, setPresetStatus] = useState({
+    kind: '',
+    message: ''
+  });
+  const [isSavingPreset, setIsSavingPreset] = useState(false);
+  const [isPresetToolbarOpen, setIsPresetToolbarOpen] = useState(false);
   const {
     chartHostRef: controllableCostsChartHostRef,
     chartWidth: controllableCostsChartWidth
@@ -2056,9 +3041,6 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSelectedControllableChartFilterField(CONTROLLABLE_CHART_FILTER_FIELDS[0].value);
-        setSelectedControllableChartFilterValue(ALL_FILTER_VALUE);
-        setControllableCostsViewMode('quarterly');
 
         logClientDebug('controllable-costs', 'Controllable costs state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -2108,7 +3090,6 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSifViewMode('monthly');
 
         logClientDebug('sif', 'SIF state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -2154,7 +3135,6 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setPotentialSifViewMode('monthly');
 
         logClientDebug('potential-sif', 'Potential SIF state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -2200,7 +3180,6 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setNmfrViewMode('monthly');
 
         logClientDebug('nmfr', 'NMFR state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -2246,12 +3225,6 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSelectedOtdChartFilterField(
-          OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'bu')?.value ??
-            OTD_CHART_FILTER_FIELDS[0].value
-        );
-        setSelectedOtdChartFilterValue(ALL_FILTER_VALUE);
-        setOtdViewMode('monthly');
 
         logClientDebug('otd', 'OTD state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -2297,9 +3270,6 @@ export default function App() {
           error: '',
           source: getSourceLabel(payload.source)
         });
-        setSelectedLaborChartFilterField(LABOR_CHART_FILTER_FIELDS[0].value);
-        setSelectedLaborChartFilterValue(ALL_FILTER_VALUE);
-        setLaborViewMode('monthly');
 
         logClientDebug('labor', 'Labor state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
@@ -2342,6 +3312,82 @@ export default function App() {
       logClientDebug('dashboard', 'Dashboard component unmounted.');
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadDashboardPresets() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchApiJson('presets', '/api/dashboard-presets');
+
+        if (!isMounted) {
+          logClientDebug('presets', 'Component unmounted before presets state update.');
+          return;
+        }
+
+        const presets = Array.isArray(payload?.presets) ? payload.presets : [];
+
+        setDashboardPresetsState({
+          currentUser: payload?.currentUser ?? null,
+          presets,
+          loading: false,
+          error: '',
+          storageAvailable: Boolean(payload?.storageAvailable),
+          storageMessage: payload?.storageMessage ?? ''
+        });
+
+        if (presets.length > 0) {
+          setSelectedPresetSlot((currentValue) =>
+            presets.some((preset) => preset.slot === currentValue)
+              ? currentValue
+              : presets[0].slot
+          );
+        }
+
+        logClientDebug('presets', 'Dashboard presets state updated.', {
+          presetCount: presets.length,
+          storageAvailable: Boolean(payload?.storageAvailable),
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('presets', 'Component unmounted after presets load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
+        setDashboardPresetsState({
+          currentUser: null,
+          presets: [],
+          loading: false,
+          error: error.message || 'Unable to load dashboard presets.',
+          storageAvailable: false,
+          storageMessage: ''
+        });
+
+        logClientDebug('presets', 'Dashboard presets load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    loadDashboardPresets();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const selectedPreset =
+      dashboardPresetsState.presets.find((preset) => preset.slot === selectedPresetSlot) ?? null;
+
+    setPresetNameInput(selectedPreset?.name ?? `Preset ${selectedPresetSlot}`);
+  }, [dashboardPresetsState.presets, selectedPresetSlot]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', themeMode);
@@ -2419,10 +3465,44 @@ export default function App() {
     availableTimelineStamps.length > 0
       ? formatMonthStamp(availableTimelineStamps[maximumDateIndex])
       : '';
+
+  useEffect(() => {
+    if (!pendingPresetDateRange || availableTimelineStamps.length === 0) {
+      return;
+    }
+
+    const resolvedIndices = resolvePresetDateRangeIndices(availableTimelineStamps, {
+      dateRange: pendingPresetDateRange
+    });
+
+    if (resolvedIndices) {
+      setSelectedDateRangeIndices(resolvedIndices);
+      setHasCustomizedDateRange(true);
+    } else {
+      setHasCustomizedDateRange(false);
+    }
+
+    setPendingPresetDateRange(null);
+  }, [availableTimelineKey, availableTimelineStamps, pendingPresetDateRange]);
+
   const activeControllableChartFilterField =
     CONTROLLABLE_CHART_FILTER_FIELDS.find(
       (option) => option.value === selectedControllableChartFilterField
     ) ?? CONTROLLABLE_CHART_FILTER_FIELDS[0];
+  const controllablePaletteGroupFieldOptions = CONTROLLABLE_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedControllablePaletteColorField
+  );
+  const activeControllablePaletteGroupField =
+    controllablePaletteGroupFieldOptions.find(
+      (option) => option.value === selectedControllablePaletteGroupField
+    ) ?? controllablePaletteGroupFieldOptions[0] ?? CONTROLLABLE_PALETTE_FIELDS[0];
+  const controllablePaletteColorFieldOptions = CONTROLLABLE_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeControllablePaletteGroupField.value
+  );
+  const activeControllablePaletteColorField =
+    controllablePaletteColorFieldOptions.find(
+      (option) => option.value === selectedControllablePaletteColorField
+    ) ?? controllablePaletteColorFieldOptions[0] ?? CONTROLLABLE_PALETTE_FIELDS[1];
   const baseFilteredControllableCostsRows = controllableCostsState.rows;
   const controllableChartFilterValueOptions = getFilterOptions(
     baseFilteredControllableCostsRows,
@@ -2432,8 +3512,9 @@ export default function App() {
     selectedControllableChartFilterValue,
     controllableChartFilterValueOptions
   );
+  const controllableFilterApplies = ['filter', 'bar'].includes(chartVariants.controllableCosts);
   const filteredControllableCostsRows = baseFilteredControllableCostsRows.filter((row) => {
-    if (chartVariants.controllableCosts !== 'filter') {
+    if (!controllableFilterApplies) {
       return true;
     }
 
@@ -2455,10 +3536,48 @@ export default function App() {
     activeControllableChartFilterField.value,
     selectedDateRange
   );
+  const controllableCostsPaletteChartData = buildControllableCostsPaletteChartData(
+    baseFilteredControllableCostsRows,
+    activeControllablePaletteGroupField.value,
+    activeControllablePaletteColorField.value,
+    selectedDateRange
+  );
   const isControllableCostsPareto = chartVariants.controllableCosts === 'pareto';
-  const filteredSifRows = sifState.rows.filter(
+  const isControllableCostsPalette = chartVariants.controllableCosts === 'palette';
+  const activeSifChartFilterField =
+    SAFETY_CHART_FILTER_FIELDS.find((option) => option.value === selectedSifChartFilterField)
+    ?? SAFETY_CHART_FILTER_FIELDS[0];
+  const sifPaletteGroupFieldOptions = SAFETY_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedSifPaletteColorField
+  );
+  const activeSifPaletteGroupField =
+    sifPaletteGroupFieldOptions.find((option) => option.value === selectedSifPaletteGroupField)
+    ?? sifPaletteGroupFieldOptions[0]
+    ?? SAFETY_PALETTE_FIELDS[0];
+  const sifPaletteColorFieldOptions = SAFETY_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeSifPaletteGroupField.value
+  );
+  const activeSifPaletteColorField =
+    sifPaletteColorFieldOptions.find((option) => option.value === selectedSifPaletteColorField)
+    ?? sifPaletteColorFieldOptions[0]
+    ?? SAFETY_PALETTE_FIELDS[1];
+  const baseFilteredSifRows = sifState.rows.filter(
     (row) => Number(row.kpi_id) === SIF_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
+  const sifChartFilterValueOptions = getFilterOptions(
+    baseFilteredSifRows,
+    activeSifChartFilterField.value
+  );
+  const activeSifChartFilterValue = normalizeFilterValue(
+    selectedSifChartFilterValue,
+    sifChartFilterValueOptions
+  );
+  const sifFilterApplies = ['line', 'bar', 'filter'].includes(chartVariants.sif);
+  const filteredSifRows = baseFilteredSifRows.filter((row) => (
+    !sifFilterApplies
+    || activeSifChartFilterValue === ALL_FILTER_VALUE
+    || row[activeSifChartFilterField.value] === activeSifChartFilterValue
+  ));
   const globallyFilteredSifRows = filteredSifRows.filter((row) =>
     isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
   );
@@ -2469,12 +3588,64 @@ export default function App() {
     sifViewMode,
     selectedDateRange
   );
-  const sifSummaryValue = formatIncidentCount(sumActualValues(globallyFilteredSifRows));
-  const filteredPotentialSifRows = potentialSifState.rows.filter(
+  const sifParetoChartData = buildSafetyParetoChartData(
+    baseFilteredSifRows,
+    activeSifChartFilterField.value,
+    selectedDateRange,
+    'sif'
+  );
+  const sifPaletteChartData = buildSafetyPaletteChartData(
+    baseFilteredSifRows,
+    activeSifPaletteGroupField.value,
+    activeSifPaletteColorField.value,
+    selectedDateRange,
+    'sif'
+  );
+  const isSifLineView = chartVariants.sif === 'line';
+  const isSifPareto = chartVariants.sif === 'pareto';
+  const isSifPalette = chartVariants.sif === 'palette';
+  const sifSummaryRows = (isSifPareto || isSifPalette ? baseFilteredSifRows : filteredSifRows).filter(
+    (row) => isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+  );
+  const sifSummaryValue = formatIncidentCount(sumActualValues(sifSummaryRows));
+
+  const activePotentialSifChartFilterField =
+    SAFETY_CHART_FILTER_FIELDS.find(
+      (option) => option.value === selectedPotentialSifChartFilterField
+    ) ?? SAFETY_CHART_FILTER_FIELDS[0];
+  const potentialSifPaletteGroupFieldOptions = SAFETY_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedPotentialSifPaletteColorField
+  );
+  const activePotentialSifPaletteGroupField =
+    potentialSifPaletteGroupFieldOptions.find(
+      (option) => option.value === selectedPotentialSifPaletteGroupField
+    ) ?? potentialSifPaletteGroupFieldOptions[0] ?? SAFETY_PALETTE_FIELDS[0];
+  const potentialSifPaletteColorFieldOptions = SAFETY_PALETTE_FIELDS.filter(
+    (option) => option.value !== activePotentialSifPaletteGroupField.value
+  );
+  const activePotentialSifPaletteColorField =
+    potentialSifPaletteColorFieldOptions.find(
+      (option) => option.value === selectedPotentialSifPaletteColorField
+    ) ?? potentialSifPaletteColorFieldOptions[0] ?? SAFETY_PALETTE_FIELDS[1];
+  const baseFilteredPotentialSifRows = potentialSifState.rows.filter(
     (row) =>
       Number(row.kpi_id) === POTENTIAL_SIF_KPI_ID &&
       normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
+  const potentialSifChartFilterValueOptions = getFilterOptions(
+    baseFilteredPotentialSifRows,
+    activePotentialSifChartFilterField.value
+  );
+  const activePotentialSifChartFilterValue = normalizeFilterValue(
+    selectedPotentialSifChartFilterValue,
+    potentialSifChartFilterValueOptions
+  );
+  const potentialSifFilterApplies = ['line', 'bar', 'filter'].includes(chartVariants.potentialSif);
+  const filteredPotentialSifRows = baseFilteredPotentialSifRows.filter((row) => (
+    !potentialSifFilterApplies
+    || activePotentialSifChartFilterValue === ALL_FILTER_VALUE
+    || row[activePotentialSifChartFilterField.value] === activePotentialSifChartFilterValue
+  ));
   const globallyFilteredPotentialSifRows = filteredPotentialSifRows.filter((row) =>
     isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
   );
@@ -2485,29 +3656,112 @@ export default function App() {
     potentialSifViewMode,
     selectedDateRange
   );
-  const potentialSifSummaryValue = formatIncidentCount(
-    sumActualValues(globallyFilteredPotentialSifRows)
+  const potentialSifParetoChartData = buildSafetyParetoChartData(
+    baseFilteredPotentialSifRows,
+    activePotentialSifChartFilterField.value,
+    selectedDateRange,
+    'potentialSif'
   );
-  const filteredNmfrRows = nmfrState.rows.filter(
+  const potentialSifPaletteChartData = buildSafetyPaletteChartData(
+    baseFilteredPotentialSifRows,
+    activePotentialSifPaletteGroupField.value,
+    activePotentialSifPaletteColorField.value,
+    selectedDateRange,
+    'potentialSif'
+  );
+  const isPotentialSifLineView = chartVariants.potentialSif === 'line';
+  const isPotentialSifPareto = chartVariants.potentialSif === 'pareto';
+  const isPotentialSifPalette = chartVariants.potentialSif === 'palette';
+  const potentialSifSummaryRows = (
+    isPotentialSifPareto || isPotentialSifPalette ? baseFilteredPotentialSifRows : filteredPotentialSifRows
+  ).filter((row) => isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange));
+  const potentialSifSummaryValue = formatIncidentCount(
+    sumActualValues(potentialSifSummaryRows)
+  );
+
+  const activeNmfrChartFilterField =
+    SAFETY_CHART_FILTER_FIELDS.find((option) => option.value === selectedNmfrChartFilterField)
+    ?? SAFETY_CHART_FILTER_FIELDS[0];
+  const nmfrPaletteGroupFieldOptions = SAFETY_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedNmfrPaletteColorField
+  );
+  const activeNmfrPaletteGroupField =
+    nmfrPaletteGroupFieldOptions.find((option) => option.value === selectedNmfrPaletteGroupField)
+    ?? nmfrPaletteGroupFieldOptions[0]
+    ?? SAFETY_PALETTE_FIELDS[0];
+  const nmfrPaletteColorFieldOptions = SAFETY_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeNmfrPaletteGroupField.value
+  );
+  const activeNmfrPaletteColorField =
+    nmfrPaletteColorFieldOptions.find((option) => option.value === selectedNmfrPaletteColorField)
+    ?? nmfrPaletteColorFieldOptions[0]
+    ?? SAFETY_PALETTE_FIELDS[1];
+  const baseFilteredNmfrRows = nmfrState.rows.filter(
     (row) => Number(row.kpi_id) === NMFR_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
   );
+  const nmfrChartFilterValueOptions = getFilterOptions(
+    baseFilteredNmfrRows,
+    activeNmfrChartFilterField.value
+  );
+  const activeNmfrChartFilterValue = normalizeFilterValue(
+    selectedNmfrChartFilterValue,
+    nmfrChartFilterValueOptions
+  );
+  const nmfrFilterApplies = ['line', 'bar', 'filter'].includes(chartVariants.nmfr);
+  const filteredNmfrRows = baseFilteredNmfrRows.filter((row) => (
+    !nmfrFilterApplies
+    || activeNmfrChartFilterValue === ALL_FILTER_VALUE
+    || row[activeNmfrChartFilterField.value] === activeNmfrChartFilterValue
+  ));
   const globallyFilteredNmfrRows = filteredNmfrRows.filter((row) =>
     isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
   );
-  const nmfrChartData = buildIncidentChartData(
+  const nmfrChartData = buildNmfrChartData(
     filteredNmfrRows,
     NMFR_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     nmfrViewMode,
-    selectedDateRange,
-    'average'
+    selectedDateRange
   );
-  const nmfrAverageValue = averageActualValues(globallyFilteredNmfrRows);
-  const nmfrSummaryValue = nmfrAverageValue == null ? '--' : formatNumber(nmfrAverageValue);
+  const nmfrParetoChartData = buildSafetyParetoChartData(
+    baseFilteredNmfrRows,
+    activeNmfrChartFilterField.value,
+    selectedDateRange,
+    'nmfr'
+  );
+  const nmfrPaletteChartData = buildSafetyPaletteChartData(
+    baseFilteredNmfrRows,
+    activeNmfrPaletteGroupField.value,
+    activeNmfrPaletteColorField.value,
+    selectedDateRange,
+    'nmfr'
+  );
+  const isNmfrLineView = chartVariants.nmfr === 'line';
+  const isNmfrPareto = chartVariants.nmfr === 'pareto';
+  const isNmfrPalette = chartVariants.nmfr === 'palette';
+  const nmfrSummaryRows = (isNmfrPareto || isNmfrPalette ? baseFilteredNmfrRows : filteredNmfrRows).filter(
+    (row) => isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+  );
+  const nmfrOverallValue = calculateNmfrValueFromRows(nmfrSummaryRows);
+  const nmfrSummaryValue = nmfrOverallValue == null ? '--' : formatNumber(nmfrOverallValue);
 
   const activeOtdChartFilterField =
     OTD_CHART_FILTER_FIELDS.find((option) => option.value === selectedOtdChartFilterField) ??
     OTD_CHART_FILTER_FIELDS[0];
+  const otdPaletteGroupFieldOptions = OTD_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedOtdPaletteColorField
+  );
+  const activeOtdPaletteGroupField =
+    otdPaletteGroupFieldOptions.find((option) => option.value === selectedOtdPaletteGroupField)
+    ?? otdPaletteGroupFieldOptions[0]
+    ?? OTD_PALETTE_FIELDS[0];
+  const otdPaletteColorFieldOptions = OTD_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeOtdPaletteGroupField.value
+  );
+  const activeOtdPaletteColorField =
+    otdPaletteColorFieldOptions.find((option) => option.value === selectedOtdPaletteColorField)
+    ?? otdPaletteColorFieldOptions[0]
+    ?? OTD_PALETTE_FIELDS[1];
   const baseFilteredOtdRows = otdState.rows;
   const otdChartFilterValueOptions = getFilterOptions(
     baseFilteredOtdRows,
@@ -2517,8 +3771,9 @@ export default function App() {
     selectedOtdChartFilterValue,
     otdChartFilterValueOptions
   );
+  const otdFilterApplies = ['filter', 'bar'].includes(chartVariants.otd);
   const filteredOtdRows = baseFilteredOtdRows.filter((row) => {
-    if (chartVariants.otd !== 'filter') {
+    if (!otdFilterApplies) {
       return true;
     }
 
@@ -2528,16 +3783,37 @@ export default function App() {
     );
   });
   const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
+  const otdPaletteChartData = buildOtdPaletteChartData(
+    baseFilteredOtdRows,
+    activeOtdPaletteGroupField.value,
+    activeOtdPaletteColorField.value,
+    selectedDateRange
+  );
   const otdParetoChartData = buildOtdParetoChartData(
     baseFilteredOtdRows,
     activeOtdChartFilterField.value,
     selectedDateRange
   );
+  const isOtdPalette = chartVariants.otd === 'palette';
   const isOtdPareto = chartVariants.otd === 'pareto';
 
   const activeLaborChartFilterField =
     LABOR_CHART_FILTER_FIELDS.find((option) => option.value === selectedLaborChartFilterField) ??
     LABOR_CHART_FILTER_FIELDS[0];
+  const laborPaletteGroupFieldOptions = LABOR_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedLaborPaletteColorField
+  );
+  const activeLaborPaletteGroupField =
+    laborPaletteGroupFieldOptions.find((option) => option.value === selectedLaborPaletteGroupField)
+    ?? laborPaletteGroupFieldOptions[0]
+    ?? LABOR_PALETTE_FIELDS[0];
+  const laborPaletteColorFieldOptions = LABOR_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeLaborPaletteGroupField.value
+  );
+  const activeLaborPaletteColorField =
+    laborPaletteColorFieldOptions.find((option) => option.value === selectedLaborPaletteColorField)
+    ?? laborPaletteColorFieldOptions[0]
+    ?? LABOR_PALETTE_FIELDS[1];
   const laborChartFilterValueOptions = getFilterOptions(
     laborState.rows,
     activeLaborChartFilterField.value
@@ -2546,8 +3822,9 @@ export default function App() {
     selectedLaborChartFilterValue,
     laborChartFilterValueOptions
   );
+  const laborFilterApplies = ['filter', 'bar'].includes(chartVariants.labor);
   const filteredLaborRows = laborState.rows.filter((row) => {
-    if (chartVariants.labor !== 'filter') {
+    if (!laborFilterApplies) {
       return true;
     }
 
@@ -2561,6 +3838,19 @@ export default function App() {
     laborViewMode,
     selectedDateRange
   );
+  const laborPaletteChartData = buildLaborPaletteChartData(
+    laborState.rows,
+    activeLaborPaletteGroupField.value,
+    activeLaborPaletteColorField.value,
+    selectedDateRange
+  );
+  const laborParetoChartData = buildLaborParetoChartData(
+    laborState.rows,
+    activeLaborChartFilterField.value,
+    selectedDateRange
+  );
+  const isLaborPalette = chartVariants.labor === 'palette';
+  const isLaborPareto = chartVariants.labor === 'pareto';
   const isLaborBarChart = chartVariants.labor === 'bar';
   const laborChartSeries = [
     {
@@ -2572,15 +3862,56 @@ export default function App() {
       showMark: false
     }
   ];
+  const controllableCostsTooltipLegend = isControllableCostsPalette
+    ? buildTooltipLegend(
+      `Color by ${activeControllablePaletteColorField.label}`,
+      controllableCostsPaletteChartData.series
+    )
+    : null;
+  const sifTooltipLegend = isSifPalette
+    ? buildTooltipLegend(`Color by ${activeSifPaletteColorField.label}`, sifPaletteChartData.series)
+    : null;
+  const potentialSifTooltipLegend = isPotentialSifPalette
+    ? buildTooltipLegend(
+      `Color by ${activePotentialSifPaletteColorField.label}`,
+      potentialSifPaletteChartData.series
+    )
+    : null;
+  const nmfrTooltipLegend = isNmfrPalette
+    ? buildTooltipLegend(`Color by ${activeNmfrPaletteColorField.label}`, nmfrPaletteChartData.series)
+    : null;
+  const otdTooltipLegend = isOtdPalette
+    ? buildTooltipLegend(`Color by ${activeOtdPaletteColorField.label}`, otdPaletteChartData.series)
+    : null;
+  const laborTooltipLegend = isLaborPalette
+    ? buildTooltipLegend(`Color by ${activeLaborPaletteColorField.label}`, laborPaletteChartData.series)
+    : null;
   const controllableCostsGoalLine = getMetricGoalLine(
     'controllableCosts',
-    isControllableCostsPareto ? 'pareto' : controllableCostsViewMode
+    isControllableCostsPareto || isControllableCostsPalette
+      ? null
+      : controllableCostsViewMode
   );
-  const sifGoalLine = getMetricGoalLine('sif', sifViewMode);
-  const potentialSifGoalLine = getMetricGoalLine('potentialSif', potentialSifViewMode);
-  const nmfrGoalLine = getMetricGoalLine('nmfr', nmfrViewMode);
-  const otdGoalLine = getMetricGoalLine('otd', isOtdPareto ? 'pareto' : otdViewMode);
-  const laborGoalLine = getMetricGoalLine('labor', laborViewMode);
+  const sifGoalLine = getMetricGoalLine(
+    'sif',
+    isSifPareto || isSifPalette ? null : sifViewMode
+  );
+  const potentialSifGoalLine = getMetricGoalLine(
+    'potentialSif',
+    isPotentialSifPareto || isPotentialSifPalette ? null : potentialSifViewMode
+  );
+  const nmfrGoalLine = getMetricGoalLine(
+    'nmfr',
+    isNmfrPareto || isNmfrPalette ? null : nmfrViewMode
+  );
+  const otdGoalLine = getMetricGoalLine(
+    'otd',
+    isOtdPareto || isOtdPalette ? null : otdViewMode
+  );
+  const laborGoalLine = getMetricGoalLine(
+    'labor',
+    isLaborPareto || isLaborPalette ? null : laborViewMode
+  );
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
       .cardKeys
@@ -2597,18 +3928,400 @@ export default function App() {
   const nextThemeLabel = themeMode === 'light' ? 'Dark' : 'Light';
   const nextThemeIcon = themeMode === 'light' ? faMoon : faSun;
   const isChipActive = (cardGroupKey) => selectedCardGroup === cardGroupKey;
-  const allChartsLine = Object.values(chartVariants).every((variant) => variant === 'line');
-  const allChartsBar = Object.values(chartVariants).every((variant) => variant === 'bar');
+  const getGlobalChartMode = (metricKey, variant) => {
+    if (variant === 'line' || variant === 'filter') {
+      return 'line';
+    }
+
+    if (variant === 'bar' || variant === 'palette') {
+      return 'bar';
+    }
+
+    return 'special';
+  };
+  const allChartsLine = Object.entries(chartVariants).every(
+    ([metricKey, variant]) => getGlobalChartMode(metricKey, variant) === 'line'
+  );
+  const allChartsBar = Object.entries(chartVariants).every(
+    ([metricKey, variant]) => getGlobalChartMode(metricKey, variant) === 'bar'
+  );
+  const presetsBySlot = new Map(
+    dashboardPresetsState.presets.map((preset) => [preset.slot, preset])
+  );
+  const selectedPreset = presetsBySlot.get(selectedPresetSlot) ?? null;
+  const canLoadSelectedPreset = Boolean(selectedPreset?.state);
+  const canSavePresets =
+    !dashboardPresetsState.loading &&
+    dashboardPresetsState.storageAvailable &&
+    Boolean(dashboardPresetsState.currentUser?.my_id) &&
+    !isSavingPreset;
+  const presetUserLabel = dashboardPresetsState.currentUser
+    ? `${dashboardPresetsState.currentUser.name} (${dashboardPresetsState.currentUser.my_id})`
+    : 'Loading user...';
+  const presetMessage =
+    dashboardPresetsState.error
+    || presetStatus.message
+    || dashboardPresetsState.storageMessage
+    || '';
+  const presetMessageKind = dashboardPresetsState.error
+    ? 'error'
+    : presetStatus.kind
+      ? presetStatus.kind
+      : dashboardPresetsState.storageMessage
+        ? 'warning'
+        : '';
 
   const setAllChartVariants = (nextVariant) => {
     setChartVariants({
-      controllableCosts: nextVariant,
-      sif: nextVariant,
-      potentialSif: nextVariant,
-      nmfr: nextVariant,
-      otd: nextVariant,
-      labor: nextVariant
+      controllableCosts: nextVariant === 'line' ? 'filter' : 'bar',
+      sif: nextVariant === 'line' ? 'line' : 'palette',
+      potentialSif: nextVariant === 'line' ? 'line' : 'palette',
+      nmfr: nextVariant === 'line' ? 'line' : 'palette',
+      otd: nextVariant === 'line' ? 'filter' : 'bar',
+      labor: nextVariant === 'line' ? 'filter' : 'bar'
     });
+  };
+
+  const applyDashboardPresetState = (presetState, presetName) => {
+    if (!presetState || typeof presetState !== 'object') {
+      setPresetStatus({
+        kind: 'error',
+        message: 'That preset does not contain any saved dashboard state.'
+      });
+      return;
+    }
+
+    if (presetState.themeMode === 'light' || presetState.themeMode === 'dark') {
+      setThemeMode(presetState.themeMode);
+    }
+
+    if (CARD_CHIP_OPTIONS.some((cardGroup) => cardGroup.key === presetState.selectedCardGroup)) {
+      setSelectedCardGroup(presetState.selectedCardGroup);
+    }
+
+    setChartVariants(
+      Object.fromEntries(
+        Object.entries(DEFAULT_CHART_VARIANTS).map(([metricKey, defaultVariant]) => {
+          const candidateVariant = presetState.chartVariants?.[metricKey];
+          const allowedVariants = CARD_VARIANT_OPTIONS_BY_METRIC[metricKey] ?? [defaultVariant];
+
+          return [
+            metricKey,
+            allowedVariants.includes(candidateVariant) ? candidateVariant : defaultVariant
+          ];
+        })
+      )
+    );
+
+    if (Object.hasOwn(CONTROLLABLE_COSTS_VIEW_CONFIG, presetState.controllableCosts?.viewMode)) {
+      setControllableCostsViewMode(presetState.controllableCosts.viewMode);
+    }
+
+    if (Object.hasOwn(INCIDENT_VIEW_CONFIG, presetState.sif?.viewMode)) {
+      setSifViewMode(presetState.sif.viewMode);
+    }
+
+    if (
+      SAFETY_CHART_FILTER_FIELDS.some((option) => option.value === presetState.sif?.filterField)
+    ) {
+      setSelectedSifChartFilterField(presetState.sif.filterField);
+    }
+
+    setSelectedSifChartFilterValue(
+      typeof presetState.sif?.filterValue === 'string'
+        ? presetState.sif.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      SAFETY_PALETTE_FIELDS.some((option) => option.value === presetState.sif?.paletteGroupField)
+    ) {
+      setSelectedSifPaletteGroupField(presetState.sif.paletteGroupField);
+    }
+
+    if (
+      SAFETY_PALETTE_FIELDS.some((option) => option.value === presetState.sif?.paletteColorField)
+    ) {
+      setSelectedSifPaletteColorField(presetState.sif.paletteColorField);
+    }
+
+    if (Object.hasOwn(INCIDENT_VIEW_CONFIG, presetState.potentialSif?.viewMode)) {
+      setPotentialSifViewMode(presetState.potentialSif.viewMode);
+    }
+
+    if (
+      SAFETY_CHART_FILTER_FIELDS.some(
+        (option) => option.value === presetState.potentialSif?.filterField
+      )
+    ) {
+      setSelectedPotentialSifChartFilterField(presetState.potentialSif.filterField);
+    }
+
+    setSelectedPotentialSifChartFilterValue(
+      typeof presetState.potentialSif?.filterValue === 'string'
+        ? presetState.potentialSif.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      SAFETY_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.potentialSif?.paletteGroupField
+      )
+    ) {
+      setSelectedPotentialSifPaletteGroupField(presetState.potentialSif.paletteGroupField);
+    }
+
+    if (
+      SAFETY_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.potentialSif?.paletteColorField
+      )
+    ) {
+      setSelectedPotentialSifPaletteColorField(presetState.potentialSif.paletteColorField);
+    }
+
+    if (Object.hasOwn(INCIDENT_VIEW_CONFIG, presetState.nmfr?.viewMode)) {
+      setNmfrViewMode(presetState.nmfr.viewMode);
+    }
+
+    if (
+      SAFETY_CHART_FILTER_FIELDS.some((option) => option.value === presetState.nmfr?.filterField)
+    ) {
+      setSelectedNmfrChartFilterField(presetState.nmfr.filterField);
+    }
+
+    setSelectedNmfrChartFilterValue(
+      typeof presetState.nmfr?.filterValue === 'string'
+        ? presetState.nmfr.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      SAFETY_PALETTE_FIELDS.some((option) => option.value === presetState.nmfr?.paletteGroupField)
+    ) {
+      setSelectedNmfrPaletteGroupField(presetState.nmfr.paletteGroupField);
+    }
+
+    if (
+      SAFETY_PALETTE_FIELDS.some((option) => option.value === presetState.nmfr?.paletteColorField)
+    ) {
+      setSelectedNmfrPaletteColorField(presetState.nmfr.paletteColorField);
+    }
+
+    if (Object.hasOwn(OTD_VIEW_CONFIG, presetState.otd?.viewMode)) {
+      setOtdViewMode(presetState.otd.viewMode);
+    }
+
+    if (Object.hasOwn(LABOR_VIEW_CONFIG, presetState.labor?.viewMode)) {
+      setLaborViewMode(presetState.labor.viewMode);
+    }
+
+    if (
+      CONTROLLABLE_CHART_FILTER_FIELDS.some(
+        (option) => option.value === presetState.controllableCosts?.filterField
+      )
+    ) {
+      setSelectedControllableChartFilterField(presetState.controllableCosts.filterField);
+    }
+
+    setSelectedControllableChartFilterValue(
+      typeof presetState.controllableCosts?.filterValue === 'string'
+        ? presetState.controllableCosts.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      CONTROLLABLE_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.controllableCosts?.paletteGroupField
+      )
+    ) {
+      setSelectedControllablePaletteGroupField(
+        presetState.controllableCosts.paletteGroupField
+      );
+    }
+
+    if (
+      CONTROLLABLE_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.controllableCosts?.paletteColorField
+      )
+    ) {
+      setSelectedControllablePaletteColorField(
+        presetState.controllableCosts.paletteColorField
+      );
+    }
+
+    if (
+      OTD_CHART_FILTER_FIELDS.some((option) => option.value === presetState.otd?.filterField)
+    ) {
+      setSelectedOtdChartFilterField(presetState.otd.filterField);
+    }
+
+    setSelectedOtdChartFilterValue(
+      typeof presetState.otd?.filterValue === 'string'
+        ? presetState.otd.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      OTD_PALETTE_FIELDS.some((option) => option.value === presetState.otd?.paletteGroupField)
+    ) {
+      setSelectedOtdPaletteGroupField(presetState.otd.paletteGroupField);
+    }
+
+    if (
+      OTD_PALETTE_FIELDS.some((option) => option.value === presetState.otd?.paletteColorField)
+    ) {
+      setSelectedOtdPaletteColorField(presetState.otd.paletteColorField);
+    }
+
+    if (
+      LABOR_CHART_FILTER_FIELDS.some((option) => option.value === presetState.labor?.filterField)
+    ) {
+      setSelectedLaborChartFilterField(presetState.labor.filterField);
+    }
+
+    setSelectedLaborChartFilterValue(
+      typeof presetState.labor?.filterValue === 'string'
+        ? presetState.labor.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      LABOR_PALETTE_FIELDS.some((option) => option.value === presetState.labor?.paletteGroupField)
+    ) {
+      setSelectedLaborPaletteGroupField(presetState.labor.paletteGroupField);
+    }
+
+    if (
+      LABOR_PALETTE_FIELDS.some((option) => option.value === presetState.labor?.paletteColorField)
+    ) {
+      setSelectedLaborPaletteColorField(presetState.labor.paletteColorField);
+    }
+
+    if (presetState.dateRange?.hasCustomizedDateRange) {
+      const resolvedIndices = resolvePresetDateRangeIndices(
+        availableTimelineStamps,
+        presetState
+      );
+
+      if (resolvedIndices) {
+        setSelectedDateRangeIndices(resolvedIndices);
+        setHasCustomizedDateRange(true);
+        setPendingPresetDateRange(null);
+      } else {
+        setPendingPresetDateRange(presetState.dateRange);
+      }
+    } else {
+      setPendingPresetDateRange(null);
+      setHasCustomizedDateRange(false);
+
+      if (availableTimelineStamps.length > 0) {
+        setSelectedDateRangeIndices([0, availableTimelineStamps.length - 1]);
+      }
+    }
+
+    setPresetStatus({
+      kind: 'success',
+      message: presetName ? `Loaded ${presetName}.` : 'Preset loaded.'
+    });
+  };
+
+  const handleLoadPreset = () => {
+    if (!selectedPreset?.state) {
+      setPresetStatus({
+        kind: 'error',
+        message: 'No preset is saved in the selected slot.'
+      });
+      return;
+    }
+
+    applyDashboardPresetState(selectedPreset.state, selectedPreset.name);
+  };
+
+  const handleSavePreset = async () => {
+    if (!canSavePresets) {
+      return;
+    }
+
+    setIsSavingPreset(true);
+    setPresetStatus({
+      kind: '',
+      message: ''
+    });
+
+    try {
+      const state = buildDashboardPresetState({
+        themeMode,
+        selectedCardGroup,
+        chartVariants,
+        controllableCostsViewMode,
+        selectedControllableChartFilterField,
+        selectedControllableChartFilterValue,
+        selectedControllablePaletteGroupField,
+        selectedControllablePaletteColorField,
+        sifViewMode,
+        selectedSifChartFilterField,
+        selectedSifChartFilterValue,
+        selectedSifPaletteGroupField,
+        selectedSifPaletteColorField,
+        potentialSifViewMode,
+        selectedPotentialSifChartFilterField,
+        selectedPotentialSifChartFilterValue,
+        selectedPotentialSifPaletteGroupField,
+        selectedPotentialSifPaletteColorField,
+        nmfrViewMode,
+        selectedNmfrChartFilterField,
+        selectedNmfrChartFilterValue,
+        selectedNmfrPaletteGroupField,
+        selectedNmfrPaletteColorField,
+        otdViewMode,
+        selectedOtdChartFilterField,
+        selectedOtdChartFilterValue,
+        selectedOtdPaletteGroupField,
+        selectedOtdPaletteColorField,
+        laborViewMode,
+        selectedLaborChartFilterField,
+        selectedLaborChartFilterValue,
+        selectedLaborPaletteGroupField,
+        selectedLaborPaletteColorField,
+        hasCustomizedDateRange,
+        selectedDateRange
+      });
+      const payload = await fetchApiJson(
+        'presets',
+        `/api/dashboard-presets/${selectedPresetSlot}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: presetNameInput,
+            state
+          })
+        }
+      );
+      const presets = Array.isArray(payload?.presets) ? payload.presets : [];
+
+      setDashboardPresetsState((currentValue) => ({
+        ...currentValue,
+        currentUser: payload?.currentUser ?? currentValue.currentUser,
+        presets,
+        storageAvailable: Boolean(payload?.storageAvailable),
+        storageMessage: payload?.storageMessage ?? '',
+        error: ''
+      }));
+      setPresetStatus({
+        kind: 'success',
+        message: `Saved ${presetNameInput.trim() || `Preset ${selectedPresetSlot}`}.`
+      });
+    } catch (error) {
+      setPresetStatus({
+        kind: 'error',
+        message: error.message || 'Unable to save the selected preset.'
+      });
+    } finally {
+      setIsSavingPreset(false);
+    }
   };
 
   return (
@@ -2716,6 +4429,17 @@ export default function App() {
 
                 <button
                   type="button"
+                  className={`preset-toolbar-toggle-button${isPresetToolbarOpen ? ' preset-toolbar-toggle-button-active' : ''}`}
+                  aria-expanded={isPresetToolbarOpen}
+                  onClick={() => {
+                    setIsPresetToolbarOpen((currentValue) => !currentValue);
+                  }}
+                >
+                  {isPresetToolbarOpen ? 'Hide presets' : 'View/set presets'}
+                </button>
+
+                <button
+                  type="button"
                   className="theme-toggle"
                   aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
                   onClick={() => {
@@ -2727,6 +4451,86 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {isPresetToolbarOpen && (
+              <div className="preset-toolbar">
+                <div className="preset-toolbar-main">
+                  <div className="preset-toolbar-user">
+                    <p className="preset-toolbar-label">Presets</p>
+                    <p className="preset-toolbar-user-value">{presetUserLabel}</p>
+                  </div>
+
+                  <div className="preset-slot-list" role="group" aria-label="Preset slots">
+                    {PRESET_SLOT_OPTIONS.map((slot) => {
+                      const preset = presetsBySlot.get(slot);
+
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          className={`preset-slot-button${selectedPresetSlot === slot ? ' preset-slot-button-active' : ''}${preset ? ' preset-slot-button-filled' : ''}`}
+                          aria-pressed={selectedPresetSlot === slot}
+                          onClick={() => {
+                            setSelectedPresetSlot(slot);
+                            setPresetStatus({
+                              kind: '',
+                              message: ''
+                            });
+                          }}
+                        >
+                          <span className="preset-slot-button-index">Slot {slot}</span>
+                          <span className="preset-slot-button-name">
+                            {preset?.name || `Preset ${slot}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="preset-toolbar-actions">
+                    <input
+                      type="text"
+                      className="preset-name-input"
+                      value={presetNameInput}
+                      maxLength={100}
+                      onChange={(event) => {
+                        setPresetNameInput(event.target.value);
+                        setPresetStatus({
+                          kind: '',
+                          message: ''
+                        });
+                      }}
+                      placeholder={`Preset ${selectedPresetSlot}`}
+                      aria-label="Preset name"
+                    />
+
+                    <button
+                      type="button"
+                      className="preset-action-button"
+                      onClick={handleLoadPreset}
+                      disabled={!canLoadSelectedPreset}
+                    >
+                      Load
+                    </button>
+
+                    <button
+                      type="button"
+                      className="preset-action-button preset-action-button-primary"
+                      onClick={handleSavePreset}
+                      disabled={!canSavePresets}
+                    >
+                      {isSavingPreset ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+
+                {presetMessage && (
+                  <p className={`preset-toolbar-message${presetMessageKind ? ` preset-toolbar-message-${presetMessageKind}` : ''}`}>
+                    {presetMessage}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="cards-grid">
@@ -2735,6 +4539,7 @@ export default function App() {
                 <CardHeader
                   title="Controllable Costs"
                   info={METRIC_INFO.controllableCosts}
+                  tooltipLegend={controllableCostsTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -2755,11 +4560,13 @@ export default function App() {
                         (baseFilteredControllableCostsRows.length === 0 ||
                           (isControllableCostsPareto
                             ? controllableCostsParetoChartData.labels.length === 0
-                            : globallyFilteredControllableCostsRows.length === 0)) && (
+                            : isControllableCostsPalette
+                              ? controllableCostsPaletteChartData.labels.length === 0
+                              : globallyFilteredControllableCostsRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsState.rows.length === 0
                               ? 'No controllable cost rows are available for charting.'
-                              : baseFilteredControllableCostsRows.length === 0
+                              : filteredControllableCostsRows.length === 0 && controllableFilterApplies
                                 ? 'No controllable cost rows match the selected filters.'
                                 : 'No controllable cost rows fall within the selected date range.'}
                           </p>
@@ -2769,7 +4576,9 @@ export default function App() {
                         !controllableCostsState.error &&
                         (isControllableCostsPareto
                           ? controllableCostsParetoChartData.labels.length > 0
-                          : controllableCostsChartData.labels.length > 0) &&
+                          : isControllableCostsPalette
+                            ? controllableCostsPaletteChartData.labels.length > 0
+                            : controllableCostsChartData.labels.length > 0) &&
                         controllableCostsChartWidth > 0 && (
                           isControllableCostsPareto ? (
                             <ParetoMetricChart
@@ -2781,25 +4590,32 @@ export default function App() {
                               cumulativeShares={controllableCostsParetoChartData.cumulativeShares}
                               barLabel="Total cost"
                               barColor="var(--chart-line)"
-                              barAxis={[
-                                {
-                                  width: 66,
-                                  valueFormatter: formatCompactCurrency,
-                                  tickLabelStyle: { fontSize: 11 }
-                                }
-                              ]}
+                              barAxis={CONTROLLABLE_COSTS_Y_AXIS}
                               barValueFormatter={formatCurrency}
                               goalLine={controllableCostsGoalLine}
                               sx={sharedChartSx}
                             />
+                          ) : isControllableCostsPalette ? (
+                            <StackedCategoryBarChart
+                              width={controllableCostsChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsPaletteChartData.labels}
+                              yAxis={CONTROLLABLE_COSTS_Y_AXIS}
+                              series={controllableCostsPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatCurrency
+                              }))}
+                              sx={sharedChartSx}
+                            />
                           ) : (
                             <MetricTrendChart
-                              variant={chartVariants.controllableCosts}
+                              variant={chartVariants.controllableCosts === 'bar' ? 'bar' : 'line'}
                               width={controllableCostsChartWidth}
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
                               labels={controllableCostsChartData.labels}
-                              yAxis={OTD_Y_AXIS}
+                              yAxis={CONTROLLABLE_COSTS_Y_AXIS}
                               series={[
                                 {
                                   data: controllableCostsChartData.controllable,
@@ -2823,6 +4639,10 @@ export default function App() {
                         )}
                     </div>
 
+                    {isControllableCostsPalette && (
+                      <p className="chart-palette-hint">Hover over ? for color details.</p>
+                    )}
+
                     <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
@@ -2839,9 +4659,13 @@ export default function App() {
                               controllableCosts: nextVariant
                             }));
                           }}
+                          showLine={false}
+                          alwaysGridToggle
                           supportsFilter
+                          showFilterControlsOnBar
+                          supportsPalette
                           supportsPareto
-                          filterToggleAriaLabel="Filter controllable costs chart"
+                          filterToggleAriaLabel="Controllable costs time series"
                           filterFieldValue={activeControllableChartFilterField.value}
                           filterFieldOptions={CONTROLLABLE_CHART_FILTER_FIELDS}
                           paretoFieldOptions={CONTROLLABLE_PARETO_FILTER_FIELDS}
@@ -2855,6 +4679,37 @@ export default function App() {
                           filterValueAllLabel={activeControllableChartFilterField.allLabel}
                           filterValueAriaLabel="Select controllable costs filter value"
                           onFilterValueChange={setSelectedControllableChartFilterValue}
+                          paletteToggleAriaLabel="Controllable costs grouped palette chart"
+                          paletteGroupFieldValue={activeControllablePaletteGroupField.value}
+                          paletteGroupFieldOptions={controllablePaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select controllable costs group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedControllablePaletteGroupField(nextField);
+
+                            if (nextField === activeControllablePaletteColorField.value) {
+                              const nextColorField =
+                                CONTROLLABLE_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedControllablePaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeControllablePaletteColorField.value}
+                          paletteColorFieldOptions={controllablePaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select controllable costs color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedControllablePaletteColorField(nextField);
+
+                            if (nextField === activeControllablePaletteGroupField.value) {
+                              const nextGroupField =
+                                CONTROLLABLE_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedControllablePaletteGroupField(nextGroupField);
+                            }
+                          }}
                         />
                       </div>
                     </div>
@@ -2885,7 +4740,11 @@ export default function App() {
 
             {visibleCards.sif && (
               <article className="analytics-card" style={{ order: 6 }}>
-                <CardHeader title="SIF Incidents" info={METRIC_INFO.sif} />
+                <CardHeader
+                  title="SIF Incidents"
+                  info={METRIC_INFO.sif}
+                  tooltipLegend={sifTooltipLegend}
+                />
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
@@ -2896,43 +4755,90 @@ export default function App() {
                         <p className="chart-message chart-message-error">{sifState.error}</p>
                       )}
 
-                      {!sifState.loading && !sifState.error && sifChartData.length === 0 && (
+                      {!sifState.loading &&
+                        !sifState.error &&
+                        (baseFilteredSifRows.length === 0
+                          || (isSifPareto
+                            ? sifParetoChartData.labels.length === 0
+                            : isSifPalette
+                              ? sifPaletteChartData.labels.length === 0
+                              : globallyFilteredSifRows.length === 0)) && (
                         <p className="chart-message">
-                          {filteredSifRows.length === 0
+                          {sifState.rows.length === 0
                             ? 'No Defense SIF rows are available for charting.'
-                            : 'No Defense SIF rows fall within the selected date range.'}
+                            : filteredSifRows.length === 0 && !isSifPareto && !isSifPalette
+                              ? 'No Defense SIF rows match the selected filters.'
+                              : 'No Defense SIF rows fall within the selected date range.'}
                         </p>
                       )}
 
                       {!sifState.loading &&
                         !sifState.error &&
-                        sifChartData.length > 0 &&
+                        (isSifPareto
+                          ? sifParetoChartData.labels.length > 0
+                          : isSifPalette
+                            ? sifPaletteChartData.labels.length > 0
+                            : sifChartData.length > 0) &&
                         sifChartWidth > 0 && (
-                          <MetricTrendChart
-                            variant={chartVariants.sif}
-                            width={sifChartWidth}
-                            height={INCIDENT_CHART_HEIGHT}
-                            hideLegend
-                            margin={INCIDENT_CHART_MARGIN}
-                            labels={sifChartData.map((bucket) => bucket.label)}
-                            xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
-                            yAxis={SIF_Y_AXIS}
-                            series={[
-                              {
-                                data: sifChartData.map((bucket) => bucket.total),
-                                label: 'SIF Incidents',
-                                color: 'var(--chart-line)',
-                                valueFormatter: formatIncidentCount,
-                                showMark: false
-                              }
-                            ]}
-                            goalLine={sifGoalLine}
-                            sx={sharedChartSx}
-                          />
+                          isSifPareto ? (
+                            <ParetoMetricChart
+                              width={sifChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={sifParetoChartData.labels}
+                              values={sifParetoChartData.values}
+                              cumulativeShares={sifParetoChartData.cumulativeShares}
+                              barLabel="SIF Incidents"
+                              barColor="var(--chart-line)"
+                              barAxis={SIF_Y_AXIS}
+                              barValueFormatter={formatIncidentCount}
+                              goalLine={sifGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isSifPalette ? (
+                            <StackedCategoryBarChart
+                              width={sifChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={sifPaletteChartData.labels}
+                              yAxis={SIF_Y_AXIS}
+                              series={sifPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatIncidentCount
+                              }))}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.sif === 'bar' ? 'bar' : 'line'}
+                              width={sifChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              hideLegend
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={sifChartData.map((bucket) => bucket.label)}
+                              xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
+                              yAxis={SIF_Y_AXIS}
+                              series={[
+                                {
+                                  data: sifChartData.map((bucket) => bucket.total),
+                                  label: 'SIF Incidents',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatIncidentCount,
+                                  showMark: false
+                                }
+                              ]}
+                              goalLine={sifGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          )
                         )}
                     </div>
 
-                    <div className="chart-control-row chart-control-row-summary">
+                    {isSifPalette && (
+                      <p className="chart-palette-hint">Hover over ? for color details.</p>
+                    )}
+
+                    <div className={`chart-control-row ${isSifLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.sif}
@@ -2942,13 +4848,63 @@ export default function App() {
                               sif: nextVariant
                             }));
                           }}
+                          showBar={false}
+                          alwaysGridToggle
+                          supportsFilter
+                          supportsPalette
+                          supportsPareto
+                          filterToggleAriaLabel="SIF incidents filtered time series"
+                          filterFieldValue={activeSifChartFilterField.value}
+                          filterFieldOptions={SAFETY_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={SAFETY_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select SIF filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedSifChartFilterField(nextField);
+                            setSelectedSifChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activeSifChartFilterValue}
+                          filterValueOptions={sifChartFilterValueOptions}
+                          filterValueAllLabel={activeSifChartFilterField.allLabel}
+                          filterValueAriaLabel="Select SIF filter value"
+                          onFilterValueChange={setSelectedSifChartFilterValue}
+                          paletteToggleAriaLabel="SIF incidents grouped palette chart"
+                          paletteGroupFieldValue={activeSifPaletteGroupField.value}
+                          paletteGroupFieldOptions={sifPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select SIF group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedSifPaletteGroupField(nextField);
+
+                            if (nextField === activeSifPaletteColorField.value) {
+                              const nextColorField =
+                                SAFETY_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedSifPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeSifPaletteColorField.value}
+                          paletteColorFieldOptions={sifPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select SIF color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedSifPaletteColorField(nextField);
+
+                            if (nextField === activeSifPaletteGroupField.value) {
+                              const nextGroupField =
+                                SAFETY_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedSifPaletteGroupField(nextGroupField);
+                            }
+                          }}
                         />
                       </div>
-                      <MetricSummaryPanel
-                        title="SIF Incidents"
-                        value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
-                        className="metric-summary-panel-inline"
-                      />
+                      {isSifLineView && (
+                        <MetricSummaryPanel
+                          title="SIF Incidents"
+                          value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
+                          className="metric-summary-panel-inline"
+                        />
+                      )}
                     </div>
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -2980,6 +4936,7 @@ export default function App() {
                 <CardHeader
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
+                  tooltipLegend={potentialSifTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -2997,43 +4954,88 @@ export default function App() {
 
                       {!potentialSifState.loading &&
                         !potentialSifState.error &&
-                        potentialSifChartData.length === 0 && (
+                        (baseFilteredPotentialSifRows.length === 0
+                          || (isPotentialSifPareto
+                            ? potentialSifParetoChartData.labels.length === 0
+                            : isPotentialSifPalette
+                              ? potentialSifPaletteChartData.labels.length === 0
+                              : globallyFilteredPotentialSifRows.length === 0)) && (
                           <p className="chart-message">
-                            {filteredPotentialSifRows.length === 0
+                            {potentialSifState.rows.length === 0
                               ? 'No Defense potential SIF rows are available for charting.'
-                              : 'No Defense potential SIF rows fall within the selected date range.'}
+                              : filteredPotentialSifRows.length === 0 && !isPotentialSifPareto && !isPotentialSifPalette
+                                ? 'No Defense potential SIF rows match the selected filters.'
+                                : 'No Defense potential SIF rows fall within the selected date range.'}
                           </p>
                         )}
 
                       {!potentialSifState.loading &&
                         !potentialSifState.error &&
-                        potentialSifChartData.length > 0 &&
+                        (isPotentialSifPareto
+                          ? potentialSifParetoChartData.labels.length > 0
+                          : isPotentialSifPalette
+                            ? potentialSifPaletteChartData.labels.length > 0
+                            : potentialSifChartData.length > 0) &&
                         potentialSifChartWidth > 0 && (
-                          <MetricTrendChart
-                            variant={chartVariants.potentialSif}
-                            width={potentialSifChartWidth}
-                            height={INCIDENT_CHART_HEIGHT}
-                            hideLegend
-                            margin={INCIDENT_CHART_MARGIN}
-                            labels={potentialSifChartData.map((bucket) => bucket.label)}
-                            xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
-                            yAxis={SIF_Y_AXIS}
-                            series={[
-                              {
-                                data: potentialSifChartData.map((bucket) => bucket.total),
-                                label: 'Potential SIF Incidents',
-                                color: 'var(--chart-line)',
-                                valueFormatter: formatIncidentCount,
-                                showMark: false
-                              }
-                            ]}
-                            goalLine={potentialSifGoalLine}
-                            sx={sharedChartSx}
-                          />
+                          isPotentialSifPareto ? (
+                            <ParetoMetricChart
+                              width={potentialSifChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={potentialSifParetoChartData.labels}
+                              values={potentialSifParetoChartData.values}
+                              cumulativeShares={potentialSifParetoChartData.cumulativeShares}
+                              barLabel="Potential SIF Incidents"
+                              barColor="var(--chart-line)"
+                              barAxis={SIF_Y_AXIS}
+                              barValueFormatter={formatIncidentCount}
+                              goalLine={potentialSifGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isPotentialSifPalette ? (
+                            <StackedCategoryBarChart
+                              width={potentialSifChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={potentialSifPaletteChartData.labels}
+                              yAxis={SIF_Y_AXIS}
+                              series={potentialSifPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatIncidentCount
+                              }))}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.potentialSif === 'bar' ? 'bar' : 'line'}
+                              width={potentialSifChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              hideLegend
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={potentialSifChartData.map((bucket) => bucket.label)}
+                              xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
+                              yAxis={SIF_Y_AXIS}
+                              series={[
+                                {
+                                  data: potentialSifChartData.map((bucket) => bucket.total),
+                                  label: 'Potential SIF Incidents',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatIncidentCount,
+                                  showMark: false
+                                }
+                              ]}
+                              goalLine={potentialSifGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          )
                         )}
                     </div>
 
-                    <div className="chart-control-row chart-control-row-summary">
+                    {isPotentialSifPalette && (
+                      <p className="chart-palette-hint">Hover over ? for color details.</p>
+                    )}
+
+                    <div className={`chart-control-row ${isPotentialSifLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.potentialSif}
@@ -3043,17 +5045,67 @@ export default function App() {
                               potentialSif: nextVariant
                             }));
                           }}
+                          showBar={false}
+                          alwaysGridToggle
+                          supportsFilter
+                          supportsPalette
+                          supportsPareto
+                          filterToggleAriaLabel="Potential SIF incidents filtered time series"
+                          filterFieldValue={activePotentialSifChartFilterField.value}
+                          filterFieldOptions={SAFETY_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={SAFETY_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select potential SIF filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedPotentialSifChartFilterField(nextField);
+                            setSelectedPotentialSifChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activePotentialSifChartFilterValue}
+                          filterValueOptions={potentialSifChartFilterValueOptions}
+                          filterValueAllLabel={activePotentialSifChartFilterField.allLabel}
+                          filterValueAriaLabel="Select potential SIF filter value"
+                          onFilterValueChange={setSelectedPotentialSifChartFilterValue}
+                          paletteToggleAriaLabel="Potential SIF incidents grouped palette chart"
+                          paletteGroupFieldValue={activePotentialSifPaletteGroupField.value}
+                          paletteGroupFieldOptions={potentialSifPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select potential SIF group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedPotentialSifPaletteGroupField(nextField);
+
+                            if (nextField === activePotentialSifPaletteColorField.value) {
+                              const nextColorField =
+                                SAFETY_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedPotentialSifPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activePotentialSifPaletteColorField.value}
+                          paletteColorFieldOptions={potentialSifPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select potential SIF color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedPotentialSifPaletteColorField(nextField);
+
+                            if (nextField === activePotentialSifPaletteGroupField.value) {
+                              const nextGroupField =
+                                SAFETY_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedPotentialSifPaletteGroupField(nextGroupField);
+                            }
+                          }}
                         />
                       </div>
-                      <MetricSummaryPanel
-                        title="Potential SIF Incidents"
-                        value={
-                          potentialSifState.loading || potentialSifState.error
-                            ? '--'
-                            : potentialSifSummaryValue
-                        }
-                        className="metric-summary-panel-inline"
-                      />
+                      {isPotentialSifLineView && (
+                        <MetricSummaryPanel
+                          title="Potential SIF Incidents"
+                          value={
+                            potentialSifState.loading || potentialSifState.error
+                              ? '--'
+                              : potentialSifSummaryValue
+                          }
+                          className="metric-summary-panel-inline"
+                        />
+                      )}
                     </div>
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -3085,6 +5137,7 @@ export default function App() {
                 <CardHeader
                   title="Near Miss Frequency Rate"
                   info={METRIC_INFO.nmfr}
+                  tooltipLegend={nmfrTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -3096,43 +5149,90 @@ export default function App() {
                         <p className="chart-message chart-message-error">{nmfrState.error}</p>
                       )}
 
-                      {!nmfrState.loading && !nmfrState.error && nmfrChartData.length === 0 && (
+                      {!nmfrState.loading &&
+                        !nmfrState.error &&
+                        (baseFilteredNmfrRows.length === 0
+                          || (isNmfrPareto
+                            ? nmfrParetoChartData.labels.length === 0
+                            : isNmfrPalette
+                              ? nmfrPaletteChartData.labels.length === 0
+                              : globallyFilteredNmfrRows.length === 0)) && (
                         <p className="chart-message">
-                          {filteredNmfrRows.length === 0
+                          {nmfrState.rows.length === 0
                             ? 'No Defense NMFR rows are available for charting.'
-                            : 'No Defense NMFR rows fall within the selected date range.'}
+                            : filteredNmfrRows.length === 0 && !isNmfrPareto && !isNmfrPalette
+                              ? 'No Defense NMFR rows match the selected filters.'
+                              : 'No Defense NMFR rows fall within the selected date range.'}
                         </p>
                       )}
 
                       {!nmfrState.loading &&
                         !nmfrState.error &&
-                        nmfrChartData.length > 0 &&
+                        (isNmfrPareto
+                          ? nmfrParetoChartData.labels.length > 0
+                          : isNmfrPalette
+                            ? nmfrPaletteChartData.labels.length > 0
+                            : nmfrChartData.length > 0) &&
                         nmfrChartWidth > 0 && (
-                          <MetricTrendChart
-                            variant={chartVariants.nmfr}
-                            width={nmfrChartWidth}
-                            height={INCIDENT_CHART_HEIGHT}
-                            hideLegend
-                            margin={INCIDENT_CHART_MARGIN}
-                            labels={nmfrChartData.map((bucket) => bucket.label)}
-                            xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
-                            yAxis={NMFR_Y_AXIS}
-                            series={[
-                              {
-                                data: nmfrChartData.map((bucket) => bucket.total),
-                                label: 'Near Miss Frequency Rate',
-                                color: 'var(--chart-line)',
-                                valueFormatter: formatNumber,
-                                showMark: false
-                              }
-                            ]}
-                            goalLine={nmfrGoalLine}
-                            sx={sharedChartSx}
-                          />
+                          isNmfrPareto ? (
+                            <ParetoMetricChart
+                              width={nmfrChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={nmfrParetoChartData.labels}
+                              values={nmfrParetoChartData.values}
+                              cumulativeShares={nmfrParetoChartData.cumulativeShares}
+                              barLabel="Near Miss Frequency Rate"
+                              barColor="var(--chart-line)"
+                              barAxis={NMFR_Y_AXIS}
+                              barValueFormatter={formatNumber}
+                              goalLine={nmfrGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isNmfrPalette ? (
+                            <StackedCategoryBarChart
+                              width={nmfrChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={nmfrPaletteChartData.labels}
+                              yAxis={NMFR_Y_AXIS}
+                              series={nmfrPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatNumber
+                              }))}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.nmfr === 'bar' ? 'bar' : 'line'}
+                              width={nmfrChartWidth}
+                              height={INCIDENT_CHART_HEIGHT}
+                              hideLegend
+                              margin={INCIDENT_CHART_MARGIN}
+                              labels={nmfrChartData.map((bucket) => bucket.label)}
+                              xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
+                              yAxis={NMFR_Y_AXIS}
+                              series={[
+                                {
+                                  data: nmfrChartData.map((bucket) => bucket.total),
+                                  label: 'Near Miss Frequency Rate',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatNumber,
+                                  showMark: false
+                                }
+                              ]}
+                              goalLine={nmfrGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          )
                         )}
                     </div>
 
-                    <div className="chart-control-row chart-control-row-summary">
+                    {isNmfrPalette && (
+                      <p className="chart-palette-hint">Hover over ? for color details.</p>
+                    )}
+
+                    <div className={`chart-control-row ${isNmfrLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.nmfr}
@@ -3142,13 +5242,63 @@ export default function App() {
                               nmfr: nextVariant
                             }));
                           }}
+                          showBar={false}
+                          alwaysGridToggle
+                          supportsFilter
+                          supportsPalette
+                          supportsPareto
+                          filterToggleAriaLabel="Near miss frequency rate filtered time series"
+                          filterFieldValue={activeNmfrChartFilterField.value}
+                          filterFieldOptions={SAFETY_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={SAFETY_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select NMFR filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedNmfrChartFilterField(nextField);
+                            setSelectedNmfrChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activeNmfrChartFilterValue}
+                          filterValueOptions={nmfrChartFilterValueOptions}
+                          filterValueAllLabel={activeNmfrChartFilterField.allLabel}
+                          filterValueAriaLabel="Select NMFR filter value"
+                          onFilterValueChange={setSelectedNmfrChartFilterValue}
+                          paletteToggleAriaLabel="Near miss frequency rate grouped palette chart"
+                          paletteGroupFieldValue={activeNmfrPaletteGroupField.value}
+                          paletteGroupFieldOptions={nmfrPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select NMFR group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedNmfrPaletteGroupField(nextField);
+
+                            if (nextField === activeNmfrPaletteColorField.value) {
+                              const nextColorField =
+                                SAFETY_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedNmfrPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeNmfrPaletteColorField.value}
+                          paletteColorFieldOptions={nmfrPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select NMFR color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedNmfrPaletteColorField(nextField);
+
+                            if (nextField === activeNmfrPaletteGroupField.value) {
+                              const nextGroupField =
+                                SAFETY_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedNmfrPaletteGroupField(nextGroupField);
+                            }
+                          }}
                         />
                       </div>
-                      <MetricSummaryPanel
-                        title="Near Miss Frequency Rate"
-                        value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
-                        className="metric-summary-panel-inline"
-                      />
+                      {isNmfrLineView && (
+                        <MetricSummaryPanel
+                          title="Near Miss Frequency Rate"
+                          value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
+                          className="metric-summary-panel-inline"
+                        />
+                      )}
                     </div>
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -3180,6 +5330,7 @@ export default function App() {
                 <CardHeader
                   title="On Time Delivery (OTD)"
                   info={METRIC_INFO.otd}
+                  tooltipLegend={otdTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -3196,11 +5347,13 @@ export default function App() {
                         (baseFilteredOtdRows.length === 0 ||
                           (isOtdPareto
                             ? otdParetoChartData.labels.length === 0
-                            : otdChartData.labels.length === 0)) && (
+                            : isOtdPalette
+                              ? otdPaletteChartData.labels.length === 0
+                              : otdChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {otdState.rows.length === 0
                               ? 'No OTD rows are available for charting.'
-                              : baseFilteredOtdRows.length === 0
+                              : filteredOtdRows.length === 0 && otdFilterApplies
                                 ? 'No OTD rows match the selected filters.'
                                 : 'No OTD months fall within the selected date range.'}
                           </p>
@@ -3208,7 +5361,11 @@ export default function App() {
 
                       {!otdState.loading &&
                         !otdState.error &&
-                        (isOtdPareto ? otdParetoChartData.labels.length > 0 : otdChartData.labels.length > 0) &&
+                        (isOtdPareto
+                          ? otdParetoChartData.labels.length > 0
+                          : isOtdPalette
+                            ? otdPaletteChartData.labels.length > 0
+                            : otdChartData.labels.length > 0) &&
                         otdChartWidth > 0 && (
                           isOtdPareto ? (
                             <ParetoMetricChart
@@ -3225,9 +5382,22 @@ export default function App() {
                               goalLine={otdGoalLine}
                               sx={sharedChartSx}
                             />
+                          ) : isOtdPalette ? (
+                            <StackedCategoryBarChart
+                              width={otdChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={otdPaletteChartData.labels}
+                              yAxis={OTD_Y_AXIS}
+                              series={otdPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatUnits
+                              }))}
+                              sx={sharedChartSx}
+                            />
                           ) : (
                             <MetricTrendChart
-                              variant={chartVariants.otd}
+                              variant={chartVariants.otd === 'bar' ? 'bar' : 'line'}
                               width={otdChartWidth}
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
@@ -3256,6 +5426,10 @@ export default function App() {
                         )}
                     </div>
 
+                    {isOtdPalette && (
+                      <p className="chart-palette-hint">Hover over ? for color details.</p>
+                    )}
+
                     <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
@@ -3270,9 +5444,13 @@ export default function App() {
                               otd: nextVariant
                             }));
                           }}
+                          showLine={false}
+                          alwaysGridToggle
                           supportsFilter
+                          showFilterControlsOnBar
+                          supportsPalette
                           supportsPareto
-                          filterToggleAriaLabel="Filter OTD chart"
+                          filterToggleAriaLabel="OTD time series"
                           filterFieldValue={activeOtdChartFilterField.value}
                           filterFieldOptions={OTD_CHART_FILTER_FIELDS}
                           paretoFieldOptions={OTD_PARETO_FILTER_FIELDS}
@@ -3286,6 +5464,35 @@ export default function App() {
                           filterValueAllLabel={activeOtdChartFilterField.allLabel}
                           filterValueAriaLabel="Select OTD filter value"
                           onFilterValueChange={setSelectedOtdChartFilterValue}
+                          paletteToggleAriaLabel="OTD grouped palette chart"
+                          paletteGroupFieldValue={activeOtdPaletteGroupField.value}
+                          paletteGroupFieldOptions={otdPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select OTD group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedOtdPaletteGroupField(nextField);
+
+                            if (nextField === activeOtdPaletteColorField.value) {
+                              const nextColorField =
+                                OTD_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedOtdPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeOtdPaletteColorField.value}
+                          paletteColorFieldOptions={otdPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select OTD color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedOtdPaletteColorField(nextField);
+
+                            if (nextField === activeOtdPaletteGroupField.value) {
+                              const nextGroupField =
+                                OTD_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedOtdPaletteGroupField(nextGroupField);
+                            }
+                          }}
                         />
                       </div>
                     </div>
@@ -3319,6 +5526,7 @@ export default function App() {
                 <CardHeader
                   title="Direct Labor Utilization"
                   info={METRIC_INFO.labor}
+                  tooltipLegend={laborTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -3334,9 +5542,16 @@ export default function App() {
 
                       {!laborState.loading &&
                         !laborState.error &&
-                        (filteredLaborRows.length === 0 || laborChartData.labels.length === 0) && (
+                        (laborState.rows.length === 0
+                          || (isLaborPareto
+                            ? laborParetoChartData.labels.length === 0
+                            : isLaborPalette
+                              ? laborPaletteChartData.labels.length === 0
+                              : filteredLaborRows.length === 0 || laborChartData.labels.length === 0)) && (
                           <p className="chart-message">
-                            {filteredLaborRows.length === 0
+                            {laborState.rows.length === 0
+                              ? 'No labor rows are available for charting.'
+                              : filteredLaborRows.length === 0 && laborFilterApplies
                               ? 'No labor rows match the selected filters.'
                               : 'No labor months fall within the selected date range.'}
                           </p>
@@ -3344,12 +5559,45 @@ export default function App() {
 
                       {!laborState.loading &&
                         !laborState.error &&
-                        laborChartData.labels.length > 0 &&
+                        (isLaborPareto
+                          ? laborParetoChartData.labels.length > 0
+                          : isLaborPalette
+                            ? laborPaletteChartData.labels.length > 0
+                            : laborChartData.labels.length > 0) &&
                         laborChartWidth > 0 && (
-                          <>
+                          isLaborPareto ? (
+                            <ParetoMetricChart
+                              width={laborChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              labels={laborParetoChartData.labels}
+                              values={laborParetoChartData.values}
+                              cumulativeShares={laborParetoChartData.cumulativeShares}
+                              barLabel="Direct hours"
+                              barColor="var(--chart-line)"
+                              barAxis={LABOR_HOURS_Y_AXIS}
+                              barValueFormatter={formatHours}
+                              goalLine={laborGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isLaborPalette ? (
+                            <StackedCategoryBarChart
+                              width={laborChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              labels={laborPaletteChartData.labels}
+                              yAxis={LABOR_HOURS_Y_AXIS}
+                              series={laborPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatHours
+                              }))}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <>
                             <span className="chart-axis-unit-label">Direct %</span>
                             <MetricTrendChart
-                              variant={chartVariants.labor}
+                              variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
                               width={laborChartWidth}
                               height={CHART_HEIGHT}
                               margin={LABOR_CHART_MARGIN}
@@ -3366,24 +5614,39 @@ export default function App() {
                               }}
                               goalLine={laborGoalLine}
                             />
-                          </>
+                            </>
+                          )
                         )}
                     </div>
+
+                    {isLaborPalette && (
+                      <p className="chart-palette-hint">Hover over ? for color details.</p>
+                    )}
 
                     <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.labor}
                           onChange={(nextVariant) => {
+                            if (nextVariant === 'pareto') {
+                              setSelectedLaborChartFilterField(LABOR_PARETO_FILTER_FIELDS[0].value);
+                            }
+
                             setChartVariants((currentValue) => ({
                               ...currentValue,
                               labor: nextVariant
                             }));
                           }}
+                          showLine={false}
+                          alwaysGridToggle
                           supportsFilter
+                          showFilterControlsOnBar
+                          supportsPalette
+                          supportsPareto
                           filterToggleAriaLabel="Filter labor chart"
                           filterFieldValue={activeLaborChartFilterField.value}
                           filterFieldOptions={LABOR_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={LABOR_PARETO_FILTER_FIELDS}
                           filterFieldAriaLabel="Select labor filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedLaborChartFilterField(nextField);
@@ -3394,6 +5657,35 @@ export default function App() {
                           filterValueAllLabel={activeLaborChartFilterField.allLabel}
                           filterValueAriaLabel="Select labor filter value"
                           onFilterValueChange={setSelectedLaborChartFilterValue}
+                          paletteToggleAriaLabel="Labor grouped palette chart"
+                          paletteGroupFieldValue={activeLaborPaletteGroupField.value}
+                          paletteGroupFieldOptions={laborPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select labor group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedLaborPaletteGroupField(nextField);
+
+                            if (nextField === activeLaborPaletteColorField.value) {
+                              const nextColorField =
+                                LABOR_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedLaborPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeLaborPaletteColorField.value}
+                          paletteColorFieldOptions={laborPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select labor color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedLaborPaletteColorField(nextField);
+
+                            if (nextField === activeLaborPaletteGroupField.value) {
+                              const nextGroupField =
+                                LABOR_PALETTE_FIELDS.find((option) => option.value !== nextField)?.value
+                                ?? nextField;
+
+                              setSelectedLaborPaletteGroupField(nextGroupField);
+                            }
+                          }}
                         />
                       </div>
                     </div>

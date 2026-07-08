@@ -37,10 +37,19 @@ import {
   useAxesTooltip,
   useItemTooltip
 } from '@mui/x-charts';
+import { toast } from 'react-toastify';
 import { DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 
 const ALL_FILTER_VALUE = '__all__';
+const PALETTE_MAX_GROUPS = 20;
+const PALETTE_INFO_TOAST_SESSION_KEY = 'westmarch-palette-info-toast-shown';
+const NG_TOAST_BLUE = '#0057b8';
+const PALETTE_INFO_TOAST_OPTIONS = {
+  autoClose: 10000,
+  progressStyle: { backgroundColor: NG_TOAST_BLUE },
+  style: { borderLeft: `4px solid ${NG_TOAST_BLUE}` }
+};
 const OTD_MONTH_COLUMNS = [
   { key: 'JAN', label: 'Jan' },
   { key: 'FEB', label: 'Feb' },
@@ -1185,23 +1194,18 @@ function buildSafetyPaletteChartData(
 
     return left.label.localeCompare(right.label);
   });
-  const sortedColorLabels = Array.from(colorTotals.entries())
-    .sort((left, right) => {
-      if (right[1] !== left[1]) {
-        return right[1] - left[1];
-      }
-
-      return left[0].localeCompare(right[0]);
-    })
-    .map(([label]) => label);
+  const { visibleGroups, visibleColorLabels } = getVisiblePaletteGroupsAndColorLabels(
+    sortedGroups,
+    colorTotals
+  );
 
   return {
-    labels: sortedGroups.map((group) => group.label),
-    series: sortedColorLabels.map((colorLabel, index) => ({
+    labels: visibleGroups.map((group) => group.label),
+    series: visibleColorLabels.map((colorLabel, index) => ({
       id: `safety-palette-${metricKey}-${colorLabel}`,
       label: colorLabel,
       color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
-      data: sortedGroups.map((group) => {
+      data: visibleGroups.map((group) => {
         const rawValue = group.breakdown.get(colorLabel) ?? 0;
         const chartValue =
           metricKey === 'nmfr'
@@ -1310,6 +1314,33 @@ function normalizeParetoCategoryLabel(value) {
   return normalizedValue || 'Unspecified';
 }
 
+function getVisiblePaletteGroupsAndColorLabels(sortedGroups, colorTotals, maxGroups = PALETTE_MAX_GROUPS) {
+  const visibleGroups = sortedGroups.slice(0, maxGroups);
+  const visibleColorLabelSet = new Set();
+
+  visibleGroups.forEach((group) => {
+    group.breakdown.forEach((value, label) => {
+      if (Number.isFinite(value) && value > 0) {
+        visibleColorLabelSet.add(label);
+      }
+    });
+  });
+
+  return {
+    visibleGroups,
+    visibleColorLabels: Array.from(colorTotals.entries())
+      .sort((left, right) => {
+        if (right[1] !== left[1]) {
+          return right[1] - left[1];
+        }
+
+        return left[0].localeCompare(right[0]);
+      })
+      .map(([label]) => label)
+      .filter((label) => visibleColorLabelSet.has(label))
+  };
+}
+
 function buildParetoChartData(entries) {
   const totalsByCategory = new Map();
 
@@ -1406,23 +1437,18 @@ function buildControllableCostsPaletteChartData(
 
     return left.label.localeCompare(right.label);
   });
-  const sortedColorLabels = Array.from(colorTotals.entries())
-    .sort((left, right) => {
-      if (right[1] !== left[1]) {
-        return right[1] - left[1];
-      }
-
-      return left[0].localeCompare(right[0]);
-    })
-    .map(([label]) => label);
+  const { visibleGroups, visibleColorLabels } = getVisiblePaletteGroupsAndColorLabels(
+    sortedGroups,
+    colorTotals
+  );
 
   return {
-    labels: sortedGroups.map((group) => group.label),
-    series: sortedColorLabels.map((colorLabel, index) => ({
+    labels: visibleGroups.map((group) => group.label),
+    series: visibleColorLabels.map((colorLabel, index) => ({
       id: `controllable-palette-${colorLabel}`,
       label: colorLabel,
       color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
-      data: sortedGroups.map((group) =>
+      data: visibleGroups.map((group) =>
         Number((group.breakdown.get(colorLabel) ?? 0).toFixed(2))
       )
     }))
@@ -1502,23 +1528,18 @@ function buildOtdPaletteChartData(rows, groupFieldName, colorFieldName, selected
 
     return left.label.localeCompare(right.label);
   });
-  const sortedColorLabels = Array.from(colorTotals.entries())
-    .sort((left, right) => {
-      if (right[1] !== left[1]) {
-        return right[1] - left[1];
-      }
-
-      return left[0].localeCompare(right[0]);
-    })
-    .map(([label]) => label);
+  const { visibleGroups, visibleColorLabels } = getVisiblePaletteGroupsAndColorLabels(
+    sortedGroups,
+    colorTotals
+  );
 
   return {
-    labels: sortedGroups.map((group) => group.label),
-    series: sortedColorLabels.map((colorLabel, index) => ({
+    labels: visibleGroups.map((group) => group.label),
+    series: visibleColorLabels.map((colorLabel, index) => ({
       id: `otd-palette-${colorLabel}`,
       label: colorLabel,
       color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
-      data: sortedGroups.map((group) =>
+      data: visibleGroups.map((group) =>
         Number((group.breakdown.get(colorLabel) ?? 0).toFixed(2))
       )
     }))
@@ -1766,27 +1787,46 @@ function buildLaborPaletteChartData(rows, groupFieldName, colorFieldName, select
 
     return left.label.localeCompare(right.label);
   });
-  const sortedColorLabels = Array.from(colorTotals.entries())
-    .sort((left, right) => {
-      if (right[1] !== left[1]) {
-        return right[1] - left[1];
-      }
-
-      return left[0].localeCompare(right[0]);
-    })
-    .map(([label]) => label);
+  const { visibleGroups, visibleColorLabels } = getVisiblePaletteGroupsAndColorLabels(
+    sortedGroups,
+    colorTotals
+  );
 
   return {
-    labels: sortedGroups.map((group) => group.label),
-    series: sortedColorLabels.map((colorLabel, index) => ({
+    labels: visibleGroups.map((group) => group.label),
+    series: visibleColorLabels.map((colorLabel, index) => ({
       id: `labor-palette-${colorLabel}`,
       label: colorLabel,
       color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
-      data: sortedGroups.map((group) =>
+      data: visibleGroups.map((group) =>
         Number((group.breakdown.get(colorLabel) ?? 0).toFixed(0))
       )
     }))
   };
+}
+
+function hasSeenPaletteInfoToast() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.sessionStorage.getItem(PALETTE_INFO_TOAST_SESSION_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function markPaletteInfoToastSeen() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(PALETTE_INFO_TOAST_SESSION_KEY, 'true');
+  } catch {
+    // Ignore storage failures and continue for the current page session.
+  }
 }
 
 function TooltipMark({ color }) {
@@ -2394,11 +2434,11 @@ function renderMetricInfoContent(info) {
 
     return text
       ? {
-          text,
-          bullet,
-          bold,
-          underline
-        }
+        text,
+        bullet,
+        bold,
+        underline
+      }
       : null;
   }
 
@@ -2418,14 +2458,14 @@ function renderMetricInfoContent(info) {
 
   const normalizedEntries = Array.isArray(info)
     ? info
-        .map((item) => normalizeMetricInfoEntry(item, { defaultBullet: true }))
-        .filter(Boolean)
+      .map((item) => normalizeMetricInfoEntry(item, { defaultBullet: true }))
+      .filter(Boolean)
     : typeof info === 'object' && info !== null
       ? [normalizeMetricInfoEntry(info)].filter(Boolean)
       : String(info || DEFAULT_METRIC_INFO)
-          .split('\n')
-          .map((line) => normalizeMetricInfoEntry(line))
-          .filter(Boolean);
+        .split('\n')
+        .map((line) => normalizeMetricInfoEntry(line))
+        .filter(Boolean);
 
   if (normalizedEntries.length === 0) {
     return <p className="metric-info-paragraph">{DEFAULT_METRIC_INFO}</p>;
@@ -3007,6 +3047,9 @@ export default function App() {
   });
   const [isSavingPreset, setIsSavingPreset] = useState(false);
   const [isPresetToolbarOpen, setIsPresetToolbarOpen] = useState(false);
+  const [hasShownPaletteInfoToast, setHasShownPaletteInfoToast] = useState(() =>
+    hasSeenPaletteInfoToast()
+  );
   const {
     chartHostRef: controllableCostsChartHostRef,
     chartWidth: controllableCostsChartWidth
@@ -3393,6 +3436,25 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', themeMode);
     window.localStorage.setItem('expense-theme-mode', themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    if (hasShownPaletteInfoToast) {
+      return;
+    }
+
+    const hasActivePaletteView = Object.values(chartVariants).some((variant) => variant === 'palette');
+
+    if (!hasActivePaletteView) {
+      return;
+    }
+
+    toast.info(
+      'Color view shows the top 20 groups. Hover over the ? icon in the card\'s top right corner to view the color legend.',
+      PALETTE_INFO_TOAST_OPTIONS
+    );
+    markPaletteInfoToastSeen();
+    setHasShownPaletteInfoToast(true);
+  }, [chartVariants, hasShownPaletteInfoToast]);
 
   const availableTimelineStamps = getAvailableTimelineStamps({
     controllableCostsRows: controllableCostsState.rows,
@@ -4639,10 +4701,6 @@ export default function App() {
                         )}
                     </div>
 
-                    {isControllableCostsPalette && (
-                      <p className="chart-palette-hint">Hover over ? for color details.</p>
-                    )}
-
                     <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
@@ -4763,14 +4821,14 @@ export default function App() {
                             : isSifPalette
                               ? sifPaletteChartData.labels.length === 0
                               : globallyFilteredSifRows.length === 0)) && (
-                        <p className="chart-message">
-                          {sifState.rows.length === 0
-                            ? 'No Defense SIF rows are available for charting.'
-                            : filteredSifRows.length === 0 && !isSifPareto && !isSifPalette
-                              ? 'No Defense SIF rows match the selected filters.'
-                              : 'No Defense SIF rows fall within the selected date range.'}
-                        </p>
-                      )}
+                          <p className="chart-message">
+                            {sifState.rows.length === 0
+                              ? 'No Defense SIF rows are available for charting.'
+                              : filteredSifRows.length === 0 && !isSifPareto && !isSifPalette
+                                ? 'No Defense SIF rows match the selected filters.'
+                                : 'No Defense SIF rows fall within the selected date range.'}
+                          </p>
+                        )}
 
                       {!sifState.loading &&
                         !sifState.error &&
@@ -4833,10 +4891,6 @@ export default function App() {
                           )
                         )}
                     </div>
-
-                    {isSifPalette && (
-                      <p className="chart-palette-hint">Hover over ? for color details.</p>
-                    )}
 
                     <div className={`chart-control-row ${isSifLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
                       <div className="chart-control-row-toggle">
@@ -5031,10 +5085,6 @@ export default function App() {
                         )}
                     </div>
 
-                    {isPotentialSifPalette && (
-                      <p className="chart-palette-hint">Hover over ? for color details.</p>
-                    )}
-
                     <div className={`chart-control-row ${isPotentialSifLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
@@ -5157,14 +5207,14 @@ export default function App() {
                             : isNmfrPalette
                               ? nmfrPaletteChartData.labels.length === 0
                               : globallyFilteredNmfrRows.length === 0)) && (
-                        <p className="chart-message">
-                          {nmfrState.rows.length === 0
-                            ? 'No Defense NMFR rows are available for charting.'
-                            : filteredNmfrRows.length === 0 && !isNmfrPareto && !isNmfrPalette
-                              ? 'No Defense NMFR rows match the selected filters.'
-                              : 'No Defense NMFR rows fall within the selected date range.'}
-                        </p>
-                      )}
+                          <p className="chart-message">
+                            {nmfrState.rows.length === 0
+                              ? 'No Defense NMFR rows are available for charting.'
+                              : filteredNmfrRows.length === 0 && !isNmfrPareto && !isNmfrPalette
+                                ? 'No Defense NMFR rows match the selected filters.'
+                                : 'No Defense NMFR rows fall within the selected date range.'}
+                          </p>
+                        )}
 
                       {!nmfrState.loading &&
                         !nmfrState.error &&
@@ -5227,10 +5277,6 @@ export default function App() {
                           )
                         )}
                     </div>
-
-                    {isNmfrPalette && (
-                      <p className="chart-palette-hint">Hover over ? for color details.</p>
-                    )}
 
                     <div className={`chart-control-row ${isNmfrLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
                       <div className="chart-control-row-toggle">
@@ -5426,10 +5472,6 @@ export default function App() {
                         )}
                     </div>
 
-                    {isOtdPalette && (
-                      <p className="chart-palette-hint">Hover over ? for color details.</p>
-                    )}
-
                     <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
@@ -5552,8 +5594,8 @@ export default function App() {
                             {laborState.rows.length === 0
                               ? 'No labor rows are available for charting.'
                               : filteredLaborRows.length === 0 && laborFilterApplies
-                              ? 'No labor rows match the selected filters.'
-                              : 'No labor months fall within the selected date range.'}
+                                ? 'No labor rows match the selected filters.'
+                                : 'No labor months fall within the selected date range.'}
                           </p>
                         )}
 
@@ -5595,33 +5637,29 @@ export default function App() {
                             />
                           ) : (
                             <>
-                            <span className="chart-axis-unit-label">Direct %</span>
-                            <MetricTrendChart
-                              variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
-                              width={laborChartWidth}
-                              height={CHART_HEIGHT}
-                              margin={LABOR_CHART_MARGIN}
-                              labels={laborChartData.labels}
-                              yAxis={LABOR_Y_AXIS}
-                              series={laborChartSeries}
-                              sx={sharedChartSx}
-                              tooltipComponent={
-                                isLaborBarChart ? LaborBarChartTooltip : LaborChartTooltip
-                              }
-                              tooltipTrigger={isLaborBarChart ? 'item' : 'axis'}
-                              tooltipProps={{
-                                chartData: laborChartData
-                              }}
-                              goalLine={laborGoalLine}
-                            />
+                              <span className="chart-axis-unit-label">Direct %</span>
+                              <MetricTrendChart
+                                variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
+                                width={laborChartWidth}
+                                height={CHART_HEIGHT}
+                                margin={LABOR_CHART_MARGIN}
+                                labels={laborChartData.labels}
+                                yAxis={LABOR_Y_AXIS}
+                                series={laborChartSeries}
+                                sx={sharedChartSx}
+                                tooltipComponent={
+                                  isLaborBarChart ? LaborBarChartTooltip : LaborChartTooltip
+                                }
+                                tooltipTrigger={isLaborBarChart ? 'item' : 'axis'}
+                                tooltipProps={{
+                                  chartData: laborChartData
+                                }}
+                                goalLine={laborGoalLine}
+                              />
                             </>
                           )
                         )}
                     </div>
-
-                    {isLaborPalette && (
-                      <p className="chart-palette-hint">Hover over ? for color details.</p>
-                    )}
 
                     <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">

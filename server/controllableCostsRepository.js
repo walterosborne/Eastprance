@@ -14,9 +14,9 @@ import {
   getPool
 } from './sqlConnection.js';
 
-const CONTROLLABLE_COSTS_TABLE_NAME = 'westmarch_controllable_costs';
-const COST_CATEGORY_KEY_TABLE_NAME = 'westmarch_cost_category_key';
-const COST_ELEMENT_KEY_TABLE_NAME = 'westmarch_cost_element_key';
+const CONTROLLABLE_COSTS_TABLE_NAME = 'controllable_costs';
+const COST_CATEGORY_KEY_TABLE_NAME = 'cost_category_key';
+const COST_ELEMENT_KEY_TABLE_NAME = 'cost_element_key';
 const WORKBOOK_SHEET_NAMES = {
   costs: 'Controllable Costs',
   categoryKey: 'Cost Category Key',

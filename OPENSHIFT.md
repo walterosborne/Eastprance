@@ -33,9 +33,12 @@ Keep both files in sync with whatever build process you use in OpenShift.
 The server currently reads these SQL settings:
 
 - `server`
+- `schema`
 - `database`
 - `user`
 - `password`
+
+`schema` is optional and defaults to `dbo`, but you should set it if your SQL objects live in a non-default schema.
 
 You can provide those through an OpenShift secret or deployment env vars.
 
@@ -47,8 +50,7 @@ envFrom:
       name: Supply
 ```
 
-The app also accepts `database` as an alias for `db`, and accepts uppercase variants if your deployment tooling injects those instead.
-The app also accepts uppercase variants if your deployment tooling injects those instead.
+The app accepts uppercase variants if your deployment tooling injects those instead.
 
 ## Port
 

@@ -35,10 +35,24 @@ export function getConnectionConfig() {
   return { config, missing };
 }
 
+export function getDefaultSqlSchema() {
+  return (
+    getFirstDefinedEnvValue(
+      'schema',
+      'SCHEMA',
+      'sql_schema',
+      'SQL_SCHEMA',
+      'database_schema',
+      'DATABASE_SCHEMA'
+    )
+    || 'dbo'
+  );
+}
+
 export function formatSqlIdentifier(identifier) {
   const normalizedIdentifier = String(identifier).includes('.')
     ? String(identifier)
-    : `dbo.${identifier}`;
+    : `${getDefaultSqlSchema()}.${identifier}`;
 
   return normalizedIdentifier
     .split('.')

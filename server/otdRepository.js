@@ -15,7 +15,7 @@ import {
 } from './sqlConnection.js';
 
 const MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-const OTD_TABLE_NAME = 'westmarch_otd';
+const OTD_TABLE_NAME = 'otd';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const otdFilePath = path.resolve(__dirname, '../data/otd_data.xlsx');

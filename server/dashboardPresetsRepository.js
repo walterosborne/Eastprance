@@ -10,7 +10,7 @@ import {
   getPool
 } from './sqlConnection.js';
 
-const DASHBOARD_PRESETS_TABLE_NAME = 'westmarch_dashboard_presets';
+const DASHBOARD_PRESETS_TABLE_NAME = 'dashboard_presets';
 const MAX_PRESET_SLOT = 3;
 
 function normalizeText(value) {
@@ -27,7 +27,7 @@ function getPresetStorageUnavailableMessage(error, missing) {
   }
 
   if (isPresetTableMissingError(error)) {
-    return `Preset storage is unavailable because ${DASHBOARD_PRESETS_TABLE_NAME} does not exist yet.`;
+    return `Preset storage is unavailable because ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME)} does not exist yet.`;
   }
 
   return `Preset storage is unavailable: ${error.message}`;

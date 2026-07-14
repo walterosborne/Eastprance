@@ -1,26 +1,42 @@
-IF OBJECT_ID(N'dbo.westmarch_dashboard_presets', N'U') IS NULL
+/*
+  Set this to the same schema value you provide to the app via env
+  (`schema` / `SQL_SCHEMA`) before running the script.
+*/
+DECLARE @SchemaName SYSNAME = N'dbo';
+DECLARE @QualifiedTableName NVARCHAR(258) = QUOTENAME(@SchemaName) + N'.[dashboard_presets]';
+DECLARE @Sql NVARCHAR(MAX);
+
+IF SCHEMA_ID(@SchemaName) IS NULL
 BEGIN
-    CREATE TABLE dbo.westmarch_dashboard_presets
-    (
-        MyID        NVARCHAR(32)  NOT NULL,
-        NetworkID   NVARCHAR(64)  NOT NULL,
-        UserName    NVARCHAR(255) NOT NULL,
-        PresetSlot  TINYINT       NOT NULL,
-        PresetName  NVARCHAR(100) NOT NULL,
-        PresetState NVARCHAR(MAX) NOT NULL,
-        CreatedAt   DATETIME2(0)  NOT NULL CONSTRAINT DF_westmarch_dashboard_presets_CreatedAt DEFAULT SYSUTCDATETIME(),
-        UpdatedAt   DATETIME2(0)  NOT NULL CONSTRAINT DF_westmarch_dashboard_presets_UpdatedAt DEFAULT SYSUTCDATETIME(),
+    SET @Sql = N'CREATE SCHEMA ' + QUOTENAME(@SchemaName) + N';';
+    EXEC sys.sp_executesql @Sql;
+END;
 
-        CONSTRAINT PK_westmarch_dashboard_presets
+IF OBJECT_ID(@QualifiedTableName, N'U') IS NULL
+BEGIN
+    SET @Sql = N'
+        CREATE TABLE ' + @QualifiedTableName + N'
+        (
+            MyID        NVARCHAR(32)  NOT NULL,
+            NetworkID   NVARCHAR(64)  NOT NULL,
+            UserName    NVARCHAR(255) NOT NULL,
+            PresetSlot  TINYINT       NOT NULL,
+            PresetName  NVARCHAR(100) NOT NULL,
+            PresetState NVARCHAR(MAX) NOT NULL,
+            CreatedAt   DATETIME2(0)  NOT NULL DEFAULT SYSUTCDATETIME(),
+            UpdatedAt   DATETIME2(0)  NOT NULL DEFAULT SYSUTCDATETIME(),
             PRIMARY KEY CLUSTERED (MyID, PresetSlot),
-
-        CONSTRAINT CK_westmarch_dashboard_presets_PresetSlot
             CHECK (PresetSlot BETWEEN 1 AND 3),
-
-        CONSTRAINT CK_westmarch_dashboard_presets_PresetState_IsJson
             CHECK (ISJSON(PresetState) = 1)
-    );
+        );
+    ';
 
-    CREATE INDEX IX_westmarch_dashboard_presets_NetworkID
-        ON dbo.westmarch_dashboard_presets (NetworkID, UpdatedAt DESC);
+    EXEC sys.sp_executesql @Sql;
+
+    SET @Sql = N'
+        CREATE INDEX [IX_dashboard_presets_NetworkID]
+            ON ' + @QualifiedTableName + N' (NetworkID, UpdatedAt DESC);
+    ';
+
+    EXEC sys.sp_executesql @Sql;
 END;

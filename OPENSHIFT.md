@@ -37,7 +37,6 @@ The server currently reads these SQL settings:
 - `database`
 - `user`
 - `password`
-- `ROSTER_SECRET_DIR`
 - `ROSTER_SERVER`
 - `ROSTER_SCHEMA`
 - `ROSTER_DATABASE`
@@ -51,21 +50,15 @@ The server currently reads these SQL settings:
 
 `schema` is optional and defaults to `dbo`, but you should set it if your SQL objects live in a non-default schema.
 
-`RosterExtractFarm` can now come from a separate database connection. The preferred setup is:
+`RosterExtractFarm` can now come from a separate database connection using these env vars:
 
-- keep the main app SQL connection on the existing env vars
-- mount a second secret as files
-- point `ROSTER_SECRET_DIR` at that mounted directory
+- `ROSTER_SERVER`
+- `ROSTER_SCHEMA`
+- `ROSTER_DATABASE`
+- `ROSTER_USER`
+- `ROSTER_PASSWORD`
 
-Inside that roster secret, use these key names:
-
-- `server`
-- `schema`
-- `database`
-- `user`
-- `password`
-
-That lets the roster secret use the same variable/key names as the main DB secret without colliding in the container env.
+If those are not set, roster falls back to the main SQL connection.
 
 For user identification, the backend now supports two runtime patterns:
 
@@ -90,20 +83,8 @@ Example deployment env wiring:
 envFrom:
   - secretRef:
       name: Supply
-
-env:
-  - name: ROSTER_SECRET_DIR
-    value: /opt/app-root/secrets/roster
-
-volumeMounts:
-  - name: roster-secret
-    mountPath: /opt/app-root/secrets/roster
-    readOnly: true
-
-volumes:
-  - name: roster-secret
-    secret:
-      secretName: YourRosterSecretName
+  - secretRef:
+      name: RosterSupply
 ```
 
 The app accepts uppercase variants if your deployment tooling injects those instead.

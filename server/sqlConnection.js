@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 import sql from 'mssql';
 import {
   createTimer,
@@ -22,50 +20,6 @@ function getFirstDefinedEnvValue(...keys) {
   return undefined;
 }
 
-function readSecretFile(secretDirectory, fileName) {
-  if (!secretDirectory) {
-    return undefined;
-  }
-
-  const candidateFilePaths = [
-    path.join(secretDirectory, fileName),
-    path.join(secretDirectory, fileName.toLowerCase()),
-    path.join(secretDirectory, fileName.toUpperCase())
-  ];
-
-  for (const filePath of candidateFilePaths) {
-    try {
-      if (!fs.existsSync(filePath)) {
-        continue;
-      }
-
-      const value = fs.readFileSync(filePath, 'utf8').trim();
-
-      if (value) {
-        return value;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return undefined;
-}
-
-function buildConfigFromSecretDirectory(secretDirectory) {
-  if (!secretDirectory) {
-    return null;
-  }
-
-  return {
-    server: readSecretFile(secretDirectory, 'server'),
-    database: readSecretFile(secretDirectory, 'database'),
-    user: readSecretFile(secretDirectory, 'user'),
-    password: readSecretFile(secretDirectory, 'password'),
-    schema: readSecretFile(secretDirectory, 'schema')
-  };
-}
-
 function getPrimaryConnectionConfigFromEnv() {
   const config = {
     server: getFirstDefinedEnvValue('server', 'SERVER'),
@@ -86,23 +40,6 @@ function getPrimaryConnectionConfigFromEnv() {
 }
 
 function getRosterConnectionConfigFromEnv() {
-  const rosterSecretDirectory = getFirstDefinedEnvValue(
-    'roster_secret_dir',
-    'ROSTER_SECRET_DIR',
-    'roster_db_secret_dir',
-    'ROSTER_DB_SECRET_DIR'
-  );
-  const secretDirectoryConfig = buildConfigFromSecretDirectory(rosterSecretDirectory);
-
-  if (secretDirectoryConfig) {
-    return {
-      ...secretDirectoryConfig,
-      schema: secretDirectoryConfig.schema || 'dbo',
-      secretDirectory: rosterSecretDirectory,
-      source: 'secret-directory'
-    };
-  }
-
   return {
     server: getFirstDefinedEnvValue('roster_server', 'ROSTER_SERVER'),
     database: getFirstDefinedEnvValue('roster_database', 'ROSTER_DATABASE'),
@@ -118,7 +55,6 @@ function getRosterConnectionConfigFromEnv() {
         'ROSTER_DATABASE_SCHEMA'
       ) || 'dbo'
     ),
-    secretDirectory: '',
     source: 'prefixed-env'
   };
 }
@@ -141,8 +77,7 @@ export function getConnectionConfig(connectionName = 'default') {
 
   const rosterConfig = getRosterConnectionConfigFromEnv();
   const hasAnyRosterOverride = Boolean(
-    rosterConfig.secretDirectory
-    || rosterConfig.server
+    rosterConfig.server
     || rosterConfig.database
     || rosterConfig.user
     || rosterConfig.password
@@ -162,7 +97,7 @@ export function getConnectionConfig(connectionName = 'default') {
   }
 
   const missing = Object.entries(rosterConfig)
-    .filter(([key, value]) => !['schema', 'secretDirectory', 'source'].includes(key) && !value)
+    .filter(([key, value]) => !['schema', 'source'].includes(key) && !value)
     .map(([key]) => key);
 
   return {

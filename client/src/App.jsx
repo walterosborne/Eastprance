@@ -2558,9 +2558,21 @@ function renderMetricInfoContent(info) {
   }
 
   const normalizedEntries = Array.isArray(info)
-    ? info
-      .map((item) => normalizeMetricInfoEntry(item, { defaultBullet: true }))
-      .filter(Boolean)
+    ? info.flatMap((item) => {
+      if (item == null) {
+        return [];
+      }
+
+      if (typeof item === 'object' && !Array.isArray(item)) {
+        const normalizedEntry = normalizeMetricInfoEntry(item);
+        return normalizedEntry ? [normalizedEntry] : [];
+      }
+
+      return String(item)
+        .split('\n')
+        .map((line) => normalizeMetricInfoEntry(line))
+        .filter(Boolean);
+    })
     : typeof info === 'object' && info !== null
       ? [normalizeMetricInfoEntry(info)].filter(Boolean)
       : String(info || DEFAULT_METRIC_INFO)

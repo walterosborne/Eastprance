@@ -5,11 +5,8 @@ import {
   faCalculator,
   faChartColumn,
   faChartLine,
-  faChartSimple,
   faClipboardCheck,
-  faFilter,
   faMoon,
-  faPalette,
   faSeedling,
   faSun
 } from '@fortawesome/free-solid-svg-icons';
@@ -262,20 +259,20 @@ const CARD_CHIP_OPTIONS = [
 ];
 
 const DEFAULT_CHART_VARIANTS = {
-  controllableCosts: 'filter',
+  controllableCosts: 'line',
   sif: 'line',
   potentialSif: 'line',
   nmfr: 'line',
-  otd: 'filter',
-  labor: 'filter'
+  otd: 'line',
+  labor: 'line'
 };
 const CARD_VARIANT_OPTIONS_BY_METRIC = {
-  controllableCosts: ['bar', 'filter', 'palette', 'pareto'],
-  sif: ['line', 'filter', 'palette', 'pareto'],
-  potentialSif: ['line', 'filter', 'palette', 'pareto'],
-  nmfr: ['line', 'filter', 'palette', 'pareto'],
-  otd: ['bar', 'filter', 'palette', 'pareto'],
-  labor: ['bar', 'filter', 'palette', 'pareto']
+  controllableCosts: ['line', 'bar', 'palette', 'pareto'],
+  sif: ['line', 'bar', 'palette', 'pareto'],
+  potentialSif: ['line', 'bar', 'palette', 'pareto'],
+  nmfr: ['line', 'bar', 'palette', 'pareto'],
+  otd: ['line', 'bar', 'palette', 'pareto'],
+  labor: ['line', 'bar', 'palette', 'pareto']
 };
 const PRESET_SLOT_OPTIONS = [1, 2, 3];
 const CONTROLLABLE_PALETTE_COLORS = [
@@ -1341,7 +1338,7 @@ function getVisiblePaletteGroupsAndColorLabels(sortedGroups, colorTotals, maxGro
   };
 }
 
-function buildParetoChartData(entries) {
+function buildParetoChartData(entries, maxEntries = null) {
   const totalsByCategory = new Map();
 
   entries.forEach(({ category, value }) => {
@@ -1368,13 +1365,18 @@ function buildParetoChartData(entries) {
       return left.label.localeCompare(right.label);
     });
 
-  const grandTotal = sortedEntries.reduce((sum, entry) => sum + entry.total, 0);
+  const visibleEntries =
+    Number.isInteger(maxEntries) && maxEntries > 0
+      ? sortedEntries.slice(0, maxEntries)
+      : sortedEntries;
+
+  const grandTotal = visibleEntries.reduce((sum, entry) => sum + entry.total, 0);
   let runningTotal = 0;
 
   return {
-    labels: sortedEntries.map((entry) => entry.label),
-    values: sortedEntries.map((entry) => entry.total),
-    cumulativeShares: sortedEntries.map((entry) => {
+    labels: visibleEntries.map((entry) => entry.label),
+    values: visibleEntries.map((entry) => entry.total),
+    cumulativeShares: visibleEntries.map((entry) => {
       runningTotal += entry.total;
       return grandTotal > 0 ? Number((runningTotal / grandTotal).toFixed(4)) : 0;
     })
@@ -1388,7 +1390,8 @@ function buildControllableCostsParetoChartData(rows, fieldName, selectedDateRang
       .map((row) => ({
         category: row[fieldName],
         value: row.cost
-      }))
+      })),
+    PALETTE_MAX_GROUPS
   );
 }
 
@@ -1846,7 +1849,111 @@ function TooltipMark({ color }) {
   );
 }
 
-function renderTooltipTable({ axisId, bucketLabel, seriesItems, extraRows = [] }) {
+function PaletteChartToggleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="8" y="3.5" width="8" height="4" rx="1" fill="currentColor" stroke="none" />
+      <rect x="8" y="9.8" width="8" height="4" rx="1" fill="currentColor" opacity="0.8" stroke="none" />
+      <rect x="8" y="16.1" width="8" height="4" rx="1" fill="currentColor" opacity="0.6" stroke="none" />
+    </svg>
+  );
+}
+
+function ParetoChartToggleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 20.5H20.5" />
+      <rect x="5" y="12.5" width="3.2" height="8" rx="0.8" fill="currentColor" stroke="none" />
+      <rect x="10.4" y="9.5" width="3.2" height="11" rx="0.8" fill="currentColor" opacity="0.82" stroke="none" />
+      <rect x="15.8" y="6.5" width="3.2" height="14" rx="0.8" fill="currentColor" opacity="0.64" stroke="none" />
+      <path d="M4.5 8.8L9.4 10.2L14 7.1L19.5 5.2" />
+    </svg>
+  );
+}
+
+function getTooltipSeriesNumericValue(seriesItem) {
+  const numericValue = Number(seriesItem?.value);
+
+  if (Number.isFinite(numericValue)) {
+    return numericValue;
+  }
+
+  const rawValue = seriesItem?.rawValue ?? seriesItem?.formattedValue;
+  const fallbackNumericValue = Number(rawValue);
+  return Number.isFinite(fallbackNumericValue) ? fallbackNumericValue : null;
+}
+
+function prepareTooltipSeriesItems(
+  seriesItems,
+  {
+    sortSeriesItems = false,
+    excludeZeroSeriesItems = false
+  } = {}
+) {
+  const normalizedItems = (seriesItems ?? [])
+    .filter((seriesItem) => seriesItem?.formattedValue != null)
+    .map((seriesItem, index) => ({
+      seriesItem,
+      numericValue: getTooltipSeriesNumericValue(seriesItem),
+      index
+    }))
+    .filter(({ numericValue }) => !excludeZeroSeriesItems || numericValue == null || numericValue !== 0);
+
+  if (!sortSeriesItems) {
+    return normalizedItems.map(({ seriesItem }) => seriesItem);
+  }
+
+  return normalizedItems
+    .sort((left, right) => {
+      const leftHasNumericValue = Number.isFinite(left.numericValue);
+      const rightHasNumericValue = Number.isFinite(right.numericValue);
+
+      if (leftHasNumericValue && rightHasNumericValue && left.numericValue !== right.numericValue) {
+        return right.numericValue - left.numericValue;
+      }
+
+      if (leftHasNumericValue !== rightHasNumericValue) {
+        return leftHasNumericValue ? -1 : 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ seriesItem }) => seriesItem);
+}
+
+function renderTooltipTable({
+  axisId,
+  bucketLabel,
+  seriesItems,
+  extraRows = [],
+  sortSeriesItems = false,
+  excludeZeroSeriesItems = false
+}) {
+  const visibleSeriesItems = prepareTooltipSeriesItems(seriesItems, {
+    sortSeriesItems,
+    excludeZeroSeriesItems
+  });
+
   return (
     <table
       key={axisId}
@@ -1868,9 +1975,7 @@ function renderTooltipTable({ axisId, bucketLabel, seriesItems, extraRows = [] }
         {bucketLabel}
       </caption>
       <tbody>
-        {seriesItems
-          .filter((seriesItem) => seriesItem.formattedValue != null)
-          .map((seriesItem) => (
+        {visibleSeriesItems.map((seriesItem) => (
             <tr key={seriesItem.seriesId}>
               <th
                 style={{
@@ -1926,6 +2031,11 @@ function renderTooltipTable({ axisId, bucketLabel, seriesItems, extraRows = [] }
 }
 
 function StandardChartTooltip(props) {
+  const {
+    sortSeriesItems = false,
+    excludeZeroSeriesItems = false,
+    ...tooltipContainerProps
+  } = props;
   const tooltipData = useAxesTooltip();
 
   if (!tooltipData?.length) {
@@ -1933,7 +2043,7 @@ function StandardChartTooltip(props) {
   }
 
   return (
-    <ChartsTooltipContainer {...props}>
+    <ChartsTooltipContainer {...tooltipContainerProps}>
       <Paper
         elevation={6}
         sx={{
@@ -1948,7 +2058,9 @@ function StandardChartTooltip(props) {
           renderTooltipTable({
             axisId,
             bucketLabel: String(axisFormattedValue),
-            seriesItems
+            seriesItems,
+            sortSeriesItems,
+            excludeZeroSeriesItems
           })
         )}
       </Paper>
@@ -2000,6 +2112,8 @@ function MetricTrendChart({
     slotProps: {
       tooltip: {
         trigger: tooltipTrigger,
+        sortSeriesItems: variant === 'bar',
+        excludeZeroSeriesItems: variant === 'bar',
         ...tooltipProps
       }
     },
@@ -2043,7 +2157,10 @@ function StackedCategoryBarChart({
           data: labels
         }
       ]}
-      yAxis={yAxis}
+      yAxis={yAxis.map((axisConfig) => ({
+        ...axisConfig,
+        min: axisConfig.min ?? 0
+      }))}
       series={series.map((seriesConfig) => ({
         ...seriesConfig,
         stack: 'total'
@@ -2055,7 +2172,9 @@ function StackedCategoryBarChart({
       }}
       slotProps={{
         tooltip: {
-          trigger: 'axis'
+          trigger: 'axis',
+          sortSeriesItems: true,
+          excludeZeroSeriesItems: true
         }
       }}
     />
@@ -2178,7 +2297,6 @@ function ChartTypeToggleWithFilter({
   showBar = true,
   alwaysGridToggle = false,
   supportsFilter = false,
-  showFilterControlsOnBar = false,
   supportsPalette = false,
   supportsPareto = false,
   filterToggleAriaLabel = 'Filter chart',
@@ -2202,11 +2320,12 @@ function ChartTypeToggleWithFilter({
   paletteColorFieldAriaLabel = 'Color field',
   onPaletteColorFieldChange = null
 }) {
-  const isFilterMode = supportsFilter && value === 'filter';
-  const isBarFilterMode = supportsFilter && showFilterControlsOnBar && value === 'bar';
+  const isLineFilterMode = supportsFilter && value === 'line';
+  const isBarFilterMode = supportsFilter && value === 'bar';
   const isPaletteMode = supportsPalette && value === 'palette';
   const isParetoMode = supportsPareto && value === 'pareto';
-  const isExpandedFilterMode = isFilterMode || isBarFilterMode || isPaletteMode || isParetoMode;
+  const isExpandedFilterMode =
+    isLineFilterMode || isBarFilterMode || isPaletteMode || isParetoMode;
   const useGridToggleGroup = alwaysGridToggle || isExpandedFilterMode;
   const activeFieldOptions =
     isParetoMode && paretoFieldOptions.length > 0 ? paretoFieldOptions : filterFieldOptions;
@@ -2239,15 +2358,6 @@ function ChartTypeToggleWithFilter({
         sx={useGridToggleGroup ? [chartTypeToggleGroupSx, chartTypeToggleGroupFilterSx] : chartTypeToggleGroupSx}
         aria-label="Chart type"
       >
-        {supportsFilter && !showLine && (
-          <ToggleButton
-            value="filter"
-            sx={chartTypeToggleButtonSx}
-            aria-label={filterToggleAriaLabel}
-          >
-            <FontAwesomeIcon icon={faFilter} />
-          </ToggleButton>
-        )}
         {showLine && (
           <ToggleButton value="line" sx={chartTypeToggleButtonSx} aria-label="Line chart">
             <FontAwesomeIcon icon={faChartLine} />
@@ -2258,27 +2368,18 @@ function ChartTypeToggleWithFilter({
             <FontAwesomeIcon icon={faChartColumn} />
           </ToggleButton>
         )}
-        {supportsFilter && showLine && (
-          <ToggleButton
-            value="filter"
-            sx={chartTypeToggleButtonSx}
-            aria-label={filterToggleAriaLabel}
-          >
-            <FontAwesomeIcon icon={faFilter} />
-          </ToggleButton>
-        )}
         {supportsPalette && (
           <ToggleButton
             value="palette"
             sx={chartTypeToggleButtonSx}
             aria-label={paletteToggleAriaLabel}
           >
-            <FontAwesomeIcon icon={faPalette} />
+            <PaletteChartToggleIcon />
           </ToggleButton>
         )}
         {supportsPareto && (
           <ToggleButton value="pareto" sx={chartTypeToggleButtonSx} aria-label="Pareto chart">
-            <FontAwesomeIcon icon={faChartSimple} />
+            <ParetoChartToggleIcon />
           </ToggleButton>
         )}
       </ToggleButtonGroup>
@@ -2287,7 +2388,7 @@ function ChartTypeToggleWithFilter({
         <div
           className={`chart-type-inline-filter${isExpandedFilterMode ? ' chart-type-inline-filter-visible' : ''}${isParetoMode ? ' chart-type-inline-filter-single' : ''}`}
         >
-          {(isFilterMode || isBarFilterMode || isParetoMode) && (
+          {(isLineFilterMode || isBarFilterMode || isParetoMode) && (
             <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
               <Select
                 value={filterFieldValue}
@@ -2307,7 +2408,7 @@ function ChartTypeToggleWithFilter({
             </FormControl>
           )}
 
-          {(isFilterMode || isBarFilterMode) && (
+          {(isLineFilterMode || isBarFilterMode) && (
             <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
               <Select
                 value={filterValue}
@@ -2501,12 +2602,23 @@ function renderMetricInfoContent(info) {
   );
 }
 
-function CardHeader({ title, info, tooltipLegend = null }) {
+function CardHeader({ title, info, tooltipLegend = null, summaryValue = null, summaryAriaLabel = '' }) {
   const metricInfo = info || DEFAULT_METRIC_INFO;
 
   return (
     <div className="card-header">
-      <h2 className="card-title">{title}</h2>
+      <div className="card-header-main">
+        <h2 className="card-title">{title}</h2>
+        {summaryValue != null && (
+          <MetricSummaryPanel
+            title=""
+            value={summaryValue}
+            showTitle={false}
+            ariaLabel={summaryAriaLabel || `${title} overall value`}
+            className="metric-summary-panel-header"
+          />
+        )}
+      </div>
       <div className="card-info">
         <button
           type="button"
@@ -2540,10 +2652,19 @@ function CardHeader({ title, info, tooltipLegend = null }) {
   );
 }
 
-function MetricSummaryPanel({ title, value, className = '' }) {
+function MetricSummaryPanel({
+  title,
+  value,
+  className = '',
+  showTitle = true,
+  ariaLabel = ''
+}) {
   return (
-    <section className={`filter-panel metric-summary-panel ${className}`.trim()}>
-      <p className="metric-summary-title">{title}</p>
+    <section
+      className={`filter-panel metric-summary-panel ${className}`.trim()}
+      aria-label={ariaLabel || undefined}
+    >
+      {showTitle && title ? <p className="metric-summary-title">{title}</p> : null}
       <p className="metric-summary-value">{value}</p>
     </section>
   );
@@ -3504,6 +3625,10 @@ export default function App() {
     Math.max(0, Math.min(selectedDateRangeIndices[0] ?? 0, maximumDateIndex)),
     Math.max(0, Math.min(selectedDateRangeIndices[1] ?? maximumDateIndex, maximumDateIndex))
   ];
+  const isAllDateRangeActive =
+    availableTimelineStamps.length > 0
+    && activeDateRangeIndices[0] === 0
+    && activeDateRangeIndices[1] === maximumDateIndex;
   const isYtdRangeActive =
     activeDateRangeIndices[0] === ytdRangeIndices[0] &&
     activeDateRangeIndices[1] === ytdRangeIndices[1];
@@ -3574,7 +3699,7 @@ export default function App() {
     selectedControllableChartFilterValue,
     controllableChartFilterValueOptions
   );
-  const controllableFilterApplies = ['filter', 'bar'].includes(chartVariants.controllableCosts);
+  const controllableFilterApplies = ['line', 'bar'].includes(chartVariants.controllableCosts);
   const filteredControllableCostsRows = baseFilteredControllableCostsRows.filter((row) => {
     if (!controllableFilterApplies) {
       return true;
@@ -3634,7 +3759,7 @@ export default function App() {
     selectedSifChartFilterValue,
     sifChartFilterValueOptions
   );
-  const sifFilterApplies = ['line', 'bar', 'filter'].includes(chartVariants.sif);
+  const sifFilterApplies = ['line', 'bar'].includes(chartVariants.sif);
   const filteredSifRows = baseFilteredSifRows.filter((row) => (
     !sifFilterApplies
     || activeSifChartFilterValue === ALL_FILTER_VALUE
@@ -3663,7 +3788,6 @@ export default function App() {
     selectedDateRange,
     'sif'
   );
-  const isSifLineView = chartVariants.sif === 'line';
   const isSifPareto = chartVariants.sif === 'pareto';
   const isSifPalette = chartVariants.sif === 'palette';
   const sifSummaryRows = (isSifPareto || isSifPalette ? baseFilteredSifRows : filteredSifRows).filter(
@@ -3702,7 +3826,7 @@ export default function App() {
     selectedPotentialSifChartFilterValue,
     potentialSifChartFilterValueOptions
   );
-  const potentialSifFilterApplies = ['line', 'bar', 'filter'].includes(chartVariants.potentialSif);
+  const potentialSifFilterApplies = ['line', 'bar'].includes(chartVariants.potentialSif);
   const filteredPotentialSifRows = baseFilteredPotentialSifRows.filter((row) => (
     !potentialSifFilterApplies
     || activePotentialSifChartFilterValue === ALL_FILTER_VALUE
@@ -3731,7 +3855,6 @@ export default function App() {
     selectedDateRange,
     'potentialSif'
   );
-  const isPotentialSifLineView = chartVariants.potentialSif === 'line';
   const isPotentialSifPareto = chartVariants.potentialSif === 'pareto';
   const isPotentialSifPalette = chartVariants.potentialSif === 'palette';
   const potentialSifSummaryRows = (
@@ -3769,7 +3892,7 @@ export default function App() {
     selectedNmfrChartFilterValue,
     nmfrChartFilterValueOptions
   );
-  const nmfrFilterApplies = ['line', 'bar', 'filter'].includes(chartVariants.nmfr);
+  const nmfrFilterApplies = ['line', 'bar'].includes(chartVariants.nmfr);
   const filteredNmfrRows = baseFilteredNmfrRows.filter((row) => (
     !nmfrFilterApplies
     || activeNmfrChartFilterValue === ALL_FILTER_VALUE
@@ -3798,7 +3921,6 @@ export default function App() {
     selectedDateRange,
     'nmfr'
   );
-  const isNmfrLineView = chartVariants.nmfr === 'line';
   const isNmfrPareto = chartVariants.nmfr === 'pareto';
   const isNmfrPalette = chartVariants.nmfr === 'palette';
   const nmfrSummaryRows = (isNmfrPareto || isNmfrPalette ? baseFilteredNmfrRows : filteredNmfrRows).filter(
@@ -3833,7 +3955,7 @@ export default function App() {
     selectedOtdChartFilterValue,
     otdChartFilterValueOptions
   );
-  const otdFilterApplies = ['filter', 'bar'].includes(chartVariants.otd);
+  const otdFilterApplies = ['line', 'bar'].includes(chartVariants.otd);
   const filteredOtdRows = baseFilteredOtdRows.filter((row) => {
     if (!otdFilterApplies) {
       return true;
@@ -3884,7 +4006,7 @@ export default function App() {
     selectedLaborChartFilterValue,
     laborChartFilterValueOptions
   );
-  const laborFilterApplies = ['filter', 'bar'].includes(chartVariants.labor);
+  const laborFilterApplies = ['line', 'bar'].includes(chartVariants.labor);
   const filteredLaborRows = laborState.rows.filter((row) => {
     if (!laborFilterApplies) {
       return true;
@@ -3990,12 +4112,12 @@ export default function App() {
   const nextThemeLabel = themeMode === 'light' ? 'Dark' : 'Light';
   const nextThemeIcon = themeMode === 'light' ? faMoon : faSun;
   const isChipActive = (cardGroupKey) => selectedCardGroup === cardGroupKey;
-  const getGlobalChartMode = (metricKey, variant) => {
-    if (variant === 'line' || variant === 'filter') {
+  const getGlobalChartMode = (_metricKey, variant) => {
+    if (variant === 'line') {
       return 'line';
     }
 
-    if (variant === 'bar' || variant === 'palette') {
+    if (variant === 'bar') {
       return 'bar';
     }
 
@@ -4006,6 +4128,12 @@ export default function App() {
   );
   const allChartsBar = Object.entries(chartVariants).every(
     ([metricKey, variant]) => getGlobalChartMode(metricKey, variant) === 'bar'
+  );
+  const allChartsPalette = Object.values(chartVariants).every(
+    (variant) => variant === 'palette'
+  );
+  const allChartsPareto = Object.values(chartVariants).every(
+    (variant) => variant === 'pareto'
   );
   const presetsBySlot = new Map(
     dashboardPresetsState.presets.map((preset) => [preset.slot, preset])
@@ -4035,12 +4163,12 @@ export default function App() {
 
   const setAllChartVariants = (nextVariant) => {
     setChartVariants({
-      controllableCosts: nextVariant === 'line' ? 'filter' : 'bar',
-      sif: nextVariant === 'line' ? 'line' : 'palette',
-      potentialSif: nextVariant === 'line' ? 'line' : 'palette',
-      nmfr: nextVariant === 'line' ? 'line' : 'palette',
-      otd: nextVariant === 'line' ? 'filter' : 'bar',
-      labor: nextVariant === 'line' ? 'filter' : 'bar'
+      controllableCosts: nextVariant,
+      sif: nextVariant,
+      potentialSif: nextVariant,
+      nmfr: nextVariant,
+      otd: nextVariant,
+      labor: nextVariant
     });
   };
 
@@ -4064,7 +4192,8 @@ export default function App() {
     setChartVariants(
       Object.fromEntries(
         Object.entries(DEFAULT_CHART_VARIANTS).map(([metricKey, defaultVariant]) => {
-          const candidateVariant = presetState.chartVariants?.[metricKey];
+          const presetVariant = presetState.chartVariants?.[metricKey];
+          const candidateVariant = presetVariant === 'filter' ? 'line' : presetVariant;
           const allowedVariants = CARD_VARIANT_OPTIONS_BY_METRIC[metricKey] ?? [defaultVariant];
 
           return [
@@ -4441,6 +4570,17 @@ export default function App() {
                       >
                         YTD
                       </button>
+                      <button
+                        type="button"
+                        className={`global-date-filter-shortcut${isAllDateRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
+                        onClick={() => {
+                          setPendingPresetDateRange(null);
+                          setSelectedDateRangeIndices([0, maximumDateIndex]);
+                          setHasCustomizedDateRange(false);
+                        }}
+                      >
+                        Reset
+                      </button>
                     </div>
                   )}
                 </div>
@@ -4486,6 +4626,28 @@ export default function App() {
                     }}
                   >
                     <FontAwesomeIcon icon={faChartColumn} className="chart-mode-icon" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`chart-mode-button${allChartsPalette ? ' chart-mode-button-active' : ''}`}
+                    aria-label="Show all stacked bar charts"
+                    aria-pressed={allChartsPalette}
+                    onClick={() => {
+                      setAllChartVariants('palette');
+                    }}
+                  >
+                    <PaletteChartToggleIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className={`chart-mode-button${allChartsPareto ? ' chart-mode-button-active' : ''}`}
+                    aria-label="Show all pareto charts"
+                    aria-pressed={allChartsPareto}
+                    onClick={() => {
+                      setAllChartVariants('pareto');
+                    }}
+                  >
+                    <ParetoChartToggleIcon />
                   </button>
                 </div>
 
@@ -4717,10 +4879,8 @@ export default function App() {
                               controllableCosts: nextVariant
                             }));
                           }}
-                          showLine={false}
                           alwaysGridToggle
                           supportsFilter
-                          showFilterControlsOnBar
                           supportsPalette
                           supportsPareto
                           filterToggleAriaLabel="Controllable costs time series"
@@ -4802,6 +4962,8 @@ export default function App() {
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
                   tooltipLegend={sifTooltipLegend}
+                  summaryValue={sifState.loading || sifState.error ? '--' : sifSummaryValue}
+                  summaryAriaLabel="SIF incidents overall value"
                 />
 
                 <div className="dashboard-grid">
@@ -4892,7 +5054,7 @@ export default function App() {
                         )}
                     </div>
 
-                    <div className={`chart-control-row ${isSifLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
+                    <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.sif}
@@ -4902,7 +5064,6 @@ export default function App() {
                               sif: nextVariant
                             }));
                           }}
-                          showBar={false}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -4952,13 +5113,6 @@ export default function App() {
                           }}
                         />
                       </div>
-                      {isSifLineView && (
-                        <MetricSummaryPanel
-                          title="SIF Incidents"
-                          value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
-                          className="metric-summary-panel-inline"
-                        />
-                      )}
                     </div>
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -4991,6 +5145,12 @@ export default function App() {
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
                   tooltipLegend={potentialSifTooltipLegend}
+                  summaryValue={
+                    potentialSifState.loading || potentialSifState.error
+                      ? '--'
+                      : potentialSifSummaryValue
+                  }
+                  summaryAriaLabel="Potential SIF incidents overall value"
                 />
 
                 <div className="dashboard-grid">
@@ -5085,7 +5245,7 @@ export default function App() {
                         )}
                     </div>
 
-                    <div className={`chart-control-row ${isPotentialSifLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
+                    <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.potentialSif}
@@ -5095,7 +5255,6 @@ export default function App() {
                               potentialSif: nextVariant
                             }));
                           }}
-                          showBar={false}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -5145,17 +5304,6 @@ export default function App() {
                           }}
                         />
                       </div>
-                      {isPotentialSifLineView && (
-                        <MetricSummaryPanel
-                          title="Potential SIF Incidents"
-                          value={
-                            potentialSifState.loading || potentialSifState.error
-                              ? '--'
-                              : potentialSifSummaryValue
-                          }
-                          className="metric-summary-panel-inline"
-                        />
-                      )}
                     </div>
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -5188,6 +5336,8 @@ export default function App() {
                   title="Near Miss Frequency Rate"
                   info={METRIC_INFO.nmfr}
                   tooltipLegend={nmfrTooltipLegend}
+                  summaryValue={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
+                  summaryAriaLabel="Near miss frequency rate overall value"
                 />
 
                 <div className="dashboard-grid">
@@ -5278,7 +5428,7 @@ export default function App() {
                         )}
                     </div>
 
-                    <div className={`chart-control-row ${isNmfrLineView ? 'chart-control-row-summary' : 'chart-control-row-single'}`}>
+                    <div className="chart-control-row chart-control-row-single">
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.nmfr}
@@ -5288,7 +5438,6 @@ export default function App() {
                               nmfr: nextVariant
                             }));
                           }}
-                          showBar={false}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -5338,13 +5487,6 @@ export default function App() {
                           }}
                         />
                       </div>
-                      {isNmfrLineView && (
-                        <MetricSummaryPanel
-                          title="Near Miss Frequency Rate"
-                          value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
-                          className="metric-summary-panel-inline"
-                        />
-                      )}
                     </div>
 
                     <div className="chart-footer chart-footer-match-labor">
@@ -5486,10 +5628,8 @@ export default function App() {
                               otd: nextVariant
                             }));
                           }}
-                          showLine={false}
                           alwaysGridToggle
                           supportsFilter
-                          showFilterControlsOnBar
                           supportsPalette
                           supportsPareto
                           filterToggleAriaLabel="OTD time series"
@@ -5675,10 +5815,8 @@ export default function App() {
                               labor: nextVariant
                             }));
                           }}
-                          showLine={false}
                           alwaysGridToggle
                           supportsFilter
-                          showFilterControlsOnBar
                           supportsPalette
                           supportsPareto
                           filterToggleAriaLabel="Filter labor chart"

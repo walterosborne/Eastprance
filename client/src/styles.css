@@ -114,13 +114,13 @@ body {
 .global-date-filter {
   grid-column: 1;
   justify-self: start;
-  width: 286px;
-  min-width: 286px;
+  width: 342px;
+  min-width: 342px;
 }
 
 .global-date-filter-control {
   display: grid;
-  grid-template-columns: 190px 60px;
+  grid-template-columns: 190px 116px;
   align-items: stretch;
   column-gap: 12px;
   width: 100%;
@@ -200,9 +200,10 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  width: 60px;
-  min-width: 60px;
-  max-width: 60px;
+  gap: 8px;
+  width: 116px;
+  min-width: 116px;
+  max-width: 116px;
 }
 
 .global-date-filter-shortcut {
@@ -606,6 +607,14 @@ body {
   text-align: left;
 }
 
+.card-header-main {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .card-kicker {
   margin: 0 0 0.5rem;
   font-size: 0.7rem;
@@ -621,6 +630,7 @@ body {
   overflow-wrap: anywhere;
   text-align: left;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .card-info {
@@ -1003,6 +1013,20 @@ h1 {
   padding: 0.45rem 0.75rem;
 }
 
+.metric-summary-panel-header {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 0;
+  max-width: 84px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0.18rem 0.5rem;
+  gap: 0;
+}
+
 .metric-summary-title {
   margin: 0;
   font-size: 0.72rem;
@@ -1018,6 +1042,10 @@ h1 {
   font-weight: 700;
   line-height: 1;
   color: var(--text-primary);
+}
+
+.metric-summary-panel-header .metric-summary-value {
+  font-size: clamp(0.72rem, 0.95vw, 0.88rem);
 }
 
 .visual-column {
@@ -1171,7 +1199,7 @@ h1 {
   }
 
   .global-date-filter-control {
-    grid-template-columns: minmax(0, 1fr) 88px;
+    grid-template-columns: minmax(0, 1fr) 122px;
     width: 100%;
   }
 

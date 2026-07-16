@@ -2510,7 +2510,7 @@ function renderMetricInfoContent(info) {
       return null;
     }
 
-    const bulletMatch = /^[-*•]\s*(.+)$/.exec(rawText);
+    const bulletMatch = /^(?:[-*•])\s+(.+)$/.exec(rawText);
     const bullet = bulletMatch ? true : defaultBullet;
     let text = (bulletMatch ? bulletMatch[1] : rawText).trim();
     let bold = false;

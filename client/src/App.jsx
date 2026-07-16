@@ -2572,33 +2572,56 @@ function renderMetricInfoContent(info) {
     return <p className="metric-info-paragraph">{DEFAULT_METRIC_INFO}</p>;
   }
 
-  const bulletItems = normalizedEntries.filter((entry) => entry.bullet);
-  const paragraphs = normalizedEntries.filter((entry) => !entry.bullet);
-
-  if (bulletItems.length === 0 && paragraphs.length === 1) {
-    return <p className="metric-info-paragraph">{renderMetricInfoText(paragraphs[0])}</p>;
+  if (normalizedEntries.length === 1 && !normalizedEntries[0].bullet) {
+    return <p className="metric-info-paragraph">{renderMetricInfoText(normalizedEntries[0])}</p>;
   }
 
+  const contentBlocks = [];
+  let bulletGroup = [];
+
+  const flushBulletGroup = () => {
+    if (bulletGroup.length === 0) {
+      return;
+    }
+
+    const groupKey = bulletGroup
+      .map((entry) => `${entry.text}-${entry.bold}-${entry.underline}`)
+      .join('|');
+
+    contentBlocks.push(
+      <ul key={`bullets-${groupKey}`} className="metric-info-list">
+        {bulletGroup.map((item) => (
+          <li key={`${item.text}-${item.bold}-${item.underline}`}>
+            {renderMetricInfoText(item)}
+          </li>
+        ))}
+      </ul>
+    );
+
+    bulletGroup = [];
+  };
+
+  normalizedEntries.forEach((entry) => {
+    if (entry.bullet) {
+      bulletGroup.push(entry);
+      return;
+    }
+
+    flushBulletGroup();
+    contentBlocks.push(
+      <p
+        key={`paragraph-${entry.text}-${entry.bold}-${entry.underline}`}
+        className="metric-info-paragraph"
+      >
+        {renderMetricInfoText(entry)}
+      </p>
+    );
+  });
+
+  flushBulletGroup();
+
   return (
-    <div className="metric-info-copy">
-      {paragraphs.map((paragraph) => (
-        <p
-          key={`${paragraph.text}-${paragraph.bold}-${paragraph.underline}`}
-          className="metric-info-paragraph"
-        >
-          {renderMetricInfoText(paragraph)}
-        </p>
-      ))}
-      {bulletItems.length > 0 && (
-        <ul className="metric-info-list">
-          {bulletItems.map((item) => (
-            <li key={`${item.text}-${item.bold}-${item.underline}`}>
-              {renderMetricInfoText(item)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <div className="metric-info-copy">{contentBlocks}</div>
   );
 }
 

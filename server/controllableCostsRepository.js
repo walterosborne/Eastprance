@@ -186,6 +186,31 @@ export async function readControllableCostsData() {
     });
 
     const result = await pool.request().query(`
+      WITH normalized_costs AS (
+        SELECT
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Category] AS nvarchar(4000)), ''))) AS [Cost Category],
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Address] AS nvarchar(4000)), ''))) AS [Address],
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), ''))) AS [Cost Element],
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element Description] AS nvarchar(4000)), ''))) AS [Cost Element Description],
+          TRY_CAST(source.[Cost] AS float) AS [Cost],
+          UPPER(LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Quarter] AS nvarchar(100)), '')))) AS [Quarter],
+          TRY_CAST(source.[Year] AS bigint) AS [Year]
+        FROM ${controllableCostsTableName} AS source
+      ),
+      normalized_category_key AS (
+        SELECT
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Category] AS nvarchar(4000)), ''))) AS [Cost Category],
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Controllable] AS nvarchar(255)), ''))) AS [Controllable]
+        FROM ${costCategoryKeyTableName} AS source
+      ),
+      normalized_element_key AS (
+        SELECT
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Category] AS nvarchar(4000)), ''))) AS [Cost Category],
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), ''))) AS [Cost Element],
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element Description] AS nvarchar(4000)), ''))) AS [Cost Element Description],
+          LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Controllable] AS nvarchar(255)), ''))) AS [Controllable]
+        FROM ${costElementKeyTableName} AS source
+      )
       SELECT
         costs.[Cost Category],
         costs.[Address],
@@ -195,11 +220,11 @@ export async function readControllableCostsData() {
         costs.[Quarter],
         costs.[Year],
         COALESCE(elementMatch.[Controllable], categoryMatch.[Controllable]) AS [Resolved Controllable]
-      FROM ${controllableCostsTableName} AS costs
+      FROM normalized_costs AS costs
       OUTER APPLY (
         SELECT TOP 1
           elementKey.[Controllable]
-        FROM ${costElementKeyTableName} AS elementKey
+        FROM normalized_element_key AS elementKey
         WHERE elementKey.[Cost Element] = costs.[Cost Element]
         ORDER BY
           CASE
@@ -210,7 +235,7 @@ export async function readControllableCostsData() {
             ELSE 3
           END
       ) AS elementMatch
-      LEFT JOIN ${costCategoryKeyTableName} AS categoryMatch
+      LEFT JOIN normalized_category_key AS categoryMatch
         ON categoryMatch.[Cost Category] = costs.[Cost Category]
       ORDER BY
         costs.[Year] ASC,

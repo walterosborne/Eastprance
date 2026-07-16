@@ -40,10 +40,29 @@ function buildAuthTransportDebug(request, authCandidates) {
     'x_iisnode_auth_user',
     'x_forwarded_user',
     'x_forwarded_preferred_username',
+    'x_forwarded_employeeid',
+    'x_forwarded_name',
+    'x_forwarded_email',
+    'x_auth_request_user',
+    'x_auth_request_preferred_username',
+    'x_auth_request_employeeid',
+    'x_auth_request_name',
+    'x_auth_request_email',
+    'x_employeeid',
+    'x_email',
+    'x_name',
     'x_ms_client_principal_name',
     'x_ms_client_principal_id'
   ];
+  const accessTokenFieldNames = [
+    'x_forwarded_access_token',
+    'x_auth_request_access_token',
+    'x_access_token'
+  ];
   const populatedIdentityFields = identityFieldNames.filter((fieldName) => Boolean(authCandidates[fieldName]));
+  const populatedAccessTokenFields = accessTokenFieldNames.filter(
+    (fieldName) => Boolean(authCandidates[fieldName])
+  );
   const authorization = getAuthorizationDebug(request, 'Authorization');
   const proxyAuthorization = getAuthorizationDebug(request, 'Proxy-Authorization');
 
@@ -54,7 +73,9 @@ function buildAuthTransportDebug(request, authCandidates) {
     backendSeesProxyAuthorizationHeader: proxyAuthorization.present,
     proxyAuthorizationScheme: proxyAuthorization.scheme,
     populatedIdentityFields,
+    populatedAccessTokenFields,
     backendSeesForwardedIdentity: populatedIdentityFields.length > 0,
+    backendSeesForwardedAccessToken: populatedAccessTokenFields.length > 0,
     backendSeesAuthType: Boolean(authCandidates.x_auth_type || authCandidates.x_client_auth_type),
     note: 'Upstream proxies often strip Authorization before the app sees the request, so forwarded identity headers usually matter more.'
   };

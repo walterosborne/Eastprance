@@ -37,8 +37,28 @@ The server currently reads these SQL settings:
 - `database`
 - `user`
 - `password`
+- `KEYCLOAK_ISSUER_URL`
+- `KEYCLOAK_INTROSPECTION_URL`
+- `KEYCLOAK_CLIENT_ID`
+- `KEYCLOAK_CLIENT_SECRET`
+- `ALLOW_HARDCODED_IDENTITY_FALLBACK`
 
 `schema` is optional and defaults to `dbo`, but you should set it if your SQL objects live in a non-default schema.
+
+For user identification, the backend now supports two runtime patterns:
+
+- a bearer token that the backend can introspect against Keycloak
+- forwarded identity headers from the ingress / auth layer
+
+If Keycloak tokens are being passed through, set:
+
+- `KEYCLOAK_CLIENT_ID`
+- `KEYCLOAK_CLIENT_SECRET`
+- either `KEYCLOAK_INTROSPECTION_URL` or `KEYCLOAK_ISSUER_URL`
+
+The app reads `employeeid` from the resolved identity and then attempts roster lookup against both `RosterExtractFarm.NetworkID` and `RosterExtractFarm.MyID`.
+
+`ALLOW_HARDCODED_IDENTITY_FALLBACK` should usually be `false` in deployed environments once auth is wired correctly.
 
 You can provide those through an OpenShift secret or deployment env vars.
 

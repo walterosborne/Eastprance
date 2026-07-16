@@ -14,7 +14,7 @@ import {
 } from './sqlConnection.js';
 import {
   HARDCODED_NETWORK_ID,
-  getRequestNetworkId
+  resolveRequestIdentity
 } from './requestIdentity.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +24,10 @@ const ROSTER_TABLE_CANDIDATES = ['RosterExtractFarm'];
 
 function normalizeText(value) {
   return String(value ?? '').trim();
+}
+
+function normalizeIdentifier(value) {
+  return normalizeText(value).toLowerCase();
 }
 
 function normalizeRosterRow(row) {
@@ -39,7 +43,8 @@ function normalizeRosterRow(row) {
       ?? row.RosterName
       ?? row.rostername
       ?? row['Employee Name']
-    )
+    ),
+    matched_by: normalizeText(row.matched_by ?? row.MatchedBy)
   };
 }
 
@@ -65,25 +70,48 @@ async function readLocalRosterRows() {
   }
 }
 
-async function findLocalRosterUser(networkId) {
+function getRosterMatchField(row, employeeIdentifier) {
+  const normalizedIdentifier = normalizeIdentifier(employeeIdentifier);
+
+  if (!normalizedIdentifier) {
+    return '';
+  }
+
+  if (normalizeIdentifier(row.network_id) === normalizedIdentifier) {
+    return 'NetworkID';
+  }
+
+  if (normalizeIdentifier(row.my_id) === normalizedIdentifier) {
+    return 'MyID';
+  }
+
+  return '';
+}
+
+async function findLocalRosterUser(employeeIdentifier) {
   const rows = await readLocalRosterRows();
 
   if (!rows) {
     return null;
   }
 
-  return (
-    rows.find(
-      (row) => row.network_id.toLowerCase() === networkId.toLowerCase()
-    ) ?? null
-  );
+  const matchedRow = rows.find((row) => Boolean(getRosterMatchField(row, employeeIdentifier)));
+
+  if (!matchedRow) {
+    return null;
+  }
+
+  return {
+    ...matchedRow,
+    matched_by: getRosterMatchField(matchedRow, employeeIdentifier)
+  };
 }
 
 function isMissingRosterTableError(error) {
   return /invalid object name/i.test(String(error?.message ?? ''));
 }
 
-async function findSqlRosterUser(networkId) {
+async function findSqlRosterUser(employeeIdentifier) {
   const { config, missing } = getConnectionConfig();
 
   if (missing.length > 0) {
@@ -96,15 +124,27 @@ async function findSqlRosterUser(networkId) {
     try {
       const result = await pool
         .request()
-        .input('networkId', networkId)
+        .input('employeeIdentifier', employeeIdentifier)
         .query(`
           SELECT TOP 1
             [MyID] AS [MyID],
             [NetworkID] AS [NetworkID],
-            [FullName] AS [FullName]
+            [FullName] AS [FullName],
+            CASE
+              WHEN [NetworkID] = @employeeIdentifier THEN 'NetworkID'
+              WHEN [MyID] = @employeeIdentifier THEN 'MyID'
+              ELSE ''
+            END AS [MatchedBy]
           FROM ${formatSqlIdentifier(tableName)}
-          WHERE [NetworkID] = @networkId
-          ORDER BY [MyID] ASC;
+          WHERE [NetworkID] = @employeeIdentifier
+            OR [MyID] = @employeeIdentifier
+          ORDER BY
+            CASE
+              WHEN [NetworkID] = @employeeIdentifier THEN 0
+              WHEN [MyID] = @employeeIdentifier THEN 1
+              ELSE 2
+            END,
+            [MyID] ASC;
         `);
       const row = result.recordset[0];
 
@@ -131,28 +171,44 @@ async function findSqlRosterUser(networkId) {
 
 export async function readCurrentUser(request) {
   const stopTimer = createTimer();
-  const networkId = getRequestNetworkId(request, HARDCODED_NETWORK_ID);
-
-  logDebug('current-user', 'Resolving current user.', {
-    networkId,
-    isHardcodedFallback: networkId === HARDCODED_NETWORK_ID
-  });
+  let employeeIdentifier = '';
+  let identitySource = '';
 
   try {
-    const localUser = await findLocalRosterUser(networkId);
+    const identity = await resolveRequestIdentity(request, HARDCODED_NETWORK_ID);
+    employeeIdentifier = normalizeText(
+      identity.employee_id || identity.network_id || HARDCODED_NETWORK_ID
+    );
+    identitySource = identity.source;
+
+    logDebug('current-user', 'Resolving current user.', {
+      employeeIdentifier,
+      identitySource,
+      preferredUsername: identity.preferred_username,
+      email: identity.email,
+      isHardcodedFallback: identitySource === 'hardcoded-fallback'
+    });
+
+    const localUser = await findLocalRosterUser(employeeIdentifier);
 
     if (localUser) {
       const payload = {
         source: 'local-json',
-        network_id: networkId,
+        identity_source: identity.source,
+        employee_id: employeeIdentifier,
+        network_id: localUser.network_id,
         my_id: localUser.my_id,
-        name: localUser.name,
+        name: localUser.name || identity.name,
+        email: identity.email,
+        preferred_username: identity.preferred_username,
+        matchedBy: localUser.matched_by,
         fileName: path.basename(LOCAL_ROSTER_FILE_PATH)
       };
 
       logDebug('current-user', 'Resolved current user from local roster file.', {
-        networkId,
+        employeeIdentifier,
         myId: payload.my_id,
+        matchedBy: payload.matchedBy,
         fileName: payload.fileName,
         duration: formatDuration(stopTimer())
       });
@@ -160,20 +216,26 @@ export async function readCurrentUser(request) {
       return payload;
     }
 
-    const sqlResult = await findSqlRosterUser(networkId);
+    const sqlResult = await findSqlRosterUser(employeeIdentifier);
 
     if (sqlResult?.row) {
       const payload = {
         source: 'mssql',
-        network_id: networkId,
+        identity_source: identity.source,
+        employee_id: employeeIdentifier,
+        network_id: sqlResult.row.network_id,
         my_id: sqlResult.row.my_id,
         name: sqlResult.row.name,
+        email: identity.email,
+        preferred_username: identity.preferred_username,
+        matchedBy: sqlResult.row.matched_by,
         tableName: sqlResult.tableName
       };
 
       logDebug('current-user', 'Resolved current user from SQL roster table.', {
-        networkId,
+        employeeIdentifier,
         myId: payload.my_id,
+        matchedBy: payload.matchedBy,
         tableName: payload.tableName,
         duration: formatDuration(stopTimer())
       });
@@ -181,10 +243,13 @@ export async function readCurrentUser(request) {
       return payload;
     }
 
-    throw new Error(`Unable to find roster row for network ID ${networkId}.`);
+    throw new Error(
+      `Unable to find roster row for employee identifier ${employeeIdentifier}.`
+    );
   } catch (error) {
     logError('current-user', 'Failed to resolve current user.', error, {
-      networkId,
+      employeeIdentifier,
+      identitySource,
       duration: formatDuration(stopTimer())
     });
     throw error;

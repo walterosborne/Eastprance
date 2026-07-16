@@ -59,13 +59,33 @@ function getRosterConnectionConfigFromEnv() {
   };
 }
 
+function getMissingConnectionFields(config, prefix = '') {
+  const missingFields = [];
+
+  if (!config.server) {
+    missingFields.push(`${prefix}server`);
+  }
+
+  if (!config.database) {
+    missingFields.push(`${prefix}database`);
+  }
+
+  if (!config.user) {
+    missingFields.push(`${prefix}user`);
+  }
+
+  if (!config.password) {
+    missingFields.push(`${prefix}password`);
+  }
+
+  return missingFields;
+}
+
 export function getConnectionConfig(connectionName = 'default') {
   const defaultConfig = getPrimaryConnectionConfigFromEnv();
 
   if (connectionName !== 'roster') {
-    const missing = Object.entries(defaultConfig)
-      .filter(([key, value]) => key !== 'schema' && !value)
-      .map(([key]) => key);
+    const missing = getMissingConnectionFields(defaultConfig);
 
     return {
       connectionName: 'default',
@@ -76,29 +96,7 @@ export function getConnectionConfig(connectionName = 'default') {
   }
 
   const rosterConfig = getRosterConnectionConfigFromEnv();
-  const hasAnyRosterOverride = Boolean(
-    rosterConfig.server
-    || rosterConfig.database
-    || rosterConfig.user
-    || rosterConfig.password
-  );
-
-  if (!hasAnyRosterOverride) {
-    const missing = Object.entries(defaultConfig)
-      .filter(([key, value]) => key !== 'schema' && !value)
-      .map(([key]) => key);
-
-    return {
-      connectionName: 'roster',
-      config: defaultConfig,
-      missing,
-      source: 'default-fallback'
-    };
-  }
-
-  const missing = Object.entries(rosterConfig)
-    .filter(([key, value]) => !['schema', 'source'].includes(key) && !value)
-    .map(([key]) => key);
+  const missing = getMissingConnectionFields(rosterConfig, 'roster_');
 
   return {
     connectionName: 'roster',

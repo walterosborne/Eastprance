@@ -112,13 +112,13 @@ function isMissingRosterTableError(error) {
 }
 
 async function findSqlRosterUser(employeeIdentifier) {
-  const { config, missing } = getConnectionConfig();
+  const { config, missing, source } = getConnectionConfig('roster');
 
   if (missing.length > 0) {
     throw new Error(`Missing database environment variables: ${missing.join(', ')}`);
   }
 
-  const pool = await getPool(config);
+  const pool = await getPool(config, 'roster');
 
   for (const tableName of ROSTER_TABLE_CANDIDATES) {
     try {
@@ -135,7 +135,7 @@ async function findSqlRosterUser(employeeIdentifier) {
               WHEN [MyID] = @employeeIdentifier THEN 'MyID'
               ELSE ''
             END AS [MatchedBy]
-          FROM ${formatSqlIdentifier(tableName)}
+          FROM ${formatSqlIdentifier(tableName, config)}
           WHERE [NetworkID] = @employeeIdentifier
             OR [MyID] = @employeeIdentifier
           ORDER BY
@@ -151,6 +151,7 @@ async function findSqlRosterUser(employeeIdentifier) {
       if (row) {
         return {
           tableName,
+          connectionSource: source,
           row: normalizeRosterRow(row)
         };
       }
@@ -236,6 +237,7 @@ export async function readCurrentUser(request) {
         employeeIdentifier,
         myId: payload.my_id,
         matchedBy: payload.matchedBy,
+        connectionSource: sqlResult.connectionSource,
         tableName: payload.tableName,
         duration: formatDuration(stopTimer())
       });

@@ -419,7 +419,8 @@ async function readFallbackSafetyMetricsData(reason) {
 }
 
 async function readSafetyEmployeeCount(pool) {
-  const rosterTableName = formatSqlIdentifier(ROSTER_TABLE_NAME);
+  const { config: rosterConfig } = getConnectionConfig('roster');
+  const rosterTableName = formatSqlIdentifier(ROSTER_TABLE_NAME, rosterConfig);
   const result = await pool
     .request()
     .input('busUnitLvl2NoCode', DEFENSE_SYSTEMS_BUS_UNIT)
@@ -509,34 +510,44 @@ async function readSafetyMonthlyCounts(pool) {
 export async function readSafetyMetricsData() {
   const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig();
+  const {
+    config: rosterConfig,
+    missing: rosterMissing,
+    source: rosterConnectionSource
+  } = getConnectionConfig('roster');
 
   logDebug('safety', 'Starting safety metrics data load.', {
     hasConnectionConfig: missing.length === 0,
+    hasRosterConnectionConfig: rosterMissing.length === 0,
     tableName: SAFETY_EVENTS_TABLE_NAME,
-    rosterTableName: ROSTER_TABLE_NAME
+    rosterTableName: ROSTER_TABLE_NAME,
+    rosterConnectionSource
   });
 
-  if (missing.length > 0) {
+  if (missing.length > 0 || rosterMissing.length > 0) {
     logDebug('safety', 'Safety metrics data load is missing SQL configuration; using fallback.', {
-      missing
+      missing,
+      rosterMissing
     });
 
     return readFallbackSafetyMetricsData(
-      `Missing database environment variables: ${missing.join(', ')}`
+      `Missing database environment variables: ${[...missing, ...rosterMissing].join(', ')}`
     );
   }
 
   try {
-    const pool = await getPool(config);
+    const pool = await getPool(config, 'default');
+    const rosterPool = await getPool(rosterConfig, 'roster');
 
     logDebug('safety', 'Executing safety SQL queries.', {
       tableName: SAFETY_EVENTS_TABLE_NAME,
-      rosterTableName: ROSTER_TABLE_NAME
+      rosterTableName: ROSTER_TABLE_NAME,
+      rosterConnectionSource
     });
 
     const [monthlyCounts, defenseSystemsEmployeeCount] = await Promise.all([
       readSafetyMonthlyCounts(pool),
-      readSafetyEmployeeCount(pool)
+      readSafetyEmployeeCount(rosterPool)
     ]);
 
     if (defenseSystemsEmployeeCount <= 0) {
@@ -558,6 +569,7 @@ export async function readSafetyMetricsData() {
       source: payload.source,
       tableName: payload.tableName,
       rosterTableName: payload.rosterTableName,
+      rosterConnectionSource,
       rowCount: payload.rowCount,
       defenseSystemsEmployeeCount,
       duration: formatDuration(stopTimer())

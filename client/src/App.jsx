@@ -40,6 +40,8 @@ import { getMetricGoalLine } from './metricGoals';
 
 const ALL_FILTER_VALUE = '__all__';
 const PALETTE_MAX_GROUPS = 20;
+const MAX_TOOLTIP_ITEMS = 20;
+const MAX_TOOLTIP_LABEL_LENGTH = 20;
 const PALETTE_INFO_TOAST_SESSION_KEY = 'westmarch-palette-info-toast-shown';
 const NG_TOAST_BLUE = '#0057b8';
 const PALETTE_INFO_TOAST_OPTIONS = {
@@ -736,6 +738,34 @@ function normalizeFilterValue(value, options) {
   }
 
   return options.includes(value) ? value : ALL_FILTER_VALUE;
+}
+
+function clampGoalLineToVisibleSeries(goalLine, seriesCollections, maxScaleMultiplier = 5) {
+  if (!goalLine) {
+    return null;
+  }
+
+  const numericValues = seriesCollections
+    .flatMap((seriesValues) => seriesValues)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+
+  if (numericValues.length === 0) {
+    return null;
+  }
+
+  const maxAbsoluteValue = numericValues.reduce(
+    (maxValue, value) => Math.max(maxValue, Math.abs(value)),
+    0
+  );
+
+  if (maxAbsoluteValue <= 0) {
+    return null;
+  }
+
+  return Math.abs(Number(goalLine.value)) > maxAbsoluteValue * maxScaleMultiplier
+    ? null
+    : goalLine;
 }
 
 function normalizeText(value) {
@@ -1745,7 +1775,8 @@ function buildLaborParetoChartData(rows, fieldName, selectedDateRange) {
       .map((row) => ({
         category: row[fieldName],
         value: sumLaborHoursForRow(row, selectedDateRange)
-      }))
+      })),
+    PALETTE_MAX_GROUPS
   );
 }
 
@@ -1903,6 +1934,16 @@ function getTooltipSeriesNumericValue(seriesItem) {
   return Number.isFinite(fallbackNumericValue) ? fallbackNumericValue : null;
 }
 
+function truncateTooltipLabel(label, maxLength = MAX_TOOLTIP_LABEL_LENGTH) {
+  const normalizedLabel = String(label ?? '');
+
+  if (normalizedLabel.length <= maxLength) {
+    return normalizedLabel;
+  }
+
+  return `${normalizedLabel.slice(0, Math.max(maxLength - 3, 0)).trimEnd()}...`;
+}
+
 function prepareTooltipSeriesItems(
   seriesItems,
   {
@@ -1920,7 +1961,9 @@ function prepareTooltipSeriesItems(
     .filter(({ numericValue }) => !excludeZeroSeriesItems || numericValue == null || numericValue !== 0);
 
   if (!sortSeriesItems) {
-    return normalizedItems.map(({ seriesItem }) => seriesItem);
+    return normalizedItems
+      .slice(0, MAX_TOOLTIP_ITEMS)
+      .map(({ seriesItem }) => seriesItem);
   }
 
   return normalizedItems
@@ -1938,6 +1981,7 @@ function prepareTooltipSeriesItems(
 
       return left.index - right.index;
     })
+    .slice(0, MAX_TOOLTIP_ITEMS)
     .map(({ seriesItem }) => seriesItem);
 }
 
@@ -1986,7 +2030,9 @@ function renderTooltipTable({
                 }}
               >
                 <TooltipMark color={seriesItem.color} />
-                {seriesItem.formattedLabel || ''}
+                <span title={seriesItem.formattedLabel || ''}>
+                  {truncateTooltipLabel(seriesItem.formattedLabel || '')}
+                </span>
               </th>
               <td
                 style={{
@@ -2009,10 +2055,12 @@ function renderTooltipTable({
                 fontWeight: 500,
                 whiteSpace: 'nowrap'
               }}
-            >
-              <TooltipMark color={row.color} />
-              {row.label}
-            </th>
+              >
+                <TooltipMark color={row.color} />
+                <span title={row.label}>
+                  {truncateTooltipLabel(row.label)}
+                </span>
+              </th>
             <td
               style={{
                 padding: '8px 12px',
@@ -4111,6 +4159,10 @@ export default function App() {
       ? null
       : controllableCostsViewMode
   );
+  const visibleControllableCostsGoalLine = clampGoalLineToVisibleSeries(
+    controllableCostsGoalLine,
+    [controllableCostsChartData.controllable, controllableCostsChartData.uncontrollable]
+  );
   const sifGoalLine = getMetricGoalLine(
     'sif',
     isSifPareto || isSifPalette ? null : sifViewMode
@@ -4851,7 +4903,7 @@ export default function App() {
                               barColor="var(--chart-line)"
                               barAxis={CONTROLLABLE_COSTS_Y_AXIS}
                               barValueFormatter={formatCurrency}
-                              goalLine={controllableCostsGoalLine}
+                              goalLine={visibleControllableCostsGoalLine}
                               sx={sharedChartSx}
                             />
                           ) : isControllableCostsPalette ? (
@@ -4891,7 +4943,7 @@ export default function App() {
                                   showMark: false
                                 }
                               ]}
-                              goalLine={controllableCostsGoalLine}
+                              goalLine={visibleControllableCostsGoalLine}
                               sx={sharedChartSx}
                             />
                           )

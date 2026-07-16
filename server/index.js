@@ -24,7 +24,8 @@ import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readOtdData } from './otdRepository.js';
 import {
   getSafetyMetricPayload,
-  readSafetyMetricsData
+  readSafetyEventMetricsData,
+  readSafetyNmfrData
 } from './sifRepository.js';
 import { closeDatabaseConnection } from './sqlConnection.js';
 import {
@@ -44,7 +45,8 @@ let requestCounter = 0;
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
-registerSqlDatasetCache('safety', readSafetyMetricsData);
+registerSqlDatasetCache('safety-incidents', readSafetyEventMetricsData);
+registerSqlDatasetCache('safety-nmfr', readSafetyNmfrData);
 
 app.use(cors());
 app.use(express.json());
@@ -246,7 +248,7 @@ app.get('/api/sif-incidents', async (request, response) => {
     request,
     response,
     'sif',
-    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety'), 'sif'),
+    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety-incidents'), 'sif'),
     'Unable to read SIF data.'
   );
 });
@@ -256,7 +258,8 @@ app.get('/api/potential-sif-incidents', async (request, response) => {
     request,
     response,
     'potential-sif',
-    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety'), 'potentialSif'),
+    async () =>
+      getSafetyMetricPayload(await getCachedSqlDataset('safety-incidents'), 'potentialSif'),
     'Unable to read potential SIF data.'
   );
 });
@@ -266,7 +269,7 @@ app.get('/api/nmfr', async (request, response) => {
     request,
     response,
     'nmfr',
-    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety'), 'nmfr'),
+    async () => getSafetyMetricPayload(await getCachedSqlDataset('safety-nmfr'), 'nmfr'),
     'Unable to read NMFR data.'
   );
 });

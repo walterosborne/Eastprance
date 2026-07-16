@@ -138,7 +138,7 @@ function createMetricRow(metricKey, year, month, actualValue, extras = {}) {
   };
 }
 
-function buildMetricPayloadsFromMonthlyCounts(monthlyCounts, employeeCount) {
+function buildMetricPayloadsFromMonthlyCounts(monthlyCounts, employeeCount = null) {
   const orderedMonths = [...monthlyCounts].sort((left, right) => {
     if (left.year !== right.year) {
       return left.year - right.year;
@@ -149,7 +149,7 @@ function buildMetricPayloadsFromMonthlyCounts(monthlyCounts, employeeCount) {
 
   const sifRows = [];
   const potentialSifRows = [];
-  const nmfrRows = [];
+  const nmfrRows = employeeCount == null ? null : [];
 
   orderedMonths.forEach((row) => {
     const workingDays = getWorkingDaysInMonth(row.year, row.month);
@@ -171,18 +171,26 @@ function buildMetricPayloadsFromMonthlyCounts(monthlyCounts, employeeCount) {
         event_count: potentialSifCount
       })
     );
-    nmfrRows.push(
-      createMetricRow('nmfr', row.year, row.month, calculateNmfr(nearMissCount, employeeCount, workingDays), {
-        division: row.division,
-        site: row.site,
-        near_miss_count: nearMissCount,
-        employee_count: employeeCount,
-        working_days: workingDays
-      })
-    );
+    if (nmfrRows) {
+      nmfrRows.push(
+        createMetricRow(
+          'nmfr',
+          row.year,
+          row.month,
+          calculateNmfr(nearMissCount, employeeCount, workingDays),
+          {
+            division: row.division,
+            site: row.site,
+            near_miss_count: nearMissCount,
+            employee_count: employeeCount,
+            working_days: workingDays
+          }
+        )
+      );
+    }
   });
 
-  return {
+  const metrics = {
     sif: {
       kpiId: SIF_KPI_ID,
       rowCount: sifRows.length,
@@ -192,13 +200,18 @@ function buildMetricPayloadsFromMonthlyCounts(monthlyCounts, employeeCount) {
       kpiId: POTENTIAL_SIF_KPI_ID,
       rowCount: potentialSifRows.length,
       rows: potentialSifRows
-    },
-    nmfr: {
+    }
+  };
+
+  if (nmfrRows) {
+    metrics.nmfr = {
       kpiId: NMFR_KPI_ID,
       rowCount: nmfrRows.length,
       rows: nmfrRows
-    }
-  };
+    };
+  }
+
+  return metrics;
 }
 
 function normalizeLegacySifRow(row) {
@@ -367,7 +380,7 @@ function buildLegacySafetyMetricsPayload(rows, metadata = {}) {
   };
 }
 
-async function readFallbackSafetyMetricsData(reason) {
+async function readFallbackSafetyMetricsData(reason, { includeNmfr = true } = {}) {
   const stopTimer = createTimer();
 
   logDebug('safety', 'Loading safety fallback file.', {
@@ -395,14 +408,16 @@ async function readFallbackSafetyMetricsData(reason) {
       fallbackReason: reason
     });
   } else {
-    const defenseSystemsEmployeeCount = await readLocalDefenseSystemsEmployeeCount();
     const monthlyCounts = aggregateSafetyEventRows(rows);
+    const defenseSystemsEmployeeCount = includeNmfr
+      ? await readLocalDefenseSystemsEmployeeCount()
+      : null;
 
     payload = {
       source: 'json',
       fileName: path.basename(sifFilePath),
       fallbackReason: reason,
-      defenseSystemsEmployeeCount,
+      ...(includeNmfr ? { defenseSystemsEmployeeCount } : {}),
       rowCount: monthlyCounts.length,
       metrics: buildMetricPayloadsFromMonthlyCounts(monthlyCounts, defenseSystemsEmployeeCount)
     };
@@ -507,7 +522,63 @@ async function readSafetyMonthlyCounts(pool) {
   }));
 }
 
-export async function readSafetyMetricsData() {
+export async function readSafetyEventMetricsData() {
+  const stopTimer = createTimer();
+  const { config, missing } = getConnectionConfig();
+
+  logDebug('safety', 'Starting safety incident metrics data load.', {
+    hasConnectionConfig: missing.length === 0,
+    tableName: SAFETY_EVENTS_TABLE_NAME
+  });
+
+  if (missing.length > 0) {
+    logDebug('safety', 'Safety incident metrics load is missing SQL configuration; using fallback.', {
+      missing
+    });
+
+    return readFallbackSafetyMetricsData(
+      `Missing database environment variables: ${missing.join(', ')}`,
+      { includeNmfr: false }
+    );
+  }
+
+  try {
+    const pool = await getPool(config, 'default');
+
+    logDebug('safety', 'Executing safety incident SQL query.', {
+      tableName: SAFETY_EVENTS_TABLE_NAME
+    });
+
+    const monthlyCounts = await readSafetyMonthlyCounts(pool);
+
+    const payload = {
+      source: 'mssql',
+      tableName: SAFETY_EVENTS_TABLE_NAME,
+      rowCount: monthlyCounts.length,
+      metrics: buildMetricPayloadsFromMonthlyCounts(monthlyCounts)
+    };
+
+    logDebug('safety', 'Safety incident SQL query completed.', {
+      source: payload.source,
+      tableName: payload.tableName,
+      rowCount: payload.rowCount,
+      duration: formatDuration(stopTimer())
+    });
+
+    return payload;
+  } catch (error) {
+    logError('safety', 'Safety incident SQL query failed; using fallback data.', error, {
+      tableName: SAFETY_EVENTS_TABLE_NAME,
+      duration: formatDuration(stopTimer())
+    });
+
+    return readFallbackSafetyMetricsData(`Database read failed: ${error.message}`, {
+      includeNmfr: false
+    });
+  }
+}
+
+export async function readSafetyNmfrData() {
   const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig();
   const {
@@ -516,7 +587,7 @@ export async function readSafetyMetricsData() {
     source: rosterConnectionSource
   } = getConnectionConfig('roster');
 
-  logDebug('safety', 'Starting safety metrics data load.', {
+  logDebug('safety', 'Starting safety NMFR data load.', {
     hasConnectionConfig: missing.length === 0,
     hasRosterConnectionConfig: rosterMissing.length === 0,
     tableName: SAFETY_EVENTS_TABLE_NAME,
@@ -525,13 +596,14 @@ export async function readSafetyMetricsData() {
   });
 
   if (missing.length > 0 || rosterMissing.length > 0) {
-    logDebug('safety', 'Safety metrics data load is missing SQL configuration; using fallback.', {
+    logDebug('safety', 'Safety NMFR data load is missing SQL configuration; using fallback.', {
       missing,
       rosterMissing
     });
 
     return readFallbackSafetyMetricsData(
-      `Missing database environment variables: ${[...missing, ...rosterMissing].join(', ')}`
+      `Missing database environment variables: ${[...missing, ...rosterMissing].join(', ')}`,
+      { includeNmfr: true }
     );
   }
 
@@ -539,7 +611,7 @@ export async function readSafetyMetricsData() {
     const pool = await getPool(config, 'default');
     const rosterPool = await getPool(rosterConfig, 'roster');
 
-    logDebug('safety', 'Executing safety SQL queries.', {
+    logDebug('safety', 'Executing safety NMFR SQL queries.', {
       tableName: SAFETY_EVENTS_TABLE_NAME,
       rosterTableName: ROSTER_TABLE_NAME,
       rosterConnectionSource
@@ -565,7 +637,7 @@ export async function readSafetyMetricsData() {
       metrics: buildMetricPayloadsFromMonthlyCounts(monthlyCounts, defenseSystemsEmployeeCount)
     };
 
-    logDebug('safety', 'Safety SQL queries completed.', {
+    logDebug('safety', 'Safety NMFR SQL queries completed.', {
       source: payload.source,
       tableName: payload.tableName,
       rosterTableName: payload.rosterTableName,
@@ -577,13 +649,15 @@ export async function readSafetyMetricsData() {
 
     return payload;
   } catch (error) {
-    logError('safety', 'Safety SQL query failed; using fallback data.', error, {
+    logError('safety', 'Safety NMFR SQL queries failed; using fallback data.', error, {
       tableName: SAFETY_EVENTS_TABLE_NAME,
       rosterTableName: ROSTER_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
 
-    return readFallbackSafetyMetricsData(`Database read failed: ${error.message}`);
+    return readFallbackSafetyMetricsData(`Database read failed: ${error.message}`, {
+      includeNmfr: true
+    });
   }
 }
 

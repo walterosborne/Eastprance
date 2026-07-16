@@ -120,9 +120,9 @@ const CONTROLLABLE_CHART_FILTER_FIELDS = [
     allLabel: 'All facilities'
   },
   {
-    value: 'cost_element_description',
-    label: 'Cost element',
-    allLabel: 'All cost elements'
+    value: 'cost_category',
+    label: 'Cost category',
+    allLabel: 'All cost categories'
   }
 ];
 

@@ -17,7 +17,8 @@ function loadDotenvFile() {
   }
 
   const result = dotenv.config({
-    path: DOTENV_FILE_PATH
+    path: DOTENV_FILE_PATH,
+    override: true
   });
 
   if (result.error) {
@@ -39,7 +40,8 @@ export async function loadEnvironment() {
 
   if (dotenvResult.loaded) {
     logEnvironmentChoice('Loaded environment from server/.env.', {
-      filePath: dotenvResult.filePath
+      filePath: dotenvResult.filePath,
+      overrideExisting: true
     });
 
     return {

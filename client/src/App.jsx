@@ -2531,6 +2531,52 @@ function ChartTypeToggleWithFilter({
   );
 }
 
+function buildDynamicNumericYAxis(
+  baseAxis,
+  seriesCollections,
+  { includeZero = false, goalLine = null, paddingRatio = 0.08 } = {}
+) {
+  const numericValues = seriesCollections
+    .flatMap((seriesValues) => seriesValues)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+
+  const numericGoalValue = Number(goalLine?.value);
+
+  if (Number.isFinite(numericGoalValue)) {
+    numericValues.push(numericGoalValue);
+  }
+
+  if (numericValues.length === 0) {
+    return baseAxis;
+  }
+
+  let minValue = Math.min(...numericValues);
+  let maxValue = Math.max(...numericValues);
+
+  if (includeZero) {
+    minValue = Math.min(minValue, 0);
+    maxValue = Math.max(maxValue, 0);
+  }
+
+  if (minValue === maxValue) {
+    const fallbackPadding = Math.max(Math.abs(minValue) * paddingRatio, 1);
+    minValue -= fallbackPadding;
+    maxValue += fallbackPadding;
+  } else {
+    const valueRange = maxValue - minValue;
+    const padding = Math.max(valueRange * paddingRatio, 1);
+    minValue -= padding;
+    maxValue += padding;
+  }
+
+  return baseAxis.map((axisConfig) => ({
+    ...axisConfig,
+    min: minValue,
+    max: maxValue
+  }));
+}
+
 function renderMetricInfoContent(info) {
   function normalizeMetricInfoEntry(item, { defaultBullet = false } = {}) {
     if (item == null) {
@@ -2588,54 +2634,8 @@ function renderMetricInfoContent(info) {
         bold,
         underline
       }
-    : null;
-}
-
-function buildDynamicNumericYAxis(
-  baseAxis,
-  seriesCollections,
-  { includeZero = false, goalLine = null, paddingRatio = 0.08 } = {}
-) {
-  const numericValues = seriesCollections
-    .flatMap((seriesValues) => seriesValues)
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value));
-
-  const numericGoalValue = Number(goalLine?.value);
-
-  if (Number.isFinite(numericGoalValue)) {
-    numericValues.push(numericGoalValue);
+      : null;
   }
-
-  if (numericValues.length === 0) {
-    return baseAxis;
-  }
-
-  let minValue = Math.min(...numericValues);
-  let maxValue = Math.max(...numericValues);
-
-  if (includeZero) {
-    minValue = Math.min(minValue, 0);
-    maxValue = Math.max(maxValue, 0);
-  }
-
-  if (minValue === maxValue) {
-    const fallbackPadding = Math.max(Math.abs(minValue) * paddingRatio, 1);
-    minValue -= fallbackPadding;
-    maxValue += fallbackPadding;
-  } else {
-    const valueRange = maxValue - minValue;
-    const padding = Math.max(valueRange * paddingRatio, 1);
-    minValue -= padding;
-    maxValue += padding;
-  }
-
-  return baseAxis.map((axisConfig) => ({
-    ...axisConfig,
-    min: minValue,
-    max: maxValue
-  }));
-}
 
   function renderMetricInfoText(entry) {
     let content = entry.text;

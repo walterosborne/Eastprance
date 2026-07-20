@@ -17,4 +17,3 @@ pnpm-debug.log*
 .env
 .env.*
 server/.env
-server/local.env.js

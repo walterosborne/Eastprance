@@ -118,7 +118,7 @@ export async function readOtdData() {
 
   try {
     const pool = await getPool(config);
-    const tableName = formatSqlIdentifier(OTD_TABLE_NAME);
+    const tableName = formatSqlIdentifier(OTD_TABLE_NAME, config);
 
     logDebug('otd', 'Executing OTD SQL query.', {
       tableName

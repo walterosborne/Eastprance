@@ -449,8 +449,8 @@ async function readSafetyEmployeeCount(pool) {
   return normalizeInteger(result.recordset[0]?.employee_count) ?? 0;
 }
 
-async function readSafetyMonthlyCounts(pool) {
-  const tableName = formatSqlIdentifier(SAFETY_EVENTS_TABLE_NAME);
+async function readSafetyMonthlyCounts(pool, connectionConfig) {
+  const tableName = formatSqlIdentifier(SAFETY_EVENTS_TABLE_NAME, connectionConfig);
   const result = await pool.request().query(`
     WITH parsed_events AS (
       SELECT
@@ -549,7 +549,7 @@ export async function readSafetyEventMetricsData() {
       tableName: SAFETY_EVENTS_TABLE_NAME
     });
 
-    const monthlyCounts = await readSafetyMonthlyCounts(pool);
+    const monthlyCounts = await readSafetyMonthlyCounts(pool, config);
 
     const payload = {
       source: 'mssql',
@@ -618,7 +618,7 @@ export async function readSafetyNmfrData() {
     });
 
     const [monthlyCounts, defenseSystemsEmployeeCount] = await Promise.all([
-      readSafetyMonthlyCounts(pool),
+      readSafetyMonthlyCounts(pool, config),
       readSafetyEmployeeCount(rosterPool)
     ]);
 

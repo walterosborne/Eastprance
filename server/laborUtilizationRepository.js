@@ -111,7 +111,7 @@ export async function readLaborUtilizationData() {
 
   try {
     const pool = await getPool(config);
-    const tableName = formatSqlIdentifier(LABOR_UTILIZATION_TABLE_NAME);
+    const tableName = formatSqlIdentifier(LABOR_UTILIZATION_TABLE_NAME, config);
 
     logDebug('labor', 'Executing labor utilization SQL query.', {
       tableName

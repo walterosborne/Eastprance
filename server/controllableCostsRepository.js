@@ -175,9 +175,9 @@ export async function readControllableCostsData() {
 
   try {
     const pool = await getPool(config);
-    const controllableCostsTableName = formatSqlIdentifier(CONTROLLABLE_COSTS_TABLE_NAME);
-    const costCategoryKeyTableName = formatSqlIdentifier(COST_CATEGORY_KEY_TABLE_NAME);
-    const costElementKeyTableName = formatSqlIdentifier(COST_ELEMENT_KEY_TABLE_NAME);
+    const controllableCostsTableName = formatSqlIdentifier(CONTROLLABLE_COSTS_TABLE_NAME, config);
+    const costCategoryKeyTableName = formatSqlIdentifier(COST_CATEGORY_KEY_TABLE_NAME, config);
+    const costElementKeyTableName = formatSqlIdentifier(COST_ELEMENT_KEY_TABLE_NAME, config);
 
     logDebug('controllable-costs', 'Executing controllable costs SQL query.', {
       controllableCostsTableName,

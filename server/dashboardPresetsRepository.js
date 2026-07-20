@@ -21,13 +21,13 @@ function isPresetTableMissingError(error) {
   return /invalid object name/i.test(String(error?.message ?? ''));
 }
 
-function getPresetStorageUnavailableMessage(error, missing) {
+function getPresetStorageUnavailableMessage(error, missing, config = null) {
   if (Array.isArray(missing) && missing.length > 0) {
     return `Preset storage is unavailable because these database settings are missing: ${missing.join(', ')}.`;
   }
 
   if (isPresetTableMissingError(error)) {
-    return `Preset storage is unavailable because ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME)} does not exist yet.`;
+    return `Preset storage is unavailable because ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME, config)} does not exist yet.`;
   }
 
   return `Preset storage is unavailable: ${error.message}`;
@@ -69,7 +69,7 @@ function validatePresetState(state) {
   return state;
 }
 
-async function queryPresetsForUser(pool, myId) {
+async function queryPresetsForUser(pool, myId, config) {
   const result = await pool
     .request()
     .input('myId', myId)
@@ -80,7 +80,7 @@ async function queryPresetsForUser(pool, myId) {
         [PresetState],
         [CreatedAt],
         [UpdatedAt]
-      FROM ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME)}
+      FROM ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME, config)}
       WHERE [MyID] = @myId
       ORDER BY [PresetSlot] ASC;
     `);
@@ -101,14 +101,14 @@ export async function readDashboardPresetsOverview(currentUser) {
   if (missing.length > 0) {
     return {
       storageAvailable: false,
-      storageMessage: getPresetStorageUnavailableMessage(null, missing),
+      storageMessage: getPresetStorageUnavailableMessage(null, missing, config),
       presets: []
     };
   }
 
   try {
     const pool = await getPool(config);
-    const presets = await queryPresetsForUser(pool, currentUser.my_id);
+    const presets = await queryPresetsForUser(pool, currentUser.my_id, config);
 
     logDebug('presets', 'Dashboard presets overview loaded.', {
       myId: currentUser.my_id,
@@ -129,7 +129,7 @@ export async function readDashboardPresetsOverview(currentUser) {
 
     return {
       storageAvailable: false,
-      storageMessage: getPresetStorageUnavailableMessage(error, []),
+      storageMessage: getPresetStorageUnavailableMessage(error, [], config),
       presets: []
     };
   }
@@ -149,7 +149,7 @@ export async function saveDashboardPreset(currentUser, slot, name, state) {
   });
 
   if (missing.length > 0) {
-    throw new Error(getPresetStorageUnavailableMessage(null, missing));
+    throw new Error(getPresetStorageUnavailableMessage(null, missing, config));
   }
 
   try {
@@ -166,12 +166,12 @@ export async function saveDashboardPreset(currentUser, slot, name, state) {
       .query(`
         IF EXISTS (
           SELECT 1
-          FROM ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME)}
+          FROM ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME, config)}
           WHERE [MyID] = @myId
             AND [PresetSlot] = @presetSlot
         )
         BEGIN
-          UPDATE ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME)}
+          UPDATE ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME, config)}
           SET
             [NetworkID] = @networkId,
             [UserName] = @userName,
@@ -183,7 +183,7 @@ export async function saveDashboardPreset(currentUser, slot, name, state) {
         END
         ELSE
         BEGIN
-          INSERT INTO ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME)} (
+          INSERT INTO ${formatSqlIdentifier(DASHBOARD_PRESETS_TABLE_NAME, config)} (
             [MyID],
             [NetworkID],
             [UserName],
@@ -206,7 +206,7 @@ export async function saveDashboardPreset(currentUser, slot, name, state) {
         END
       `);
 
-    const presets = await queryPresetsForUser(pool, currentUser.my_id);
+    const presets = await queryPresetsForUser(pool, currentUser.my_id, config);
 
     logDebug('presets', 'Dashboard preset saved.', {
       myId: currentUser.my_id,

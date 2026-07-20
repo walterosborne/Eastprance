@@ -33,4 +33,4 @@ ENV PORT=8080
 EXPOSE 8080
 
 # This app uses the Node mssql driver, so no system ODBC driver install is required.
-CMD ["node", "server/index.js"]
+CMD ["node", "server/start.js"]

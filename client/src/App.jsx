@@ -4696,181 +4696,182 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <div className="page-frame">
-        <div className="branding-banner-shell">
-          <div className="branding-banner">
-            <BrandingBannerWrapper
-              className="branding-banner-main"
-              {...(SITE_BRANDING.href ? { href: SITE_BRANDING.href } : {})}
-            >
-              {SITE_BRANDING.iconSrc ? (
-                <img
-                  src={SITE_BRANDING.iconSrc}
-                  alt={SITE_BRANDING.iconAlt || ''}
-                  className="branding-banner-icon"
-                />
-              ) : null}
-              <h1 className="branding-banner-title">{SITE_BRANDING.title}</h1>
-            </BrandingBannerWrapper>
-          </div>
+      <div className="branding-banner">
+        <div className="branding-banner-inner">
+          <BrandingBannerWrapper
+            className="branding-banner-main"
+            {...(SITE_BRANDING.href ? { href: SITE_BRANDING.href } : {})}
+          >
+            {SITE_BRANDING.iconSrc ? (
+              <img
+                src={SITE_BRANDING.iconSrc}
+                alt={SITE_BRANDING.iconAlt || ''}
+                className="branding-banner-icon"
+              />
+            ) : null}
+            <h1 className="branding-banner-title">{SITE_BRANDING.title}</h1>
+          </BrandingBannerWrapper>
         </div>
+      </div>
 
+      <div className="page-frame">
         <section className="panel">
           <div className="page-layout">
-          <div className="page-header">
-            <div className="page-actions">
-              <div className="global-date-filter">
-                <div className="global-date-filter-control">
-                  <div className="global-date-filter-main">
-                    <p className="global-date-filter-label">Date range</p>
-                    {availableTimelineStamps.length > 0 ? (
-                      <div className="global-date-filter-slider-wrap">
-                        <Slider
-                          className="global-date-filter-slider"
-                          value={activeDateRangeIndices}
-                          min={0}
-                          max={maximumDateIndex}
-                          step={1}
-                          marks={dateSliderMarks}
-                          disableSwap
-                          valueLabelDisplay="off"
-                          onChange={(_event, nextValue) => {
-                            if (Array.isArray(nextValue)) {
-                              setSelectedDateRangeIndices(nextValue);
-                              setHasCustomizedDateRange(true);
-                            }
-                          }}
-                          sx={dateSliderSx}
-                        />
-                        <div className="global-date-filter-boundary-labels" aria-hidden="true">
-                          <span className="global-date-filter-boundary-label">
-                            {dateSliderStartLabel}
-                          </span>
-                          <span className="global-date-filter-boundary-label global-date-filter-boundary-label-end">
-                            {dateSliderEndLabel}
-                          </span>
+            <div className="page-header">
+              <div className="page-actions">
+                <div className="global-date-filter">
+                  <div className="global-date-filter-control">
+                    <div className="global-date-filter-main">
+                      <p className="global-date-filter-label">Date range</p>
+                      {availableTimelineStamps.length > 0 ? (
+                        <div className="global-date-filter-slider-wrap">
+                          <Slider
+                            className="global-date-filter-slider"
+                            value={activeDateRangeIndices}
+                            min={0}
+                            max={maximumDateIndex}
+                            step={1}
+                            marks={dateSliderMarks}
+                            disableSwap
+                            valueLabelDisplay="off"
+                            onChange={(_event, nextValue) => {
+                              if (Array.isArray(nextValue)) {
+                                setSelectedDateRangeIndices(nextValue);
+                                setHasCustomizedDateRange(true);
+                              }
+                            }}
+                            sx={dateSliderSx}
+                          />
+                          <div className="global-date-filter-boundary-labels" aria-hidden="true">
+                            <span className="global-date-filter-boundary-label">
+                              {dateSliderStartLabel}
+                            </span>
+                            <span className="global-date-filter-boundary-label global-date-filter-boundary-label-end">
+                              {dateSliderEndLabel}
+                            </span>
+                          </div>
                         </div>
+                      ) : (
+                        <p className="global-date-filter-loading">Loading date range...</p>
+                      )}
+                    </div>
+
+                    {availableTimelineStamps.length > 0 && (
+                      <div className="global-date-filter-actions">
+                        <button
+                          type="button"
+                          className={`global-date-filter-shortcut${isYtdRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
+                          onClick={() => {
+                            setSelectedDateRangeIndices(ytdRangeIndices);
+                            setHasCustomizedDateRange(true);
+                          }}
+                        >
+                          YTD
+                        </button>
+                        <button
+                          type="button"
+                          className={`global-date-filter-shortcut${isAllDateRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
+                          onClick={() => {
+                            setPendingPresetDateRange(null);
+                            setSelectedDateRangeIndices([0, maximumDateIndex]);
+                            setHasCustomizedDateRange(false);
+                          }}
+                        >
+                          Reset
+                        </button>
                       </div>
-                    ) : (
-                      <p className="global-date-filter-loading">Loading date range...</p>
                     )}
                   </div>
-
-                  {availableTimelineStamps.length > 0 && (
-                    <div className="global-date-filter-actions">
-                      <button
-                        type="button"
-                        className={`global-date-filter-shortcut${isYtdRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
-                        onClick={() => {
-                          setSelectedDateRangeIndices(ytdRangeIndices);
-                          setHasCustomizedDateRange(true);
-                        }}
-                      >
-                        YTD
-                      </button>
-                      <button
-                        type="button"
-                        className={`global-date-filter-shortcut${isAllDateRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
-                        onClick={() => {
-                          setPendingPresetDateRange(null);
-                          setSelectedDateRangeIndices([0, maximumDateIndex]);
-                          setHasCustomizedDateRange(false);
-                        }}
-                      >
-                        Reset
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="card-chip-panel">
-                {CARD_CHIP_OPTIONS.map((cardGroup) => (
-                  <button
-                    key={cardGroup.key}
-                    type="button"
-                    className={`card-chip${isChipActive(cardGroup.key) ? ' card-chip-active' : ''}`}
-                    aria-pressed={isChipActive(cardGroup.key)}
-                    onClick={() => {
-                      setSelectedCardGroup(cardGroup.key);
-                    }}
-                  >
-                    <FontAwesomeIcon icon={cardGroup.icon} className="card-chip-icon" />
-                    <span className="card-chip-label">{cardGroup.label}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="display-controls" aria-label="Display controls">
-                <div className="chart-mode-controls" aria-label="Chart type">
-                  <button
-                    type="button"
-                    className={`chart-mode-button${allChartsLine ? ' chart-mode-button-active' : ''}`}
-                    aria-label="Show all line charts"
-                    aria-pressed={allChartsLine}
-                    onClick={() => {
-                      setAllChartVariants('line');
-                    }}
-                  >
-                    <FontAwesomeIcon icon={faChartLine} className="chart-mode-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className={`chart-mode-button${allChartsBar ? ' chart-mode-button-active' : ''}`}
-                    aria-label="Show all bar charts"
-                    aria-pressed={allChartsBar}
-                    onClick={() => {
-                      setAllChartVariants('bar');
-                    }}
-                  >
-                    <FontAwesomeIcon icon={faChartColumn} className="chart-mode-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className={`chart-mode-button${allChartsPalette ? ' chart-mode-button-active' : ''}`}
-                    aria-label="Show all stacked bar charts"
-                    aria-pressed={allChartsPalette}
-                    onClick={() => {
-                      setAllChartVariants('palette');
-                    }}
-                  >
-                    <PaletteChartToggleIcon />
-                  </button>
-                  <button
-                    type="button"
-                    className={`chart-mode-button${allChartsPareto ? ' chart-mode-button-active' : ''}`}
-                    aria-label="Show all pareto charts"
-                    aria-pressed={allChartsPareto}
-                    onClick={() => {
-                      setAllChartVariants('pareto');
-                    }}
-                  >
-                    <ParetoChartToggleIcon />
-                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  className={`preset-toolbar-toggle-button${isPresetToolbarOpen ? ' preset-toolbar-toggle-button-active' : ''}`}
-                  aria-expanded={isPresetToolbarOpen}
-                  onClick={() => {
-                    setIsPresetToolbarOpen((currentValue) => !currentValue);
-                  }}
-                >
-                  {isPresetToolbarOpen ? 'Hide presets' : 'View/set presets'}
-                </button>
+                <div className="card-chip-panel">
+                  {CARD_CHIP_OPTIONS.map((cardGroup) => (
+                    <button
+                      key={cardGroup.key}
+                      type="button"
+                      className={`card-chip${isChipActive(cardGroup.key) ? ' card-chip-active' : ''}`}
+                      aria-pressed={isChipActive(cardGroup.key)}
+                      onClick={() => {
+                        setSelectedCardGroup(cardGroup.key);
+                      }}
+                    >
+                      <FontAwesomeIcon icon={cardGroup.icon} className="card-chip-icon" />
+                      <span className="card-chip-label">{cardGroup.label}</span>
+                    </button>
+                  ))}
+                </div>
 
-                <button
-                  type="button"
-                  className="theme-toggle"
-                  aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
-                  onClick={() => {
-                    setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
-                  }}
-                >
-                  <FontAwesomeIcon icon={nextThemeIcon} className="theme-toggle-icon" />
-                  <span className="theme-toggle-label">{nextThemeLabel}</span>
-                </button>
+                <div className="display-controls" aria-label="Display controls">
+                  <div className="chart-mode-controls" aria-label="Chart type">
+                    <button
+                      type="button"
+                      className={`chart-mode-button${allChartsLine ? ' chart-mode-button-active' : ''}`}
+                      aria-label="Show all line charts"
+                      aria-pressed={allChartsLine}
+                      onClick={() => {
+                        setAllChartVariants('line');
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faChartLine} className="chart-mode-icon" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`chart-mode-button${allChartsBar ? ' chart-mode-button-active' : ''}`}
+                      aria-label="Show all bar charts"
+                      aria-pressed={allChartsBar}
+                      onClick={() => {
+                        setAllChartVariants('bar');
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faChartColumn} className="chart-mode-icon" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`chart-mode-button${allChartsPalette ? ' chart-mode-button-active' : ''}`}
+                      aria-label="Show all stacked bar charts"
+                      aria-pressed={allChartsPalette}
+                      onClick={() => {
+                        setAllChartVariants('palette');
+                      }}
+                    >
+                      <PaletteChartToggleIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className={`chart-mode-button${allChartsPareto ? ' chart-mode-button-active' : ''}`}
+                      aria-label="Show all pareto charts"
+                      aria-pressed={allChartsPareto}
+                      onClick={() => {
+                        setAllChartVariants('pareto');
+                      }}
+                    >
+                      <ParetoChartToggleIcon />
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={`preset-toolbar-toggle-button${isPresetToolbarOpen ? ' preset-toolbar-toggle-button-active' : ''}`}
+                    aria-expanded={isPresetToolbarOpen}
+                    onClick={() => {
+                      setIsPresetToolbarOpen((currentValue) => !currentValue);
+                    }}
+                  >
+                    {isPresetToolbarOpen ? 'Hide presets' : 'View/set presets'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="theme-toggle"
+                    aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
+                    onClick={() => {
+                      setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
+                    }}
+                  >
+                    <FontAwesomeIcon icon={nextThemeIcon} className="theme-toggle-icon" />
+                    <span className="theme-toggle-label">{nextThemeLabel}</span>
+                  </button>
+                </div>
               </div>
             </div>
 

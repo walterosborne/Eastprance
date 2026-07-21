@@ -3,7 +3,7 @@ const LOCALHOST = 'localhost';
 const ANY_HOST = '0.0.0.0';
 
 export function getApiPort() {
-  return Number(process.env.PORT || process.env.API_PORT || DEFAULT_API_PORT);
+  return Number(process.env.API_PORT || process.env.PORT || DEFAULT_API_PORT);
 }
 
 export function getPreferredApiHost() {

@@ -37,6 +37,7 @@ import {
 import { toast } from 'react-toastify';
 import { DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
+import { SITE_BRANDING } from './siteBranding';
 
 const ALL_FILTER_VALUE = '__all__';
 const PALETTE_MAX_GROUPS = 20;
@@ -797,6 +798,18 @@ function formatMonthStamp(stamp) {
   return monthYearFormatter.format(new Date(stamp));
 }
 
+function formatFixedMonthLabel(year, monthIndex) {
+  return formatMonthStamp(getFixedMonthStamp(year, monthIndex));
+}
+
+function getTooltipBucketLabel(bucketLabel, bucketLabelLookup = null) {
+  if (!bucketLabelLookup || typeof bucketLabelLookup !== 'object') {
+    return bucketLabel;
+  }
+
+  return bucketLabelLookup[bucketLabel] ?? bucketLabel;
+}
+
 function getControllableCostsRowStamp(row) {
   const year = Number(row.year);
   const quarterNumber = getQuarterNumber(row.quarter);
@@ -1257,6 +1270,7 @@ function getOtdBuckets(viewMode, selectedDateRange) {
   if (viewMode === 'monthly') {
     return monthIndicesInRange.map((monthIndex) => ({
       label: OTD_MONTH_COLUMNS[monthIndex].label,
+      tooltipLabel: formatFixedMonthLabel(FIXED_MONTH_METRIC_YEAR, monthIndex),
       monthIndices: [monthIndex]
     }));
   }
@@ -1274,6 +1288,7 @@ function getOtdBuckets(viewMode, selectedDateRange) {
 
         return {
           label: `Q${quarterIndex + 1} ${FIXED_MONTH_METRIC_YEAR}`,
+          tooltipLabel: `Q${quarterIndex + 1} ${FIXED_MONTH_METRIC_YEAR}`,
           monthIndices: quarterMonthIndices
         };
       })
@@ -1284,6 +1299,7 @@ function getOtdBuckets(viewMode, selectedDateRange) {
     ? [
       {
         label: String(FIXED_MONTH_METRIC_YEAR),
+        tooltipLabel: String(FIXED_MONTH_METRIC_YEAR),
         monthIndices: monthIndicesInRange
       }
     ]
@@ -1316,9 +1332,13 @@ function buildOtdChartData(rows, viewMode, selectedDateRange) {
   });
 
   const buckets = getOtdBuckets(viewMode, selectedDateRange);
+  const tooltipLabelLookup = Object.fromEntries(
+    buckets.map((bucket) => [bucket.label, bucket.tooltipLabel ?? bucket.label])
+  );
 
   return {
     labels: buckets.map((bucket) => bucket.label),
+    tooltipLabelLookup,
     contract: buckets.map((bucket) =>
       Number(
         bucket.monthIndices
@@ -1625,6 +1645,10 @@ function getLaborBuckets(viewMode, selectedDateRange) {
 
     buckets.push({
       label: bucketConfig.bucketFormatter(LABOR_MONTH_COLUMNS[startIndex], startIndex),
+      tooltipLabel:
+        viewMode === 'monthly'
+          ? formatFixedMonthLabel(FIXED_MONTH_METRIC_YEAR, startIndex)
+          : bucketConfig.bucketFormatter(LABOR_MONTH_COLUMNS[startIndex], startIndex),
       monthIndices
     });
   }
@@ -1669,6 +1693,9 @@ function buildLaborUtilizationChartData(rows, viewMode, selectedDateRange) {
 
   const buckets = getLaborBuckets(viewMode, selectedDateRange);
   const tooltipLookup = {};
+  const tooltipLabelLookup = Object.fromEntries(
+    buckets.map((bucket) => [bucket.label, bucket.tooltipLabel ?? bucket.label])
+  );
 
   const direct = buckets.map(({ label, monthIndices }) => {
     const total = monthIndices.reduce(
@@ -1740,6 +1767,7 @@ function buildLaborUtilizationChartData(rows, viewMode, selectedDateRange) {
 
   return {
     labels: buckets.map((bucket) => bucket.label),
+    tooltipLabelLookup,
     totals,
     direct,
     indirect,
@@ -2082,6 +2110,7 @@ function StandardChartTooltip(props) {
   const {
     sortSeriesItems = false,
     excludeZeroSeriesItems = false,
+    bucketLabelLookup = null,
     ...tooltipContainerProps
   } = props;
   const tooltipData = useAxesTooltip();
@@ -2105,7 +2134,7 @@ function StandardChartTooltip(props) {
         {tooltipData.map(({ axisId, axisFormattedValue, seriesItems }) =>
           renderTooltipTable({
             axisId,
-            bucketLabel: String(axisFormattedValue),
+            bucketLabel: getTooltipBucketLabel(String(axisFormattedValue), bucketLabelLookup),
             seriesItems,
             sortSeriesItems,
             excludeZeroSeriesItems
@@ -2822,6 +2851,10 @@ function LaborChartTooltip(props) {
         {tooltipData.map(({ axisId, axisFormattedValue, seriesItems }) => {
           const bucketLabel = String(axisFormattedValue);
           const bucketValues = chartData.tooltipLookup[bucketLabel];
+          const tooltipBucketLabel = getTooltipBucketLabel(
+            bucketLabel,
+            chartData.tooltipLabelLookup
+          );
           const directHours = bucketValues?.direct ?? 0;
           const totalHours = bucketValues?.total ?? 0;
           const directShare = bucketValues?.directShare ?? 0;
@@ -2829,7 +2862,7 @@ function LaborChartTooltip(props) {
 
           return renderTooltipTable({
             axisId,
-            bucketLabel,
+            bucketLabel: tooltipBucketLabel,
             seriesItems: seriesItem
               ? [
                 {
@@ -2868,6 +2901,10 @@ function LaborBarChartTooltip(props) {
   const dataIndex = tooltipItem.identifier?.dataIndex ?? -1;
   const bucketLabel = chartData.labels[dataIndex] ?? '';
   const bucketValues = chartData.tooltipLookup[bucketLabel];
+  const tooltipBucketLabel = getTooltipBucketLabel(
+    bucketLabel,
+    chartData.tooltipLabelLookup
+  );
   const directShare = bucketValues?.directShare ?? Number(tooltipItem.value ?? 0);
   const directHours = bucketValues?.direct ?? 0;
   const totalHours = bucketValues?.total ?? 0;
@@ -2886,7 +2923,7 @@ function LaborBarChartTooltip(props) {
       >
         {renderTooltipTable({
           axisId: `directShare-${dataIndex}`,
-          bucketLabel,
+          bucketLabel: tooltipBucketLabel,
           seriesItems: [
             {
               seriesId: 'directShare',
@@ -4301,6 +4338,7 @@ export default function App() {
       : dashboardPresetsState.storageMessage
         ? 'warning'
         : '';
+  const BrandingBannerWrapper = SITE_BRANDING.href ? 'a' : 'div';
 
   const setAllChartVariants = (nextVariant) => {
     setChartVariants({
@@ -4658,8 +4696,27 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <section className="panel">
-        <div className="page-layout">
+      <div className="page-frame">
+        <div className="branding-banner-shell">
+          <div className="branding-banner">
+            <BrandingBannerWrapper
+              className="branding-banner-main"
+              {...(SITE_BRANDING.href ? { href: SITE_BRANDING.href } : {})}
+            >
+              {SITE_BRANDING.iconSrc ? (
+                <img
+                  src={SITE_BRANDING.iconSrc}
+                  alt={SITE_BRANDING.iconAlt || ''}
+                  className="branding-banner-icon"
+                />
+              ) : null}
+              <h1 className="branding-banner-title">{SITE_BRANDING.title}</h1>
+            </BrandingBannerWrapper>
+          </div>
+        </div>
+
+        <section className="panel">
+          <div className="page-layout">
           <div className="page-header">
             <div className="page-actions">
               <div className="global-date-filter">
@@ -5748,6 +5805,9 @@ export default function App() {
                                   showMark: false
                                 }
                               ]}
+                              tooltipProps={{
+                                bucketLabelLookup: otdChartData.tooltipLabelLookup
+                              }}
                               goalLine={otdGoalLine}
                               sx={sharedChartSx}
                             />
@@ -6035,8 +6095,9 @@ export default function App() {
               <div className="cards-empty-state">Select a card above to show it again.</div>
             )}
           </div>
-        </div>
-      </section>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

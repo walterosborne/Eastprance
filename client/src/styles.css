@@ -80,7 +80,7 @@ body {
 }
 
 .page-frame {
-  width: min(1600px, 100%);
+  width: min(1760px, 100%);
   margin: 0 auto;
   padding: 0.85rem 1rem 0;
   display: grid;
@@ -98,7 +98,7 @@ body {
 }
 
 .branding-banner-inner {
-  width: min(1600px, 100%);
+  width: min(1760px, 100%);
   margin: 0 auto;
   padding: 0.85rem 1rem;
 }
@@ -613,6 +613,7 @@ a.branding-banner-main:hover {
   width: 100%;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 1.05rem;
+  margin-top: 0.3rem;
   justify-content: stretch;
   justify-items: stretch;
   align-items: stretch;

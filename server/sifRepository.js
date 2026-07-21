@@ -1,5 +1,3 @@
-// Near Miss Frequency Rate tracks how often near misses occur after normalizing for employee exposure hours.
-// Its goal line uses a client-side ARIMA forecast of the calculated rate, then tightens that forecast slightly to keep the target challenging.
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';

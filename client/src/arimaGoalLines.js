@@ -51,9 +51,16 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
       return null;
     }
 
+    const expectedValue = roundRate(Math.max(0, predictedValue));
+    const goalValue = roundRate(Math.max(0, predictedValue * (1 - NMFR_GOAL_CHALLENGE_RATIO)));
+    const challengePercent = Number((NMFR_GOAL_CHALLENGE_RATIO * 100).toFixed(2));
+
     return {
       label: DEFAULT_GOAL_LABEL,
-      value: roundRate(Math.max(0, predictedValue * (1 - NMFR_GOAL_CHALLENGE_RATIO)))
+      value: goalValue,
+      expectedValue,
+      goalValue,
+      challengePercent
     };
   } finally {
     model?.destroy?.();

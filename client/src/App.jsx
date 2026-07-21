@@ -36,7 +36,7 @@ import {
 } from '@mui/x-charts';
 import { toast } from 'react-toastify';
 import { forecastNmfrGoalLineFromSeries } from './arimaGoalLines';
-import { DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
+import { buildNmfrMetricInfo, DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
 
@@ -2614,14 +2614,33 @@ function renderMetricInfoContent(info) {
     }
 
     if (typeof item === 'object' && !Array.isArray(item)) {
+      const parts = Array.isArray(item.parts)
+        ? item.parts
+          .map((part) => {
+            const rawText = String(part?.text ?? '');
+            const text = rawText.trim();
+
+            if (!text) {
+              return null;
+            }
+
+            return {
+              text: rawText,
+              bold: Boolean(part?.bold),
+              underline: Boolean(part?.underline)
+            };
+          })
+          .filter(Boolean)
+        : [];
       const text = String(item.text ?? '').trim();
 
-      if (!text) {
+      if (!text && parts.length === 0) {
         return null;
       }
 
       return {
-        text,
+        text: text || parts.map((part) => part.text).join(''),
+        parts: parts.length > 0 ? parts : null,
         bullet: item.bullet ?? defaultBullet,
         bold: Boolean(item.bold),
         underline: Boolean(item.underline)
@@ -2668,6 +2687,30 @@ function renderMetricInfoContent(info) {
   }
 
   function renderMetricInfoText(entry) {
+    if (entry.parts?.length) {
+      return (
+        <>
+          {entry.parts.map((part, index) => {
+            let content = part.text;
+
+            if (part.underline) {
+              content = <span className="metric-info-underline">{content}</span>;
+            }
+
+            if (part.bold) {
+              content = <strong className="metric-info-strong">{content}</strong>;
+            }
+
+            return (
+              <span key={`${part.text}-${part.bold}-${part.underline}-${index}`}>
+                {content}
+              </span>
+            );
+          })}
+        </>
+      );
+    }
+
     let content = entry.text;
 
     if (entry.underline) {
@@ -4107,7 +4150,7 @@ export default function App() {
   const nmfrSummaryValue = nmfrOverallValue == null ? '--' : formatNumber(nmfrOverallValue);
 
   useEffect(() => {
-    if (nmfrState.loading || nmfrState.error || isNmfrPareto || isNmfrPalette) {
+    if (nmfrState.loading || nmfrState.error) {
       setNmfrArimaGoalLine(null);
       return undefined;
     }
@@ -4155,8 +4198,6 @@ export default function App() {
       isCancelled = true;
     };
   }, [
-    isNmfrPalette,
-    isNmfrPareto,
     nmfrGoalForecastSeriesSignature,
     nmfrState.error,
     nmfrState.loading
@@ -4333,6 +4374,7 @@ export default function App() {
     'nmfr',
     isNmfrPareto || isNmfrPalette ? null : nmfrViewMode
   );
+  const nmfrMetricInfo = buildNmfrMetricInfo(METRIC_INFO.nmfr, nmfrArimaGoalLine);
   const visibleNmfrGoalLine = clampGoalLineToVisibleSeries(
     nmfrArimaGoalLine ?? nmfrGoalLine,
     [nmfrChartData.map((bucket) => bucket.total)]
@@ -5612,7 +5654,7 @@ export default function App() {
               <article className="analytics-card" style={{ order: 3 }}>
                 <CardHeader
                   title="Near Miss Frequency Rate"
-                  info={METRIC_INFO.nmfr}
+                  info={nmfrMetricInfo}
                   tooltipLegend={nmfrTooltipLegend}
                   summaryValue={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
                   summaryAriaLabel="Near miss frequency rate overall value"

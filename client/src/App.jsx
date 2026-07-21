@@ -6096,7 +6096,6 @@ export default function App() {
               <div className="cards-empty-state">Select a card above to show it again.</div>
             )}
           </div>
-          </div>
         </section>
       </div>
     </main>

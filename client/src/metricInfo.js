@@ -62,18 +62,22 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
   const expectedValue = Number(goalLineDetails?.expectedValue);
   const goalValue = Number(goalLineDetails?.goalValue);
   const challengePercent = Number(goalLineDetails?.challengePercent);
+  const forecastMonthLabel = String(goalLineDetails?.forecastMonthLabel ?? '').trim();
+  const expectedValuePrefix = forecastMonthLabel
+    ? `Based on the ARIMA model, the expected value for ${forecastMonthLabel} is `
+    : 'Based on the ARIMA model, the expected value for the next month after the latest filtered month is ';
 
   return appendMetricInfo(baseInfo, [
     { text: 'Goal Lines', bold: true },
     {
       bullet: true,
-      text: 'Goal lines use a client-side ARIMA forecast of the calculated NMFR series, then tighten that forecast slightly to create a realistic stretch target.'
+      text: 'ARIMA projects the next NMFR value, then tightens that forecast slightly to create a realistic stretch target.'
     },
     Number.isFinite(expectedValue) && Number.isFinite(goalValue) && Number.isFinite(challengePercent)
       ? {
         bullet: true,
         parts: [
-          createMetricInfoTextPart('Based on the ARIMA model, the expected value is '),
+          createMetricInfoTextPart(expectedValuePrefix),
           createMetricInfoTextPart(formatMetricInfoNumber(expectedValue), { bold: true }),
           createMetricInfoTextPart(', and the goal line has been set to '),
           createMetricInfoTextPart(formatMetricInfoNumber(goalValue), { bold: true }),
@@ -85,7 +89,7 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
       : {
         bullet: true,
         parts: [
-          createMetricInfoTextPart('Based on the ARIMA model, the expected value is '),
+          createMetricInfoTextPart(expectedValuePrefix),
           createMetricInfoTextPart('Unavailable', { bold: true }),
           createMetricInfoTextPart(', and the goal line has been set to '),
           createMetricInfoTextPart('Unavailable', { bold: true }),

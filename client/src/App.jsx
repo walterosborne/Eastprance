@@ -838,6 +838,26 @@ function isStampWithinDateRange(stamp, selectedDateRange) {
   return stamp >= selectedDateRange.startStamp && stamp <= selectedDateRange.endStamp;
 }
 
+function getNextIncidentForecastMonthLabel(rows, selectedDateRange) {
+  const monthStamps = rows
+    .map((row) => getIncidentRowStamp(row))
+    .filter((stamp) => stamp != null && isStampWithinDateRange(stamp, selectedDateRange));
+
+  if (monthStamps.length === 0) {
+    return null;
+  }
+
+  const latestStamp = Math.max(...monthStamps);
+  const latestDate = new Date(latestStamp);
+  const nextMonthStamp = Date.UTC(
+    latestDate.getUTCFullYear(),
+    latestDate.getUTCMonth() + 1,
+    1
+  );
+
+  return formatMonthStamp(nextMonthStamp);
+}
+
 function getAvailableTimelineStamps({
   controllableCostsRows,
   sifRows,
@@ -2564,7 +2584,7 @@ function ChartTypeToggleWithFilter({
 function buildDynamicNumericYAxis(
   baseAxis,
   seriesCollections,
-  { includeZero = false, goalLine = null, paddingRatio = 0.08 } = {}
+  { includeZero = false, goalLine = null, paddingRatio = 0.08, minFloor = null, maxCeiling = null } = {}
 ) {
   const numericValues = seriesCollections
     .flatMap((seriesValues) => seriesValues)
@@ -2598,6 +2618,14 @@ function buildDynamicNumericYAxis(
     const padding = Math.max(valueRange * paddingRatio, 1);
     minValue -= padding;
     maxValue += padding;
+  }
+
+  if (Number.isFinite(minFloor)) {
+    minValue = Math.max(minValue, minFloor);
+  }
+
+  if (Number.isFinite(maxCeiling)) {
+    maxValue = Math.min(maxValue, maxCeiling);
   }
 
   return baseAxis.map((axisConfig) => ({
@@ -4128,6 +4156,10 @@ export default function App() {
   );
   const nmfrGoalForecastSeriesValues = nmfrGoalForecastSeries.map((bucket) => bucket.total);
   const nmfrGoalForecastSeriesSignature = nmfrGoalForecastSeriesValues.join('|');
+  const nmfrForecastMonthLabel = getNextIncidentForecastMonthLabel(
+    filteredNmfrRows,
+    selectedDateRange
+  );
   const nmfrParetoChartData = buildSafetyParetoChartData(
     baseFilteredNmfrRows,
     activeNmfrChartFilterField.value,
@@ -4374,17 +4406,27 @@ export default function App() {
     'nmfr',
     isNmfrPareto || isNmfrPalette ? null : nmfrViewMode
   );
-  const nmfrMetricInfo = buildNmfrMetricInfo(METRIC_INFO.nmfr, nmfrArimaGoalLine);
+  const nmfrMetricInfo = buildNmfrMetricInfo(METRIC_INFO.nmfr, {
+    ...nmfrArimaGoalLine,
+    forecastMonthLabel: nmfrForecastMonthLabel
+  });
   const visibleNmfrGoalLine = clampGoalLineToVisibleSeries(
     nmfrArimaGoalLine ?? nmfrGoalLine,
     [nmfrChartData.map((bucket) => bucket.total)]
   );
+  const labeledNmfrGoalLine = visibleNmfrGoalLine
+    ? {
+      ...visibleNmfrGoalLine,
+      label: `Goal ${formatNumber(visibleNmfrGoalLine.value)}`
+    }
+    : null;
   const nmfrChartYAxis = buildDynamicNumericYAxis(
     NMFR_Y_AXIS,
     [nmfrChartData.map((bucket) => bucket.total)],
     {
       includeZero: chartVariants.nmfr === 'bar',
-      goalLine: visibleNmfrGoalLine
+      goalLine: labeledNmfrGoalLine,
+      minFloor: 0
     }
   );
   const otdGoalLine = getMetricGoalLine(
@@ -5706,7 +5748,7 @@ export default function App() {
                               barColor="var(--chart-line)"
                               barAxis={NMFR_Y_AXIS}
                               barValueFormatter={formatNumber}
-                              goalLine={nmfrGoalLine}
+                              goalLine={labeledNmfrGoalLine}
                               sx={sharedChartSx}
                             />
                           ) : isNmfrPalette ? (
@@ -5741,7 +5783,7 @@ export default function App() {
                                   showMark: false
                                 }
                               ]}
-                              goalLine={visibleNmfrGoalLine}
+                              goalLine={labeledNmfrGoalLine}
                               sx={sharedChartSx}
                             />
                           )

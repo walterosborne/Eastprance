@@ -35,6 +35,7 @@ import {
   useItemTooltip
 } from '@mui/x-charts';
 import { toast } from 'react-toastify';
+import { forecastNmfrGoalLineFromSeries } from './arimaGoalLines';
 import { DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
@@ -3249,6 +3250,7 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [nmfrArimaGoalLine, setNmfrArimaGoalLine] = useState(null);
   const [selectedControllableChartFilterField, setSelectedControllableChartFilterField] = useState(
     CONTROLLABLE_CHART_FILTER_FIELDS[0].value
   );
@@ -4074,6 +4076,15 @@ export default function App() {
     nmfrViewMode,
     selectedDateRange
   );
+  const nmfrGoalForecastSeries = buildNmfrChartData(
+    filteredNmfrRows,
+    NMFR_KPI_ID,
+    INCIDENT_ORG_UNIT_NAME,
+    'monthly',
+    selectedDateRange
+  );
+  const nmfrGoalForecastSeriesValues = nmfrGoalForecastSeries.map((bucket) => bucket.total);
+  const nmfrGoalForecastSeriesSignature = nmfrGoalForecastSeriesValues.join('|');
   const nmfrParetoChartData = buildSafetyParetoChartData(
     baseFilteredNmfrRows,
     activeNmfrChartFilterField.value,
@@ -4094,6 +4105,62 @@ export default function App() {
   );
   const nmfrOverallValue = calculateNmfrValueFromRows(nmfrSummaryRows);
   const nmfrSummaryValue = nmfrOverallValue == null ? '--' : formatNumber(nmfrOverallValue);
+
+  useEffect(() => {
+    if (nmfrState.loading || nmfrState.error || isNmfrPareto || isNmfrPalette) {
+      setNmfrArimaGoalLine(null);
+      return undefined;
+    }
+
+    if (nmfrGoalForecastSeriesValues.length < 10) {
+      setNmfrArimaGoalLine(null);
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    forecastNmfrGoalLineFromSeries(nmfrGoalForecastSeriesValues)
+      .then((goalLine) => {
+        if (isCancelled) {
+          return;
+        }
+
+        if (!goalLine) {
+          logClientDebug('nmfr-goal', 'ARIMA goal line unavailable; using static fallback.', {
+            observationCount: nmfrGoalForecastSeriesValues.length
+          });
+          setNmfrArimaGoalLine(null);
+          return;
+        }
+
+        logClientDebug('nmfr-goal', 'Updated ARIMA goal line from monthly NMFR forecast.', {
+          observationCount: nmfrGoalForecastSeriesValues.length,
+          goalLine
+        });
+        setNmfrArimaGoalLine(goalLine);
+      })
+      .catch((error) => {
+        if (isCancelled) {
+          return;
+        }
+
+        logClientDebug('nmfr-goal', 'Failed to compute ARIMA goal line; using static fallback.', {
+          observationCount: nmfrGoalForecastSeriesValues.length,
+          error: error?.message ?? String(error)
+        });
+        setNmfrArimaGoalLine(null);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    isNmfrPalette,
+    isNmfrPareto,
+    nmfrGoalForecastSeriesSignature,
+    nmfrState.error,
+    nmfrState.loading
+  ]);
 
   const activeOtdChartFilterField =
     OTD_CHART_FILTER_FIELDS.find((option) => option.value === selectedOtdChartFilterField) ??
@@ -4265,6 +4332,18 @@ export default function App() {
   const nmfrGoalLine = getMetricGoalLine(
     'nmfr',
     isNmfrPareto || isNmfrPalette ? null : nmfrViewMode
+  );
+  const visibleNmfrGoalLine = clampGoalLineToVisibleSeries(
+    nmfrArimaGoalLine ?? nmfrGoalLine,
+    [nmfrChartData.map((bucket) => bucket.total)]
+  );
+  const nmfrChartYAxis = buildDynamicNumericYAxis(
+    NMFR_Y_AXIS,
+    [nmfrChartData.map((bucket) => bucket.total)],
+    {
+      includeZero: chartVariants.nmfr === 'bar',
+      goalLine: visibleNmfrGoalLine
+    }
   );
   const otdGoalLine = getMetricGoalLine(
     'otd',
@@ -5610,7 +5689,7 @@ export default function App() {
                               margin={INCIDENT_CHART_MARGIN}
                               labels={nmfrChartData.map((bucket) => bucket.label)}
                               xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
-                              yAxis={NMFR_Y_AXIS}
+                              yAxis={nmfrChartYAxis}
                               series={[
                                 {
                                   data: nmfrChartData.map((bucket) => bucket.total),
@@ -5620,7 +5699,7 @@ export default function App() {
                                   showMark: false
                                 }
                               ]}
-                              goalLine={nmfrGoalLine}
+                              goalLine={visibleNmfrGoalLine}
                               sx={sharedChartSx}
                             />
                           )

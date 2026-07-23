@@ -1403,7 +1403,7 @@ function getVisiblePaletteGroupsAndColorLabels(sortedGroups, colorTotals, maxGro
 
   visibleGroups.forEach((group) => {
     group.breakdown.forEach((value, label) => {
-      if (Number.isFinite(value) && value > 0) {
+      if (Number.isFinite(value) && value !== 0) {
         visibleColorLabelSet.add(label);
       }
     });
@@ -1507,21 +1507,23 @@ function buildControllableCostsPaletteChartData(
       ?? {
         label: groupLabel,
         total: 0,
+        magnitude: 0,
         breakdown: new Map()
       };
 
     currentGroup.total += cost;
+    currentGroup.magnitude += Math.abs(cost);
     currentGroup.breakdown.set(
       colorLabel,
       (currentGroup.breakdown.get(colorLabel) ?? 0) + cost
     );
     groups.set(groupLabel, currentGroup);
-    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + cost);
+    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + Math.abs(cost));
   });
 
   const sortedGroups = Array.from(groups.values()).sort((left, right) => {
-    if (right.total !== left.total) {
-      return right.total - left.total;
+    if (right.magnitude !== left.magnitude) {
+      return right.magnitude - left.magnitude;
     }
 
     return left.label.localeCompare(right.label);
@@ -2648,6 +2650,36 @@ function buildDynamicNumericYAxis(
     min: minValue,
     max: maxValue
   }));
+}
+
+function buildStackedNumericYAxis(baseAxis, seriesItems, options = {}) {
+  const normalizedSeries = Array.isArray(seriesItems)
+    ? seriesItems.map((seriesItem) =>
+      Array.isArray(seriesItem?.data) ? seriesItem.data : []
+    )
+    : [];
+  const stackLength = normalizedSeries.reduce(
+    (maxLength, seriesValues) => Math.max(maxLength, seriesValues.length),
+    0
+  );
+  const positiveStackTotals = Array.from({ length: stackLength }, (_unused, index) =>
+    normalizedSeries.reduce((sum, seriesValues) => {
+      const numericValue = Number(seriesValues[index]);
+      return Number.isFinite(numericValue) && numericValue > 0 ? sum + numericValue : sum;
+    }, 0)
+  );
+  const negativeStackTotals = Array.from({ length: stackLength }, (_unused, index) =>
+    normalizedSeries.reduce((sum, seriesValues) => {
+      const numericValue = Number(seriesValues[index]);
+      return Number.isFinite(numericValue) && numericValue < 0 ? sum + numericValue : sum;
+    }, 0)
+  );
+
+  return buildDynamicNumericYAxis(
+    baseAxis,
+    [positiveStackTotals, negativeStackTotals],
+    options
+  );
 }
 
 function renderMetricInfoContent(info) {
@@ -3997,6 +4029,17 @@ export default function App() {
   );
   const isControllableCostsPareto = chartVariants.controllableCosts === 'pareto';
   const isControllableCostsPalette = chartVariants.controllableCosts === 'palette';
+  const controllableCostsPaletteHasNegativeValues = controllableCostsPaletteChartData.series.some(
+    (seriesItem) => seriesItem.data.some((value) => Number(value) < 0)
+  );
+  const controllableCostsPaletteChartYAxis = buildStackedNumericYAxis(
+    CONTROLLABLE_COSTS_Y_AXIS,
+    controllableCostsPaletteChartData.series,
+    {
+      includeZero: true,
+      minFloor: controllableCostsPaletteHasNegativeValues ? null : 0
+    }
+  );
   const activeSifChartFilterField =
     SAFETY_CHART_FILTER_FIELDS.find((option) => option.value === selectedSifChartFilterField)
     ?? SAFETY_CHART_FILTER_FIELDS[0];
@@ -5244,7 +5287,7 @@ export default function App() {
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
                               labels={controllableCostsPaletteChartData.labels}
-                              yAxis={CONTROLLABLE_COSTS_Y_AXIS}
+                              yAxis={controllableCostsPaletteChartYAxis}
                               series={controllableCostsPaletteChartData.series.map((seriesItem) => ({
                                 ...seriesItem,
                                 valueFormatter: formatCurrency

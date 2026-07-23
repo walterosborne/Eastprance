@@ -66,3 +66,5 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
     model?.destroy?.();
   }
 }
+
+export { NMFR_ARIMA_MIN_OBSERVATIONS };

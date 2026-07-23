@@ -59,10 +59,13 @@ function appendMetricInfo(baseInfo, extraEntries) {
 }
 
 function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
+  const status = String(goalLineDetails?.status ?? '').trim();
   const expectedValue = Number(goalLineDetails?.expectedValue);
   const goalValue = Number(goalLineDetails?.goalValue);
   const challengePercent = Number(goalLineDetails?.challengePercent);
   const forecastMonthLabel = String(goalLineDetails?.forecastMonthLabel ?? '').trim();
+  const observationCount = Number(goalLineDetails?.observationCount);
+  const requiredObservations = Number(goalLineDetails?.requiredObservations);
   const expectedValuePrefix = forecastMonthLabel
     ? `Based on the ARIMA model, the expected value for ${forecastMonthLabel} is `
     : 'Based on the ARIMA model, the expected value for the next month after the latest filtered month is ';
@@ -73,7 +76,29 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
       bullet: true,
       text: 'ARIMA projects the next NMFR value, then tightens that forecast slightly to create a realistic stretch target.'
     },
-    Number.isFinite(expectedValue) && Number.isFinite(goalValue) && Number.isFinite(challengePercent)
+    status === 'insufficient_data'
+      ? {
+        bullet: true,
+        parts: [
+          createMetricInfoTextPart('A goal line is not displayed because ARIMA requires '),
+          createMetricInfoTextPart(
+            Number.isFinite(requiredObservations)
+              ? `${formatMetricInfoNumber(requiredObservations)} datapoints`
+              : 'more datapoints',
+            { bold: true }
+          ),
+          Number.isFinite(observationCount)
+            ? createMetricInfoTextPart(' and the current filtered range has ')
+            : createMetricInfoTextPart('.'),
+          ...(Number.isFinite(observationCount)
+            ? [
+              createMetricInfoTextPart(formatMetricInfoNumber(observationCount), { bold: true }),
+              createMetricInfoTextPart('.')
+            ]
+            : [])
+        ]
+      }
+      : Number.isFinite(expectedValue) && Number.isFinite(goalValue) && Number.isFinite(challengePercent)
       ? {
         bullet: true,
         parts: [

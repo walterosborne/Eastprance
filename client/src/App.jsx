@@ -35,7 +35,7 @@ import {
   useItemTooltip
 } from '@mui/x-charts';
 import { toast } from 'react-toastify';
-import { forecastNmfrGoalLineFromSeries } from './arimaGoalLines';
+import { forecastNmfrGoalLineFromSeries, NMFR_ARIMA_MIN_OBSERVATIONS } from './arimaGoalLines';
 import { buildNmfrMetricInfo, DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
@@ -326,10 +326,17 @@ const CHART_HEIGHT = 332;
 const INCIDENT_CHART_HEIGHT = 366;
 const INCIDENT_X_AXIS_HEIGHT = 24;
 const FIXED_MONTH_METRIC_YEAR = 2026;
-const OTD_Y_AXIS = [
+const OTD_UNITS_Y_AXIS = [
   {
     width: 66,
     valueFormatter: formatCompactNumber,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+const OTD_PERCENT_Y_AXIS = [
+  {
+    width: 52,
+    valueFormatter: formatPercentAxis,
     tickLabelStyle: { fontSize: 11 }
   }
 ];
@@ -1360,20 +1367,28 @@ function buildOtdChartData(rows, viewMode, selectedDateRange) {
   return {
     labels: buckets.map((bucket) => bucket.label),
     tooltipLabelLookup,
-    contract: buckets.map((bucket) =>
-      Number(
-        bucket.monthIndices
-          .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0)
-          .toFixed(2)
-      )
-    ),
-    delivered: buckets.map((bucket) =>
-      Number(
-        bucket.monthIndices
-          .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0)
-          .toFixed(2)
-      )
-    )
+    contract: buckets.map((bucket) => Number(
+      bucket.monthIndices
+        .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0)
+        .toFixed(2)
+    )),
+    delivered: buckets.map((bucket) => Number(
+      bucket.monthIndices
+        .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0)
+        .toFixed(2)
+    )),
+    deliveredPercent: buckets.map((bucket) => {
+      const contractTotal = bucket.monthIndices
+        .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0);
+      const deliveredTotal = bucket.monthIndices
+        .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0);
+
+      if (!Number.isFinite(contractTotal) || contractTotal <= 0) {
+        return 0;
+      }
+
+      return Number((deliveredTotal / contractTotal).toFixed(4));
+    })
   };
 }
 
@@ -2901,7 +2916,12 @@ function MetricSummaryPanel({
 }
 
 function LaborChartTooltip(props) {
-  const { chartData, ...tooltipProps } = props;
+  const {
+    chartData,
+    sortSeriesItems: _sortSeriesItems,
+    excludeZeroSeriesItems: _excludeZeroSeriesItems,
+    ...tooltipProps
+  } = props;
   const tooltipData = useAxesTooltip();
 
   if (!tooltipData?.length) {
@@ -2963,7 +2983,12 @@ function LaborChartTooltip(props) {
 }
 
 function LaborBarChartTooltip(props) {
-  const { chartData, ...tooltipProps } = props;
+  const {
+    chartData,
+    sortSeriesItems: _sortSeriesItems,
+    excludeZeroSeriesItems: _excludeZeroSeriesItems,
+    ...tooltipProps
+  } = props;
   const tooltipItem = useItemTooltip();
 
   if (!tooltipItem) {
@@ -3322,6 +3347,8 @@ export default function App() {
     source: ''
   });
   const [nmfrArimaGoalLine, setNmfrArimaGoalLine] = useState(null);
+  const [nmfrArimaGoalStatus, setNmfrArimaGoalStatus] = useState('idle');
+  const [nmfrArimaObservationCount, setNmfrArimaObservationCount] = useState(0);
   const [selectedControllableChartFilterField, setSelectedControllableChartFilterField] = useState(
     CONTROLLABLE_CHART_FILTER_FIELDS[0].value
   );
@@ -4184,11 +4211,15 @@ export default function App() {
   useEffect(() => {
     if (nmfrState.loading || nmfrState.error) {
       setNmfrArimaGoalLine(null);
+      setNmfrArimaGoalStatus('idle');
+      setNmfrArimaObservationCount(0);
       return undefined;
     }
 
-    if (nmfrGoalForecastSeriesValues.length < 10) {
+    if (nmfrGoalForecastSeriesValues.length < NMFR_ARIMA_MIN_OBSERVATIONS) {
       setNmfrArimaGoalLine(null);
+      setNmfrArimaGoalStatus('insufficient_data');
+      setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
       return undefined;
     }
 
@@ -4205,6 +4236,8 @@ export default function App() {
             observationCount: nmfrGoalForecastSeriesValues.length
           });
           setNmfrArimaGoalLine(null);
+          setNmfrArimaGoalStatus('unavailable');
+          setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
           return;
         }
 
@@ -4213,6 +4246,8 @@ export default function App() {
           goalLine
         });
         setNmfrArimaGoalLine(goalLine);
+        setNmfrArimaGoalStatus('ready');
+        setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
       })
       .catch((error) => {
         if (isCancelled) {
@@ -4224,6 +4259,8 @@ export default function App() {
           error: error?.message ?? String(error)
         });
         setNmfrArimaGoalLine(null);
+        setNmfrArimaGoalStatus('unavailable');
+        setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
       });
 
     return () => {
@@ -4286,6 +4323,22 @@ export default function App() {
   );
   const isOtdPalette = chartVariants.otd === 'palette';
   const isOtdPareto = chartVariants.otd === 'pareto';
+  const otdChartYAxis = buildDynamicNumericYAxis(
+    OTD_PERCENT_Y_AXIS,
+    [otdChartData.deliveredPercent],
+    {
+      includeZero: true,
+      minFloor: 0
+    }
+  );
+  const otdPaletteChartYAxis = buildDynamicNumericYAxis(
+    OTD_UNITS_Y_AXIS,
+    otdPaletteChartData.series.map((seriesItem) => seriesItem.data),
+    {
+      includeZero: true,
+      minFloor: 0
+    }
+  );
 
   const activeLaborChartFilterField =
     LABOR_CHART_FILTER_FIELDS.find((option) => option.value === selectedLaborChartFilterField) ??
@@ -4408,10 +4461,17 @@ export default function App() {
   );
   const nmfrMetricInfo = buildNmfrMetricInfo(METRIC_INFO.nmfr, {
     ...nmfrArimaGoalLine,
-    forecastMonthLabel: nmfrForecastMonthLabel
+    status: nmfrArimaGoalStatus,
+    forecastMonthLabel: nmfrForecastMonthLabel,
+    observationCount: nmfrArimaObservationCount,
+    requiredObservations: NMFR_ARIMA_MIN_OBSERVATIONS
   });
+  const nmfrBaseGoalLine =
+    nmfrArimaGoalStatus === 'insufficient_data'
+      ? null
+      : (nmfrArimaGoalLine ?? nmfrGoalLine);
   const visibleNmfrGoalLine = clampGoalLineToVisibleSeries(
-    nmfrArimaGoalLine ?? nmfrGoalLine,
+    nmfrBaseGoalLine,
     [nmfrChartData.map((bucket) => bucket.total)]
   );
   const labeledNmfrGoalLine = visibleNmfrGoalLine
@@ -4429,10 +4489,7 @@ export default function App() {
       minFloor: 0
     }
   );
-  const otdGoalLine = getMetricGoalLine(
-    'otd',
-    isOtdPareto || isOtdPalette ? null : otdViewMode
-  );
+  const otdGoalLine = null;
   const laborGoalLine = getMetricGoalLine(
     'labor',
     isLaborPareto || isLaborPalette ? null : laborViewMode
@@ -5927,7 +5984,7 @@ export default function App() {
                               cumulativeShares={otdParetoChartData.cumulativeShares}
                               barLabel="Actuals Delivered"
                               barColor="var(--chart-line)"
-                              barAxis={OTD_Y_AXIS}
+                              barAxis={OTD_UNITS_Y_AXIS}
                               barValueFormatter={formatUnits}
                               goalLine={otdGoalLine}
                               sx={sharedChartSx}
@@ -5938,7 +5995,7 @@ export default function App() {
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
                               labels={otdPaletteChartData.labels}
-                              yAxis={OTD_Y_AXIS}
+                              yAxis={otdPaletteChartYAxis}
                               series={otdPaletteChartData.series.map((seriesItem) => ({
                                 ...seriesItem,
                                 valueFormatter: formatUnits
@@ -5952,20 +6009,13 @@ export default function App() {
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
                               labels={otdChartData.labels}
-                              yAxis={OTD_Y_AXIS}
+                              yAxis={otdChartYAxis}
                               series={[
                                 {
-                                  data: otdChartData.contract,
-                                  label: 'Contract Commitment',
+                                  data: otdChartData.deliveredPercent,
+                                  label: 'Delivered vs commitment',
                                   color: 'var(--chart-line)',
-                                  valueFormatter: formatUnits,
-                                  showMark: false
-                                },
-                                {
-                                  data: otdChartData.delivered,
-                                  label: 'Actuals Delivered',
-                                  color: 'var(--chart-accent-line)',
-                                  valueFormatter: formatUnits,
+                                  valueFormatter: formatPercentValue,
                                   showMark: false
                                 }
                               ]}

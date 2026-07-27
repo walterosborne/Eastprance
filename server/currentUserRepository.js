@@ -202,6 +202,8 @@ export async function readCurrentUser(request) {
         name: localUser.name || identity.name,
         email: identity.email,
         preferred_username: identity.preferred_username,
+        entra_user_object_id: identity.entra_user_object_id,
+        entra_tenant_id: identity.entra_tenant_id,
         matchedBy: localUser.matched_by,
         fileName: path.basename(LOCAL_ROSTER_FILE_PATH)
       };
@@ -229,6 +231,8 @@ export async function readCurrentUser(request) {
         name: sqlResult.row.name,
         email: identity.email,
         preferred_username: identity.preferred_username,
+        entra_user_object_id: identity.entra_user_object_id,
+        entra_tenant_id: identity.entra_tenant_id,
         matchedBy: sqlResult.row.matched_by,
         tableName: sqlResult.tableName
       };

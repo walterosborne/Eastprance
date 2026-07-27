@@ -31,6 +31,11 @@ const METRIC_GOALS = {
     monthly: 0.65,
     quarterly: 0.65,
     yearly: 0.65
+  },
+  laborHana: {
+    monthly: 0.65,
+    quarterly: 0.65,
+    yearly: 0.65
   }
 };
 

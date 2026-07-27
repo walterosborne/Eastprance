@@ -9,7 +9,8 @@ const METRIC_INFO = {
   potentialSif: 'Counts potential serious injury or fatality incidents.',
   nmfr: 'Tracks near miss frequency rate across periods.',
   otd: 'Compares committed units against actual delivered units.',
-  labor: 'Shows direct labor hours as percent of total.'
+  labor: 'Shows direct labor hours as percent of total.',
+  laborHana: 'Shows HANA direct labor hours as percent of total.'
 };
 
 const metricInfoNumberFormatter = new Intl.NumberFormat('en-US', {

@@ -1,0 +1,100 @@
+spec:
+  template:
+    spec:
+      volumes:
+        - name: oauth2-proxy-config
+          configMap:
+            name: qmiscorecard-oauth2-proxy
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - --alpha-config=/etc/oauth2-proxy/alpha.yaml
+          env:
+            - name: ENTRA_APPLICATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: qmiscorecard-entra
+                  key: applicationid
+            # The app-registration Object ID is inventory metadata; OAuth does not use it as client_id.
+            - name: ENTRA_OBJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: qmiscorecard-entra
+                  key: objectid
+            - name: ENTRA_DIRECTORY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: qmiscorecard-entra
+                  key: directoryid
+            - name: ENTRA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: qmiscorecard-entra
+                  key: clientsecret
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: qmiscorecard-entra
+                  key: cookiesecret
+            - name: OAUTH2_PROXY_HTTP_ADDRESS
+              value: 0.0.0.0:4180
+            - name: OAUTH2_PROXY_EMAIL_DOMAINS
+              value: '*'
+            - name: OAUTH2_PROXY_COOKIE_NAME
+              value: __Host-qmiscorecard
+            - name: OAUTH2_PROXY_COOKIE_SECURE
+              value: 'true'
+            - name: OAUTH2_PROXY_COOKIE_HTTPONLY
+              value: 'true'
+            - name: OAUTH2_PROXY_COOKIE_SAMESITE
+              value: lax
+            - name: OAUTH2_PROXY_COOKIE_EXPIRE
+              value: 8h
+            - name: OAUTH2_PROXY_COOKIE_REFRESH
+              value: 1h
+            - name: OAUTH2_PROXY_RELATIVE_REDIRECT_URL
+              value: 'true'
+            - name: OAUTH2_PROXY_REVERSE_PROXY
+              value: 'true'
+            - name: OAUTH2_PROXY_FORCE_HTTPS
+              value: 'true'
+            - name: OAUTH2_PROXY_SKIP_PROVIDER_BUTTON
+              value: 'true'
+            - name: OAUTH2_PROXY_SILENCE_PING_LOGGING
+              value: 'true'
+          ports:
+            - name: oauth2-proxy
+              containerPort: 4180
+              protocol: TCP
+          volumeMounts:
+            - name: oauth2-proxy-config
+              mountPath: /etc/oauth2-proxy
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: oauth2-proxy
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: oauth2-proxy
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL

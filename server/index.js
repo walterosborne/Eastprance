@@ -20,6 +20,7 @@ import {
   saveDashboardPreset
 } from './dashboardPresetsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
+import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
 import { readOtdData } from './otdRepository.js';
 import {
   getSafetyMetricPayload,
@@ -44,6 +45,7 @@ let requestCounter = 0;
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
+registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
 registerSqlDatasetCache('safety-incidents', readSafetyEventMetricsData);
 registerSqlDatasetCache('safety-nmfr', readSafetyNmfrData);
 
@@ -280,6 +282,16 @@ app.get('/api/labor-utilization', async (request, response) => {
     'labor',
     () => getCachedSqlDataset('labor'),
     'Unable to read labor utilization data.'
+  );
+});
+
+app.get('/api/labor-utilization-hana', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'labor-hana',
+    () => getCachedSqlDataset('labor-hana'),
+    'Unable to read HANA labor utilization data.'
   );
 });
 

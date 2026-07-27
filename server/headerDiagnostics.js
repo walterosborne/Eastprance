@@ -6,6 +6,33 @@ import {
   normalizePotentialNetworkId
 } from './requestIdentity.js';
 
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+  'set-cookie'
+]);
+
+function redactHeaderValue(name, value) {
+  return SENSITIVE_HEADER_NAMES.has(String(name).toLowerCase()) && value
+    ? '<redacted>'
+    : value;
+}
+
+function redactHeaders(headers = {}) {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name, redactHeaderValue(name, value)])
+  );
+}
+
+function redactRawHeaders(rawHeaders = []) {
+  return rawHeaders.map((value, index) => (
+    index % 2 === 1
+      ? redactHeaderValue(rawHeaders[index - 1], value)
+      : value
+  ));
+}
+
 function getAuthorizationDebug(request, headerName = 'Authorization') {
   const value = getHeaderValue(request, headerName);
 
@@ -29,40 +56,16 @@ function getAuthorizationDebug(request, headerName = 'Authorization') {
 
 function buildAuthTransportDebug(request, authCandidates) {
   const identityFieldNames = [
-    'auth_user',
-    'remote_user',
-    'x_auth_header',
-    'x_auth_user',
-    'x_client_auth_user',
-    'x_remote_user',
-    'x_logon_user',
-    'x_iis_windowsauthuserid',
-    'x_iisnode_auth_user',
     'x_forwarded_user',
     'x_forwarded_preferred_username',
     'x_forwarded_employeeid',
     'x_forwarded_name',
     'x_forwarded_email',
-    'x_auth_request_user',
-    'x_auth_request_preferred_username',
-    'x_auth_request_employeeid',
-    'x_auth_request_name',
-    'x_auth_request_email',
-    'x_employeeid',
-    'x_email',
-    'x_name',
-    'x_ms_client_principal_name',
-    'x_ms_client_principal_id'
-  ];
-  const accessTokenFieldNames = [
-    'x_forwarded_access_token',
-    'x_auth_request_access_token',
-    'x_access_token'
+    'x_entra_user_object_id',
+    'x_entra_tenant_id',
+    'x_entra_application_id'
   ];
   const populatedIdentityFields = identityFieldNames.filter((fieldName) => Boolean(authCandidates[fieldName]));
-  const populatedAccessTokenFields = accessTokenFieldNames.filter(
-    (fieldName) => Boolean(authCandidates[fieldName])
-  );
   const authorization = getAuthorizationDebug(request, 'Authorization');
   const proxyAuthorization = getAuthorizationDebug(request, 'Proxy-Authorization');
 
@@ -73,11 +76,8 @@ function buildAuthTransportDebug(request, authCandidates) {
     backendSeesProxyAuthorizationHeader: proxyAuthorization.present,
     proxyAuthorizationScheme: proxyAuthorization.scheme,
     populatedIdentityFields,
-    populatedAccessTokenFields,
     backendSeesForwardedIdentity: populatedIdentityFields.length > 0,
-    backendSeesForwardedAccessToken: populatedAccessTokenFields.length > 0,
-    backendSeesAuthType: Boolean(authCandidates.x_auth_type || authCandidates.x_client_auth_type),
-    note: 'Upstream proxies often strip Authorization before the app sees the request, so forwarded identity headers usually matter more.'
+    note: 'OAuth2 Proxy authenticates the Entra session and forwards the identity headers shown here.'
   };
 }
 
@@ -120,8 +120,8 @@ export function buildHeadersDebugPayload(request) {
       derivedFromCandidates: normalizePotentialNetworkId(likelyAuthUser),
       hardcodedFallback: HARDCODED_NETWORK_ID
     },
-    headers: request.headers,
-    rawHeaders: request.rawHeaders
+    headers: redactHeaders(request.headers),
+    rawHeaders: redactRawHeaders(request.rawHeaders)
   };
 }
 
@@ -158,9 +158,9 @@ function renderDetailsBlock(title, value, isOpen = false) {
 
 export function renderHeadersDebugPage(payload) {
   const likelyAuthUser = getLikelyAuthUser(payload.authCandidates);
-  const authType = payload.authCandidates?.x_auth_type
-    || payload.authCandidates?.x_client_auth_type
-    || 'Unknown';
+  const authType = payload.authTransport?.backendSeesForwardedIdentity
+    ? 'Microsoft Entra ID via OAuth2 Proxy'
+    : 'Unknown';
   const populatedIdentityFields = Array.isArray(payload.authTransport?.populatedIdentityFields)
     && payload.authTransport.populatedIdentityFields.length > 0
     ? payload.authTransport.populatedIdentityFields.join(', ')

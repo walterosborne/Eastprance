@@ -11,6 +11,7 @@ import {
 } from './sqlConnection.js';
 
 const CONTROLLABLE_COSTS_HANA_TABLE_NAME = 'qmi.controllable_costs_hana';
+const MIN_DOCUMENT_DATE_EXCLUSIVE = '2023-12-31';
 
 function normalizeText(value) {
   return String(value ?? '')
@@ -77,7 +78,8 @@ export async function readControllableCostsHanaData() {
 
   logDebug('controllable-costs-hana', 'Starting HANA controllable costs data load.', {
     hasConnectionConfig: missing.length === 0,
-    tableName: CONTROLLABLE_COSTS_HANA_TABLE_NAME
+    tableName: CONTROLLABLE_COSTS_HANA_TABLE_NAME,
+    minDocumentDateExclusive: MIN_DOCUMENT_DATE_EXCLUSIVE
   });
 
   if (missing.length > 0) {
@@ -112,6 +114,7 @@ export async function readControllableCostsHanaData() {
         SUM([cost]) AS [cost]
       FROM normalized_costs
       WHERE [document_date] IS NOT NULL
+        AND [document_date] > CONVERT(date, '${MIN_DOCUMENT_DATE_EXCLUSIVE}', 23)
         AND [cost] IS NOT NULL
       GROUP BY
         [document_date],

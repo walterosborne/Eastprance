@@ -14,6 +14,7 @@ import {
 } from './headerDiagnostics.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
+import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
 import { readCurrentUser } from './currentUserRepository.js';
 import {
   readDashboardPresetsOverview,
@@ -43,6 +44,7 @@ const clientDistPath = path.resolve(__dirname, '../client/dist');
 let requestCounter = 0;
 
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
+registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
 registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
@@ -241,6 +243,16 @@ app.get('/api/controllable-costs', async (request, response) => {
     'controllable-costs',
     () => getCachedSqlDataset('controllable-costs'),
     'Unable to read controllable costs data.'
+  );
+});
+
+app.get('/api/controllable-costs-hana', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'controllable-costs-hana',
+    () => getCachedSqlDataset('controllable-costs-hana'),
+    'Unable to read HANA controllable costs data.'
   );
 });
 

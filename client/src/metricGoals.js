@@ -6,6 +6,11 @@ const METRIC_GOALS = {
     yearly: 6000000,
     pareto: 900000
   },
+  controllableCostsHana: {
+    quarterly: 1500000,
+    yearly: 6000000,
+    pareto: 900000
+  },
   sif: {
     monthly: 1,
     quarterly: 3,

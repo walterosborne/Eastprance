@@ -145,6 +145,29 @@ const CONTROLLABLE_PALETTE_FIELDS = [
   }
 ];
 
+const CONTROLLABLE_HANA_CHART_FILTER_FIELDS = [
+  {
+    value: 'sector',
+    label: 'Sector',
+    allLabel: 'All sectors'
+  },
+  {
+    value: 'division',
+    label: 'Division',
+    allLabel: 'All divisions'
+  },
+  {
+    value: 'business_unit',
+    label: 'Business Unit',
+    allLabel: 'All business units'
+  }
+];
+
+const CONTROLLABLE_HANA_PALETTE_FIELDS = CONTROLLABLE_HANA_CHART_FILTER_FIELDS.map(
+  ({ value, label }) => ({ value, label })
+);
+const CONTROLLABLE_HANA_PARETO_FILTER_FIELDS = CONTROLLABLE_HANA_CHART_FILTER_FIELDS;
+
 const SAFETY_CHART_FILTER_FIELDS = [
   {
     value: 'division',
@@ -240,13 +263,22 @@ const CARD_CHIP_OPTIONS = [
     key: 'all',
     label: 'All',
     icon: faAsterisk,
-    cardKeys: ['controllableCosts', 'sif', 'potentialSif', 'nmfr', 'otd', 'labor', 'laborHana']
+    cardKeys: [
+      'controllableCosts',
+      'controllableCostsHana',
+      'sif',
+      'potentialSif',
+      'nmfr',
+      'otd',
+      'labor',
+      'laborHana'
+    ]
   },
   {
     key: 'businessManagement',
     label: 'Business Management',
     icon: faCalculator,
-    cardKeys: ['controllableCosts', 'labor', 'laborHana']
+    cardKeys: ['controllableCosts', 'controllableCostsHana', 'labor', 'laborHana']
   },
   {
     key: 'ehss',
@@ -264,6 +296,7 @@ const CARD_CHIP_OPTIONS = [
 
 const DEFAULT_CHART_VARIANTS = {
   controllableCosts: 'line',
+  controllableCostsHana: 'line',
   sif: 'line',
   potentialSif: 'line',
   nmfr: 'line',
@@ -273,6 +306,7 @@ const DEFAULT_CHART_VARIANTS = {
 };
 const CARD_VARIANT_OPTIONS_BY_METRIC = {
   controllableCosts: ['line', 'bar', 'palette', 'pareto'],
+  controllableCostsHana: ['line', 'bar', 'palette', 'pareto'],
   sif: ['line', 'bar', 'palette', 'pareto'],
   potentialSif: ['line', 'bar', 'palette', 'pareto'],
   nmfr: ['line', 'bar', 'palette', 'pareto'],
@@ -821,6 +855,12 @@ function getTooltipBucketLabel(bucketLabel, bucketLabelLookup = null) {
 }
 
 function getControllableCostsRowStamp(row) {
+  const documentDateStamp = getMonthStartStamp(row.date);
+
+  if (documentDateStamp != null) {
+    return documentDateStamp;
+  }
+
   const year = Number(row.year);
   const quarterNumber = getQuarterNumber(row.quarter);
 
@@ -869,6 +909,7 @@ function getNextIncidentForecastMonthLabel(rows, selectedDateRange) {
 
 function getAvailableTimelineStamps({
   controllableCostsRows,
+  controllableCostsHanaRows = [],
   sifRows,
   potentialSifRows,
   nmfrRows,
@@ -878,12 +919,14 @@ function getAvailableTimelineStamps({
 }) {
   const stampSet = new Set();
 
-  controllableCostsRows.forEach((row) => {
-    const stamp = getControllableCostsRowStamp(row);
+  [controllableCostsRows, controllableCostsHanaRows].forEach((rows) => {
+    rows.forEach((row) => {
+      const stamp = getControllableCostsRowStamp(row);
 
-    if (stamp != null) {
-      stampSet.add(stamp);
-    }
+      if (stamp != null) {
+        stampSet.add(stamp);
+      }
+    });
   });
 
   [sifRows, potentialSifRows, nmfrRows].forEach((rows) => {
@@ -985,9 +1028,12 @@ function buildControllableCostsChartData(rows, viewMode, selectedDateRange) {
     const currentBucket = buckets.get(bucketKey) ?? {
       label: bucketLabel,
       sortValue,
+      total: 0,
       controllable: 0,
       uncontrollable: 0
     };
+
+    currentBucket.total += cost;
 
     if (row.controllable === 'Controllable') {
       currentBucket.controllable += cost;
@@ -1004,6 +1050,7 @@ function buildControllableCostsChartData(rows, viewMode, selectedDateRange) {
 
   return {
     labels: sortedBuckets.map((bucket) => bucket.label),
+    total: sortedBuckets.map((bucket) => Number(bucket.total.toFixed(2))),
     controllable: sortedBuckets.map((bucket) => Number(bucket.controllable.toFixed(2))),
     uncontrollable: sortedBuckets.map((bucket) => Number(bucket.uncontrollable.toFixed(2)))
   };
@@ -3253,6 +3300,11 @@ function buildDashboardPresetState({
   selectedControllableChartFilterValue,
   selectedControllablePaletteGroupField,
   selectedControllablePaletteColorField,
+  controllableCostsHanaViewMode,
+  selectedControllableHanaChartFilterField,
+  selectedControllableHanaChartFilterValue,
+  selectedControllableHanaPaletteGroupField,
+  selectedControllableHanaPaletteColorField,
   sifViewMode,
   selectedSifChartFilterField,
   selectedSifChartFilterValue,
@@ -3303,6 +3355,13 @@ function buildDashboardPresetState({
       filterValue: selectedControllableChartFilterValue,
       paletteGroupField: selectedControllablePaletteGroupField,
       paletteColorField: selectedControllablePaletteColorField
+    },
+    controllableCostsHana: {
+      viewMode: controllableCostsHanaViewMode,
+      filterField: selectedControllableHanaChartFilterField,
+      filterValue: selectedControllableHanaChartFilterValue,
+      paletteGroupField: selectedControllableHanaPaletteGroupField,
+      paletteColorField: selectedControllableHanaPaletteColorField
     },
     sif: {
       viewMode: sifViewMode,
@@ -3403,6 +3462,12 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [controllableCostsHanaState, setControllableCostsHanaState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
   const [sifState, setSifState] = useState({
     rows: [],
     loading: true,
@@ -3452,6 +3517,15 @@ export default function App() {
   const [selectedControllablePaletteColorField, setSelectedControllablePaletteColorField] =
     useState(CONTROLLABLE_PALETTE_FIELDS[1].value);
   const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
+  const [selectedControllableHanaChartFilterField, setSelectedControllableHanaChartFilterField] =
+    useState(CONTROLLABLE_HANA_CHART_FILTER_FIELDS[0].value);
+  const [selectedControllableHanaChartFilterValue, setSelectedControllableHanaChartFilterValue] =
+    useState(ALL_FILTER_VALUE);
+  const [selectedControllableHanaPaletteGroupField, setSelectedControllableHanaPaletteGroupField] =
+    useState(CONTROLLABLE_HANA_PALETTE_FIELDS[0].value);
+  const [selectedControllableHanaPaletteColorField, setSelectedControllableHanaPaletteColorField] =
+    useState(CONTROLLABLE_HANA_PALETTE_FIELDS[1].value);
+  const [controllableCostsHanaViewMode, setControllableCostsHanaViewMode] = useState('quarterly');
   const [sifViewMode, setSifViewMode] = useState('monthly');
   const [potentialSifViewMode, setPotentialSifViewMode] = useState('monthly');
   const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
@@ -3546,6 +3620,10 @@ export default function App() {
     chartHostRef: controllableCostsChartHostRef,
     chartWidth: controllableCostsChartWidth
   } = useChartWidth();
+  const {
+    chartHostRef: controllableCostsHanaChartHostRef,
+    chartWidth: controllableCostsHanaChartWidth
+  } = useChartWidth();
   const { chartHostRef: sifChartHostRef, chartWidth: sifChartWidth } = useChartWidth();
   const { chartHostRef: potentialSifChartHostRef, chartWidth: potentialSifChartWidth } =
     useChartWidth();
@@ -3603,6 +3681,59 @@ export default function App() {
         });
 
         logClientDebug('controllable-costs', 'Controllable costs load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    async function loadControllableCostsHanaData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson(
+          'controllable-costs-hana',
+          '/api/controllable-costs-hana'
+        );
+
+        if (!isMounted) {
+          logClientDebug(
+            'controllable-costs-hana',
+            'Component unmounted before HANA controllable costs state update.'
+          );
+          return;
+        }
+
+        setControllableCostsHanaState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: '',
+          source: getSourceLabel(payload.source)
+        });
+
+        logClientDebug('controllable-costs-hana', 'HANA controllable costs state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug(
+            'controllable-costs-hana',
+            'Component unmounted after HANA controllable costs load failure.',
+            { error: error.message }
+          );
+          return;
+        }
+
+        setControllableCostsHanaState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load HANA controllable costs data.',
+          source: ''
+        });
+
+        logClientDebug('controllable-costs-hana', 'HANA controllable costs load failed.', {
           error: error.message,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
@@ -3884,6 +4015,7 @@ export default function App() {
     logClientDebug('dashboard', 'Starting dashboard data load.');
 
     loadControllableCostsData();
+    loadControllableCostsHanaData();
     loadSifData();
     loadPotentialSifData();
     loadNmfrData();
@@ -3999,6 +4131,7 @@ export default function App() {
 
   const availableTimelineStamps = getAvailableTimelineStamps({
     controllableCostsRows: controllableCostsState.rows,
+    controllableCostsHanaRows: controllableCostsHanaState.rows,
     sifRows: sifState.rows,
     potentialSifRows: potentialSifState.rows,
     nmfrRows: nmfrState.rows,
@@ -4161,6 +4294,84 @@ export default function App() {
     {
       includeZero: true,
       minFloor: controllableCostsPaletteHasNegativeValues ? null : 0
+    }
+  );
+  const activeControllableHanaChartFilterField =
+    CONTROLLABLE_HANA_CHART_FILTER_FIELDS.find(
+      (option) => option.value === selectedControllableHanaChartFilterField
+    ) ?? CONTROLLABLE_HANA_CHART_FILTER_FIELDS[0];
+  const controllableHanaPaletteGroupFieldOptions = CONTROLLABLE_HANA_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedControllableHanaPaletteColorField
+  );
+  const activeControllableHanaPaletteGroupField =
+    controllableHanaPaletteGroupFieldOptions.find(
+      (option) => option.value === selectedControllableHanaPaletteGroupField
+    )
+    ?? controllableHanaPaletteGroupFieldOptions[0]
+    ?? CONTROLLABLE_HANA_PALETTE_FIELDS[0];
+  const controllableHanaPaletteColorFieldOptions = CONTROLLABLE_HANA_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeControllableHanaPaletteGroupField.value
+  );
+  const activeControllableHanaPaletteColorField =
+    controllableHanaPaletteColorFieldOptions.find(
+      (option) => option.value === selectedControllableHanaPaletteColorField
+    )
+    ?? controllableHanaPaletteColorFieldOptions[0]
+    ?? CONTROLLABLE_HANA_PALETTE_FIELDS[1];
+  const baseFilteredControllableCostsHanaRows = controllableCostsHanaState.rows;
+  const controllableHanaChartFilterValueOptions = getFilterOptions(
+    baseFilteredControllableCostsHanaRows,
+    activeControllableHanaChartFilterField.value
+  );
+  const activeControllableHanaChartFilterValue = normalizeFilterValue(
+    selectedControllableHanaChartFilterValue,
+    controllableHanaChartFilterValueOptions
+  );
+  const controllableHanaFilterApplies = ['line', 'bar'].includes(
+    chartVariants.controllableCostsHana
+  );
+  const filteredControllableCostsHanaRows = baseFilteredControllableCostsHanaRows.filter((row) => {
+    if (!controllableHanaFilterApplies) {
+      return true;
+    }
+
+    return (
+      activeControllableHanaChartFilterValue === ALL_FILTER_VALUE
+      || row[activeControllableHanaChartFilterField.value]
+        === activeControllableHanaChartFilterValue
+    );
+  });
+  const globallyFilteredControllableCostsHanaRows = filteredControllableCostsHanaRows.filter(
+    (row) => isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
+  );
+  const controllableCostsHanaChartData = buildControllableCostsChartData(
+    filteredControllableCostsHanaRows,
+    controllableCostsHanaViewMode,
+    selectedDateRange
+  );
+  const controllableCostsHanaParetoChartData = buildControllableCostsParetoChartData(
+    baseFilteredControllableCostsHanaRows,
+    activeControllableHanaChartFilterField.value,
+    selectedDateRange
+  );
+  const controllableCostsHanaPaletteChartData = buildControllableCostsPaletteChartData(
+    baseFilteredControllableCostsHanaRows,
+    activeControllableHanaPaletteGroupField.value,
+    activeControllableHanaPaletteColorField.value,
+    selectedDateRange
+  );
+  const isControllableCostsHanaPareto = chartVariants.controllableCostsHana === 'pareto';
+  const isControllableCostsHanaPalette = chartVariants.controllableCostsHana === 'palette';
+  const controllableCostsHanaPaletteHasNegativeValues =
+    controllableCostsHanaPaletteChartData.series.some(
+      (seriesItem) => seriesItem.data.some((value) => Number(value) < 0)
+    );
+  const controllableCostsHanaPaletteChartYAxis = buildStackedNumericYAxis(
+    CONTROLLABLE_COSTS_Y_AXIS,
+    controllableCostsHanaPaletteChartData.series,
+    {
+      includeZero: true,
+      minFloor: controllableCostsHanaPaletteHasNegativeValues ? null : 0
     }
   );
   const activeSifChartFilterField =
@@ -4643,6 +4854,12 @@ export default function App() {
       controllableCostsPaletteChartData.series
     )
     : null;
+  const controllableCostsHanaTooltipLegend = isControllableCostsHanaPalette
+    ? buildTooltipLegend(
+      `Color by ${activeControllableHanaPaletteColorField.label}`,
+      controllableCostsHanaPaletteChartData.series
+    )
+    : null;
   const sifTooltipLegend = isSifPalette
     ? buildTooltipLegend(`Color by ${activeSifPaletteColorField.label}`, sifPaletteChartData.series)
     : null;
@@ -4683,6 +4900,24 @@ export default function App() {
     {
       includeZero: chartVariants.controllableCosts === 'bar',
       goalLine: visibleControllableCostsGoalLine
+    }
+  );
+  const controllableCostsHanaGoalLine = getMetricGoalLine(
+    'controllableCostsHana',
+    isControllableCostsHanaPareto || isControllableCostsHanaPalette
+      ? null
+      : controllableCostsHanaViewMode
+  );
+  const visibleControllableCostsHanaGoalLine = clampGoalLineToVisibleSeries(
+    controllableCostsHanaGoalLine,
+    [controllableCostsHanaChartData.total]
+  );
+  const controllableCostsHanaChartYAxis = buildDynamicNumericYAxis(
+    CONTROLLABLE_COSTS_Y_AXIS,
+    [controllableCostsHanaChartData.total],
+    {
+      includeZero: chartVariants.controllableCostsHana === 'bar',
+      goalLine: visibleControllableCostsHanaGoalLine
     }
   );
   const sifGoalLine = getMetricGoalLine(
@@ -4742,6 +4977,7 @@ export default function App() {
   );
   const visibleCards = {
     controllableCosts: activeCardKeys.has('controllableCosts'),
+    controllableCostsHana: activeCardKeys.has('controllableCostsHana'),
     sif: activeCardKeys.has('sif'),
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
@@ -4806,11 +5042,13 @@ export default function App() {
   const setAllChartVariants = (nextVariant) => {
     setChartVariants({
       controllableCosts: nextVariant,
+      controllableCostsHana: nextVariant,
       sif: nextVariant,
       potentialSif: nextVariant,
       nmfr: nextVariant,
       otd: nextVariant,
-      labor: nextVariant
+      labor: nextVariant,
+      laborHana: nextVariant
     });
   };
 
@@ -4848,6 +5086,15 @@ export default function App() {
 
     if (Object.hasOwn(CONTROLLABLE_COSTS_VIEW_CONFIG, presetState.controllableCosts?.viewMode)) {
       setControllableCostsViewMode(presetState.controllableCosts.viewMode);
+    }
+
+    if (
+      Object.hasOwn(
+        CONTROLLABLE_COSTS_VIEW_CONFIG,
+        presetState.controllableCostsHana?.viewMode
+      )
+    ) {
+      setControllableCostsHanaViewMode(presetState.controllableCostsHana.viewMode);
     }
 
     if (Object.hasOwn(INCIDENT_VIEW_CONFIG, presetState.sif?.viewMode)) {
@@ -4983,6 +5230,42 @@ export default function App() {
     ) {
       setSelectedControllablePaletteColorField(
         presetState.controllableCosts.paletteColorField
+      );
+    }
+
+    if (
+      CONTROLLABLE_HANA_CHART_FILTER_FIELDS.some(
+        (option) => option.value === presetState.controllableCostsHana?.filterField
+      )
+    ) {
+      setSelectedControllableHanaChartFilterField(
+        presetState.controllableCostsHana.filterField
+      );
+    }
+
+    setSelectedControllableHanaChartFilterValue(
+      typeof presetState.controllableCostsHana?.filterValue === 'string'
+        ? presetState.controllableCostsHana.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      CONTROLLABLE_HANA_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.controllableCostsHana?.paletteGroupField
+      )
+    ) {
+      setSelectedControllableHanaPaletteGroupField(
+        presetState.controllableCostsHana.paletteGroupField
+      );
+    }
+
+    if (
+      CONTROLLABLE_HANA_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.controllableCostsHana?.paletteColorField
+      )
+    ) {
+      setSelectedControllableHanaPaletteColorField(
+        presetState.controllableCostsHana.paletteColorField
       );
     }
 
@@ -5125,6 +5408,11 @@ export default function App() {
         selectedControllableChartFilterValue,
         selectedControllablePaletteGroupField,
         selectedControllablePaletteColorField,
+        controllableCostsHanaViewMode,
+        selectedControllableHanaChartFilterField,
+        selectedControllableHanaChartFilterValue,
+        selectedControllableHanaPaletteGroupField,
+        selectedControllableHanaPaletteColorField,
         sifViewMode,
         selectedSifChartFilterField,
         selectedSifChartFilterValue,
@@ -5657,8 +5945,200 @@ export default function App() {
               </article>
             )}
 
+            {visibleCards.controllableCostsHana && (
+              <article className="analytics-card" style={{ order: 2 }}>
+                <CardHeader
+                  title="Controllable Costs HANA"
+                  info={METRIC_INFO.controllableCostsHana}
+                  tooltipLegend={controllableCostsHanaTooltipLegend}
+                />
+
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <div ref={controllableCostsHanaChartHostRef} className="chart-host">
+                      {controllableCostsHanaState.loading && (
+                        <p className="chart-message">Loading HANA cost data...</p>
+                      )}
+
+                      {!controllableCostsHanaState.loading && controllableCostsHanaState.error && (
+                        <p className="chart-message chart-message-error">
+                          {controllableCostsHanaState.error}
+                        </p>
+                      )}
+
+                      {!controllableCostsHanaState.loading
+                        && !controllableCostsHanaState.error
+                        && (baseFilteredControllableCostsHanaRows.length === 0
+                          || (isControllableCostsHanaPareto
+                            ? controllableCostsHanaParetoChartData.labels.length === 0
+                            : isControllableCostsHanaPalette
+                              ? controllableCostsHanaPaletteChartData.labels.length === 0
+                              : globallyFilteredControllableCostsHanaRows.length === 0)) && (
+                          <p className="chart-message">
+                            {controllableCostsHanaState.rows.length === 0
+                              ? 'No HANA cost rows are available for charting.'
+                              : filteredControllableCostsHanaRows.length === 0
+                                  && controllableHanaFilterApplies
+                                ? 'No HANA cost rows match the selected filters.'
+                                : 'No HANA cost rows fall within the selected date range.'}
+                          </p>
+                        )}
+
+                      {!controllableCostsHanaState.loading
+                        && !controllableCostsHanaState.error
+                        && (isControllableCostsHanaPareto
+                          ? controllableCostsHanaParetoChartData.labels.length > 0
+                          : isControllableCostsHanaPalette
+                            ? controllableCostsHanaPaletteChartData.labels.length > 0
+                            : controllableCostsHanaChartData.labels.length > 0)
+                        && controllableCostsHanaChartWidth > 0 && (
+                          isControllableCostsHanaPareto ? (
+                            <ParetoMetricChart
+                              width={controllableCostsHanaChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsHanaParetoChartData.labels}
+                              values={controllableCostsHanaParetoChartData.values}
+                              cumulativeShares={controllableCostsHanaParetoChartData.cumulativeShares}
+                              barLabel="Total cost"
+                              barColor="var(--chart-line)"
+                              barAxis={CONTROLLABLE_COSTS_Y_AXIS}
+                              barValueFormatter={formatCurrency}
+                              goalLine={visibleControllableCostsHanaGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isControllableCostsHanaPalette ? (
+                            <StackedCategoryBarChart
+                              width={controllableCostsHanaChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsHanaPaletteChartData.labels}
+                              yAxis={controllableCostsHanaPaletteChartYAxis}
+                              series={controllableCostsHanaPaletteChartData.series.map(
+                                (seriesItem) => ({
+                                  ...seriesItem,
+                                  valueFormatter: formatCurrency
+                                })
+                              )}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.controllableCostsHana === 'bar' ? 'bar' : 'line'}
+                              width={controllableCostsHanaChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsHanaChartData.labels}
+                              yAxis={controllableCostsHanaChartYAxis}
+                              series={[
+                                {
+                                  data: controllableCostsHanaChartData.total,
+                                  label: 'Total Cost',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: controllableCostsHanaChartData.labels.length <= 1
+                                }
+                              ]}
+                              goalLine={visibleControllableCostsHanaGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          )
+                        )}
+                    </div>
+
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.controllableCostsHana}
+                          onChange={(nextVariant) => {
+                            if (nextVariant === 'pareto') {
+                              setSelectedControllableHanaChartFilterField(
+                                CONTROLLABLE_HANA_PARETO_FILTER_FIELDS[0].value
+                              );
+                            }
+
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              controllableCostsHana: nextVariant
+                            }));
+                          }}
+                          alwaysGridToggle
+                          supportsFilter
+                          supportsPalette
+                          supportsPareto
+                          filterToggleAriaLabel="HANA costs time series"
+                          filterFieldValue={activeControllableHanaChartFilterField.value}
+                          filterFieldOptions={CONTROLLABLE_HANA_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={CONTROLLABLE_HANA_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select HANA costs filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedControllableHanaChartFilterField(nextField);
+                            setSelectedControllableHanaChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activeControllableHanaChartFilterValue}
+                          filterValueOptions={controllableHanaChartFilterValueOptions}
+                          filterValueAllLabel={activeControllableHanaChartFilterField.allLabel}
+                          filterValueAriaLabel="Select HANA costs filter value"
+                          onFilterValueChange={setSelectedControllableHanaChartFilterValue}
+                          paletteToggleAriaLabel="HANA costs grouped palette chart"
+                          paletteGroupFieldValue={activeControllableHanaPaletteGroupField.value}
+                          paletteGroupFieldOptions={controllableHanaPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select HANA costs group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedControllableHanaPaletteGroupField(nextField);
+
+                            if (nextField === activeControllableHanaPaletteColorField.value) {
+                              const nextColorField = CONTROLLABLE_HANA_PALETTE_FIELDS.find(
+                                (option) => option.value !== nextField
+                              )?.value ?? nextField;
+
+                              setSelectedControllableHanaPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeControllableHanaPaletteColorField.value}
+                          paletteColorFieldOptions={controllableHanaPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select HANA costs color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedControllableHanaPaletteColorField(nextField);
+
+                            if (nextField === activeControllableHanaPaletteGroupField.value) {
+                              const nextGroupField = CONTROLLABLE_HANA_PALETTE_FIELDS.find(
+                                (option) => option.value !== nextField
+                              )?.value ?? nextField;
+
+                              setSelectedControllableHanaPaletteGroupField(nextGroupField);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <ToggleButtonGroup
+                        value={controllableCostsHanaViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setControllableCostsHanaViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(CONTROLLABLE_COSTS_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
             {visibleCards.sif && (
-              <article className="analytics-card" style={{ order: 7 }}>
+              <article className="analytics-card" style={{ order: 8 }}>
                 <CardHeader
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
@@ -5841,7 +6321,7 @@ export default function App() {
             )}
 
             {visibleCards.potentialSif && (
-              <article className="analytics-card" style={{ order: 6 }}>
+              <article className="analytics-card" style={{ order: 7 }}>
                 <CardHeader
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
@@ -6032,7 +6512,7 @@ export default function App() {
             )}
 
             {visibleCards.nmfr && (
-              <article className="analytics-card" style={{ order: 4 }}>
+              <article className="analytics-card" style={{ order: 5 }}>
                 <CardHeader
                   title="Near Miss Frequency Rate"
                   info={nmfrMetricInfo}
@@ -6215,7 +6695,7 @@ export default function App() {
             )}
 
             {visibleCards.otd && (
-              <article className="analytics-card" style={{ order: 5 }}>
+              <article className="analytics-card" style={{ order: 6 }}>
                 <CardHeader
                   title="On Time Delivery (OTD)"
                   info={METRIC_INFO.otd}
@@ -6401,7 +6881,7 @@ export default function App() {
             )}
 
             {visibleCards.labor && (
-              <article className="analytics-card" style={{ order: 2 }}>
+              <article className="analytics-card" style={{ order: 3 }}>
                 <CardHeader
                   title="Direct Labor Utilization"
                   info={METRIC_INFO.labor}
@@ -6588,7 +7068,7 @@ export default function App() {
             )}
 
             {visibleCards.laborHana && (
-              <article className="analytics-card" style={{ order: 3 }}>
+              <article className="analytics-card" style={{ order: 4 }}>
                 <CardHeader
                   title="Labor Utilization HANA"
                   info={METRIC_INFO.laborHana}

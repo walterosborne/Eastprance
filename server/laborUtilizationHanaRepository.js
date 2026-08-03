@@ -12,6 +12,7 @@ import {
 
 const LABOR_UTILIZATION_HANA_TABLE_NAME = 'qmi.labor_utilization_hana';
 const ROSTER_TABLE_NAME = 'RosterExtractFarm';
+const MAX_MONTHLY_LABOR_ROWS = 500000;
 const MONTH_KEYS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const UNKNOWN_ORG_VALUE = 'Unknown';
 
@@ -285,7 +286,7 @@ async function readHanaMonthlyHours(pool, connectionConfig) {
         TRY_CONVERT(float, source.[Entered Hours]) AS [entered_hours]
       FROM ${tableName} AS source
     )
-    SELECT
+    SELECT TOP (${MAX_MONTHLY_LABOR_ROWS})
       YEAR([timesheet_date]) AS [year],
       MONTH([timesheet_date]) AS [month],
       [employee_id],
@@ -302,8 +303,8 @@ async function readHanaMonthlyHours(pool, connectionConfig) {
       [employee_id],
       [labor_category]
     ORDER BY
-      [year] ASC,
-      [month] ASC,
+      [year] DESC,
+      [month] DESC,
       [employee_id] ASC,
       [labor_category] ASC;
   `);
@@ -395,6 +396,8 @@ export async function readLaborUtilizationHanaData() {
       rosterTableName: ROSTER_TABLE_NAME,
       rowCount: rows.length,
       sourceRowCount: timesheetRows.length,
+      sourceRowLimit: MAX_MONTHLY_LABOR_ROWS,
+      sourceRowLimitReached: timesheetRows.length >= MAX_MONTHLY_LABOR_ROWS,
       matchedEmployeeCount,
       unmatchedEmployeeCount,
       years,
@@ -408,6 +411,8 @@ export async function readLaborUtilizationHanaData() {
       rosterConnectionSource,
       rowCount: payload.rowCount,
       sourceRowCount: payload.sourceRowCount,
+      sourceRowLimit: payload.sourceRowLimit,
+      sourceRowLimitReached: payload.sourceRowLimitReached,
       matchedEmployeeCount,
       unmatchedEmployeeCount,
       years,

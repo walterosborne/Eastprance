@@ -3986,8 +3986,10 @@ export default function App() {
         logClientDebug('labor-hana', 'HANA labor state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
           source: payload.source,
-          matchedEmployeeCount: payload.matchedEmployeeCount,
-          unmatchedEmployeeCount: payload.unmatchedEmployeeCount,
+          sourceRowCount: payload.sourceRowCount,
+          sourceRowLimit: payload.sourceRowLimit,
+          sourceRowLimitReached: payload.sourceRowLimitReached,
+          employeeCount: payload.employeeCount,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
       } catch (error) {

@@ -41,13 +41,16 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
+const LABOR_HANA_DATASET_ENABLED = false;
 let requestCounter = 0;
 
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
 registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
-registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
+if (LABOR_HANA_DATASET_ENABLED) {
+  registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
+}
 registerSqlDatasetCache('safety-incidents', readSafetyEventMetricsData);
 registerSqlDatasetCache('safety-nmfr', readSafetyNmfrData);
 
@@ -297,15 +300,17 @@ app.get('/api/labor-utilization', async (request, response) => {
   );
 });
 
-app.get('/api/labor-utilization-hana', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'labor-hana',
-    () => getCachedSqlDataset('labor-hana'),
-    'Unable to read HANA labor utilization data.'
-  );
-});
+if (LABOR_HANA_DATASET_ENABLED) {
+  app.get('/api/labor-utilization-hana', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'labor-hana',
+      () => getCachedSqlDataset('labor-hana'),
+      'Unable to read HANA labor utilization data.'
+    );
+  });
+}
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(clientDistPath));

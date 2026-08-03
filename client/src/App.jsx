@@ -35,7 +35,12 @@ import {
   useItemTooltip
 } from '@mui/x-charts';
 import { toast } from 'react-toastify';
-import { forecastNmfrGoalLineFromSeries, NMFR_ARIMA_MIN_OBSERVATIONS } from './arimaGoalLines';
+import {
+  forecastLaborHanaGoalLineFromSeries,
+  forecastNmfrGoalLineFromSeries,
+  LABOR_HANA_ARIMA_MIN_OBSERVATIONS,
+  NMFR_ARIMA_MIN_OBSERVATIONS
+} from './arimaGoalLines';
 import { buildNmfrMetricInfo, DEFAULT_METRIC_INFO, METRIC_INFO } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
@@ -280,6 +285,7 @@ const LABOR_HANA_PALETTE_FIELDS = LABOR_HANA_CHART_FILTER_FIELDS.map((option) =>
 const LABOR_HANA_PARETO_FILTER_FIELDS = [LABOR_HANA_CHART_FILTER_FIELDS[2]];
 
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
+const LABOR_HANA_CARD_ENABLED = false;
 
 const CARD_CHIP_OPTIONS = [
   {
@@ -294,14 +300,19 @@ const CARD_CHIP_OPTIONS = [
       'nmfr',
       'otd',
       'labor',
-      'laborHana'
+      ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
   },
   {
     key: 'businessManagement',
     label: 'Business Management',
     icon: faCalculator,
-    cardKeys: ['controllableCosts', 'controllableCostsHana', 'labor', 'laborHana']
+    cardKeys: [
+      'controllableCosts',
+      'controllableCostsHana',
+      'labor',
+      ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
+    ]
   },
   {
     key: 'ehss',
@@ -3622,13 +3633,15 @@ export default function App() {
   });
   const [laborHanaState, setLaborHanaState] = useState({
     rows: [],
-    loading: true,
+    loading: LABOR_HANA_CARD_ENABLED,
     error: '',
     source: ''
   });
   const [nmfrArimaGoalLine, setNmfrArimaGoalLine] = useState(null);
   const [nmfrArimaGoalStatus, setNmfrArimaGoalStatus] = useState('idle');
   const [nmfrArimaObservationCount, setNmfrArimaObservationCount] = useState(0);
+  const [laborHanaArimaGoalLine, setLaborHanaArimaGoalLine] = useState(null);
+  const [laborHanaArimaGoalStatus, setLaborHanaArimaGoalStatus] = useState('idle');
   const [selectedControllableChartFilterField, setSelectedControllableChartFilterField] = useState(
     CONTROLLABLE_CHART_FILTER_FIELDS[0].value
   );
@@ -4143,7 +4156,9 @@ export default function App() {
     loadNmfrData();
     loadOtdData();
     loadLaborData();
-    loadLaborHanaData();
+    if (LABOR_HANA_CARD_ENABLED) {
+      loadLaborHanaData();
+    }
 
     return () => {
       isMounted = false;
@@ -4964,6 +4979,15 @@ export default function App() {
     laborHanaViewMode,
     selectedDateRange
   );
+  const laborHanaGoalForecastData = buildLaborUtilizationChartData(
+    filteredLaborHanaRows,
+    'monthly',
+    selectedDateRange
+  );
+  const laborHanaGoalForecastSeriesValues = laborHanaGoalForecastData.directShare.filter(
+    (_value, index) => laborHanaGoalForecastData.totals[index] > 0
+  );
+  const laborHanaGoalForecastSeriesSignature = laborHanaGoalForecastSeriesValues.join('|');
   const laborHanaPaletteChartData = buildLaborPaletteChartData(
     laborHanaState.rows,
     activeLaborHanaPaletteGroupField.value,
@@ -4988,6 +5012,65 @@ export default function App() {
       showMark: false
     }
   ];
+
+  useEffect(() => {
+    if (laborHanaState.loading || laborHanaState.error) {
+      setLaborHanaArimaGoalLine(null);
+      setLaborHanaArimaGoalStatus('idle');
+      return undefined;
+    }
+
+    if (laborHanaGoalForecastSeriesValues.length < LABOR_HANA_ARIMA_MIN_OBSERVATIONS) {
+      setLaborHanaArimaGoalLine(null);
+      setLaborHanaArimaGoalStatus('insufficient_data');
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    forecastLaborHanaGoalLineFromSeries(laborHanaGoalForecastSeriesValues)
+      .then((goalLine) => {
+        if (isCancelled) {
+          return;
+        }
+
+        if (!goalLine) {
+          logClientDebug('labor-hana-goal', 'ARIMA goal line unavailable; using static fallback.', {
+            observationCount: laborHanaGoalForecastSeriesValues.length
+          });
+          setLaborHanaArimaGoalLine(null);
+          setLaborHanaArimaGoalStatus('unavailable');
+          return;
+        }
+
+        logClientDebug('labor-hana-goal', 'Updated ARIMA goal line from monthly direct share.', {
+          observationCount: laborHanaGoalForecastSeriesValues.length,
+          goalLine
+        });
+        setLaborHanaArimaGoalLine(goalLine);
+        setLaborHanaArimaGoalStatus('ready');
+      })
+      .catch((error) => {
+        if (isCancelled) {
+          return;
+        }
+
+        logClientDebug('labor-hana-goal', 'Failed to compute ARIMA goal line; using static fallback.', {
+          observationCount: laborHanaGoalForecastSeriesValues.length,
+          error: error?.message ?? String(error)
+        });
+        setLaborHanaArimaGoalLine(null);
+        setLaborHanaArimaGoalStatus('unavailable');
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    laborHanaGoalForecastSeriesSignature,
+    laborHanaState.error,
+    laborHanaState.loading
+  ]);
   const controllableCostsTooltipLegend = isControllableCostsPalette
     ? buildTooltipLegend(
       `Color by ${activeControllablePaletteColorField.label}`,
@@ -5116,11 +5199,14 @@ export default function App() {
     ),
     formatPercentValue
   );
+  const laborHanaStaticGoalLine = getMetricGoalLine('laborHana', laborHanaViewMode);
+  const laborHanaBaseGoalLine = isLaborHanaPareto || isLaborHanaPalette
+    ? null
+    : laborHanaArimaGoalStatus === 'insufficient_data'
+      ? null
+      : (laborHanaArimaGoalLine ?? laborHanaStaticGoalLine);
   const laborHanaGoalLine = labelGoalLineValue(
-    getMetricGoalLine(
-      'laborHana',
-      isLaborHanaPareto || isLaborHanaPalette ? null : laborHanaViewMode
-    ),
+    laborHanaBaseGoalLine,
     formatPercentValue
   );
   const activeCardKeys = new Set(

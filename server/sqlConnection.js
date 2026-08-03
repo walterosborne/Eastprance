@@ -136,7 +136,8 @@ function getPoolKey(config, poolName = 'default') {
     poolName,
     config.server,
     config.database,
-    config.user
+    config.user,
+    config.requestTimeout ?? ''
   ].join('|');
 }
 
@@ -158,6 +159,7 @@ export async function getPool(config, poolName = 'default') {
       database: config.database,
       user: config.user,
       password: config.password,
+      requestTimeout: config.requestTimeout,
       options: {
         encrypt: true,
         trustServerCertificate: true

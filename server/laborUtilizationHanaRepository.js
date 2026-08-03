@@ -11,7 +11,8 @@ import {
 } from './sqlConnection.js';
 
 const LABOR_UTILIZATION_HANA_TABLE_NAME = 'qmi.labor_utilization_hana';
-const MAX_MONTHLY_LABOR_ROWS = 500000;
+const MAX_RECENT_SOURCE_ROWS = 500000;
+const HANA_QUERY_TIMEOUT_MS = 90000;
 const MONTH_KEYS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 function normalizeText(value) {
@@ -140,7 +141,17 @@ export function buildLaborUtilizationHanaRows(timesheetRows) {
 async function readHanaMonthlyHours(pool, connectionConfig) {
   const tableName = formatSqlIdentifier(LABOR_UTILIZATION_HANA_TABLE_NAME, connectionConfig);
   const result = await pool.request().query(`
-    WITH normalized_labor AS (
+    WITH recent_labor AS (
+      SELECT TOP (${MAX_RECENT_SOURCE_ROWS})
+        source.[Timesheet Date],
+        source.[Employee ID],
+        source.[Labor Type],
+        source.[Entered Hours]
+      FROM ${tableName} AS source
+      WHERE source.[Timesheet Date] IS NOT NULL
+      ORDER BY source.[Timesheet Date] DESC
+    ),
+    normalized_labor AS (
       SELECT
         TRY_CONVERT(date, source.[Timesheet Date]) AS [timesheet_date],
         LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(255), source.[Employee ID]), ''))) AS [employee_id],
@@ -152,9 +163,9 @@ async function readHanaMonthlyHours(pool, connectionConfig) {
           ELSE NULL
         END AS [labor_category],
         TRY_CONVERT(float, source.[Entered Hours]) AS [entered_hours]
-      FROM ${tableName} AS source
+      FROM recent_labor AS source
     )
-    SELECT TOP (${MAX_MONTHLY_LABOR_ROWS})
+    SELECT
       YEAR([timesheet_date]) AS [year],
       MONTH([timesheet_date]) AS [month],
       [employee_id],
@@ -194,7 +205,10 @@ export async function readLaborUtilizationHanaData() {
   }
 
   try {
-    const pool = await getPool(config, 'default');
+    const pool = await getPool(
+      { ...config, requestTimeout: HANA_QUERY_TIMEOUT_MS },
+      'labor-hana'
+    );
     const timesheetRows = await readHanaMonthlyHours(pool, config);
     const {
       rows,
@@ -206,8 +220,7 @@ export async function readLaborUtilizationHanaData() {
       tableName: LABOR_UTILIZATION_HANA_TABLE_NAME,
       rowCount: rows.length,
       sourceRowCount: timesheetRows.length,
-      sourceRowLimit: MAX_MONTHLY_LABOR_ROWS,
-      sourceRowLimitReached: timesheetRows.length >= MAX_MONTHLY_LABOR_ROWS,
+      sourceRowLimit: MAX_RECENT_SOURCE_ROWS,
       employeeCount,
       years,
       rows
@@ -219,7 +232,6 @@ export async function readLaborUtilizationHanaData() {
       rowCount: payload.rowCount,
       sourceRowCount: payload.sourceRowCount,
       sourceRowLimit: payload.sourceRowLimit,
-      sourceRowLimitReached: payload.sourceRowLimitReached,
       employeeCount,
       years,
       duration: formatDuration(stopTimer())

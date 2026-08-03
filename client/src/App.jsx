@@ -3988,7 +3988,6 @@ export default function App() {
           source: payload.source,
           sourceRowCount: payload.sourceRowCount,
           sourceRowLimit: payload.sourceRowLimit,
-          sourceRowLimitReached: payload.sourceRowLimitReached,
           employeeCount: payload.employeeCount,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });

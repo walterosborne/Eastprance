@@ -701,11 +701,15 @@ function formatPercentValue(value) {
 }
 
 function formatPercentAxis(value) {
-  return `${Math.round(Number(value ?? 0) * 100)}%`;
+  return `${numberFormatter.format(Number(value ?? 0) * 100)}%`;
 }
 
 function formatIncidentCount(value) {
-  return wholeNumberFormatter.format(Math.round(Number(value ?? 0)));
+  const numericValue = Number(value ?? 0);
+
+  return Number.isInteger(numericValue)
+    ? wholeNumberFormatter.format(numericValue)
+    : numberFormatter.format(numericValue);
 }
 
 function formatCompactHours(value) {
@@ -713,7 +717,12 @@ function formatCompactHours(value) {
 }
 
 function formatCompactHoursAxis(value) {
-  return `${formatCompactWholeNumber(value)} hrs`;
+  const numericValue = Number(value ?? 0);
+  const formattedValue = Math.abs(numericValue) < 1000 && !Number.isInteger(numericValue)
+    ? numberFormatter.format(numericValue)
+    : formatCompactWholeNumber(numericValue);
+
+  return `${formattedValue} hrs`;
 }
 
 function formatDebugDuration(durationMs) {

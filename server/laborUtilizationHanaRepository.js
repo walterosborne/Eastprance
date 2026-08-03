@@ -10,8 +10,7 @@ import {
   getPool
 } from './sqlConnection.js';
 
-const LABOR_UTILIZATION_HANA_TABLE_NAME = 'qmi.labor_utilization_hana';
-const MAX_RECENT_SOURCE_ROWS = 500000;
+const LABOR_UTILIZATION_HANA_TABLE_NAME = 'qmi.labor_agg';
 const HANA_QUERY_TIMEOUT_MS = 90000;
 const MONTH_KEYS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
@@ -19,10 +18,6 @@ function normalizeText(value) {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function normalizeIdentifier(value) {
-  return normalizeText(value).toLowerCase();
 }
 
 function normalizeNumber(value) {
@@ -42,11 +37,14 @@ function normalizeInteger(value) {
 function createHanaLaborRow(sourceRow) {
   const year = normalizeInteger(sourceRow.year);
   const laborCategory = normalizeText(sourceRow.labor_category);
+  const division = normalizeText(sourceRow.division);
+  const businessUnit = normalizeText(sourceRow.business_unit);
+  const facility = normalizeText(sourceRow.facility);
   const row = {
     my_id: '',
     employee_name: '',
-    forecasted_cc: '',
-    pool: '',
+    forecasted_cc: facility,
+    pool: businessUnit,
     location_code: '',
     union_type: '',
     worker_type: '',
@@ -55,9 +53,9 @@ function createHanaLaborRow(sourceRow) {
     labor_category: laborCategory,
     measure: 'Hours',
     year,
-    business_unit: '',
-    division: '',
-    site: '',
+    business_unit: businessUnit,
+    division,
+    site: facility,
     department: '',
     total_year: 0
   };
@@ -70,23 +68,27 @@ function createHanaLaborRow(sourceRow) {
 }
 
 function getHanaLaborRowKey(row) {
-  return [row.year, row.labor_category].join('|');
+  return [
+    row.year,
+    row.division,
+    row.business_unit,
+    row.forecasted_cc,
+    row.labor_category
+  ].join('|');
 }
 
-export function buildLaborUtilizationHanaRows(timesheetRows) {
+export function buildLaborUtilizationHanaRows(aggregateRows) {
   const aggregatedRows = new Map();
-  const employeeIds = new Set();
+  const organizationKeys = new Set();
 
-  timesheetRows.forEach((sourceRow) => {
-    const employeeId = normalizeIdentifier(sourceRow.employee_id);
+  aggregateRows.forEach((sourceRow) => {
     const year = normalizeInteger(sourceRow.year);
     const month = normalizeInteger(sourceRow.month);
     const enteredHours = normalizeNumber(sourceRow.entered_hours);
     const laborCategory = normalizeText(sourceRow.labor_category);
 
     if (
-      !employeeId
-      || !Number.isInteger(year)
+      !Number.isInteger(year)
       || !Number.isInteger(month)
       || month < 1
       || month > 12
@@ -96,7 +98,11 @@ export function buildLaborUtilizationHanaRows(timesheetRows) {
       return;
     }
 
-    employeeIds.add(employeeId);
+    organizationKeys.add([
+      normalizeText(sourceRow.division),
+      normalizeText(sourceRow.business_unit),
+      normalizeText(sourceRow.facility)
+    ].join('|'));
 
     const normalizedSourceRow = {
       ...sourceRow,
@@ -134,27 +140,20 @@ export function buildLaborUtilizationHanaRows(timesheetRows) {
 
   return {
     rows,
-    employeeCount: employeeIds.size
+    organizationCount: organizationKeys.size
   };
 }
 
 async function readHanaMonthlyHours(pool, connectionConfig) {
   const tableName = formatSqlIdentifier(LABOR_UTILIZATION_HANA_TABLE_NAME, connectionConfig);
   const result = await pool.request().query(`
-    WITH recent_labor AS (
-      SELECT TOP (${MAX_RECENT_SOURCE_ROWS})
-        source.[Timesheet Date],
-        source.[Employee ID],
-        source.[Labor Type],
-        source.[Entered Hours]
-      FROM ${tableName} AS source
-      WHERE source.[Timesheet Date] IS NOT NULL
-      ORDER BY source.[Timesheet Date] DESC
-    ),
-    normalized_labor AS (
+    WITH normalized_labor AS (
       SELECT
-        TRY_CONVERT(date, source.[Timesheet Date]) AS [timesheet_date],
-        LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(255), source.[Employee ID]), ''))) AS [employee_id],
+        TRY_CONVERT(int, source.[Year]) AS [year],
+        TRY_CONVERT(int, source.[Month]) AS [month],
+        LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Division]), ''))) AS [division],
+        LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Business Unit]), ''))) AS [business_unit],
+        LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Facility]), ''))) AS [facility],
         CASE
           WHEN LOWER(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Labor Type]), '')) LIKE '%indirect%'
             THEN 'Labor Indirect'
@@ -163,28 +162,34 @@ async function readHanaMonthlyHours(pool, connectionConfig) {
           ELSE NULL
         END AS [labor_category],
         TRY_CONVERT(float, source.[Entered Hours]) AS [entered_hours]
-      FROM recent_labor AS source
+      FROM ${tableName} AS source
     )
     SELECT
-      YEAR([timesheet_date]) AS [year],
-      MONTH([timesheet_date]) AS [month],
-      [employee_id],
+      [year],
+      [month],
+      [division],
+      [business_unit],
+      [facility],
       [labor_category],
       SUM([entered_hours]) AS [entered_hours]
     FROM normalized_labor
-    WHERE [timesheet_date] IS NOT NULL
-      AND [employee_id] <> ''
+    WHERE [year] IS NOT NULL
+      AND [month] BETWEEN 1 AND 12
       AND [labor_category] IS NOT NULL
       AND [entered_hours] IS NOT NULL
     GROUP BY
-      YEAR([timesheet_date]),
-      MONTH([timesheet_date]),
-      [employee_id],
+      [year],
+      [month],
+      [division],
+      [business_unit],
+      [facility],
       [labor_category]
     ORDER BY
       [year] DESC,
       [month] DESC,
-      [employee_id] ASC,
+      [division] ASC,
+      [business_unit] ASC,
+      [facility] ASC,
       [labor_category] ASC;
   `);
 
@@ -209,19 +214,18 @@ export async function readLaborUtilizationHanaData() {
       { ...config, requestTimeout: HANA_QUERY_TIMEOUT_MS },
       'labor-hana'
     );
-    const timesheetRows = await readHanaMonthlyHours(pool, config);
+    const aggregateRows = await readHanaMonthlyHours(pool, config);
     const {
       rows,
-      employeeCount
-    } = buildLaborUtilizationHanaRows(timesheetRows);
+      organizationCount
+    } = buildLaborUtilizationHanaRows(aggregateRows);
     const years = [...new Set(rows.map((row) => row.year))].sort((left, right) => left - right);
     const payload = {
       source: 'mssql',
       tableName: LABOR_UTILIZATION_HANA_TABLE_NAME,
       rowCount: rows.length,
-      sourceRowCount: timesheetRows.length,
-      sourceRowLimit: MAX_RECENT_SOURCE_ROWS,
-      employeeCount,
+      sourceRowCount: aggregateRows.length,
+      organizationCount,
       years,
       rows
     };
@@ -231,8 +235,7 @@ export async function readLaborUtilizationHanaData() {
       tableName: payload.tableName,
       rowCount: payload.rowCount,
       sourceRowCount: payload.sourceRowCount,
-      sourceRowLimit: payload.sourceRowLimit,
-      employeeCount,
+      organizationCount,
       years,
       duration: formatDuration(stopTimer())
     });

@@ -256,6 +256,29 @@ const LABOR_PALETTE_FIELDS = LABOR_CHART_FILTER_FIELDS.map((option) => ({
 }));
 const LABOR_PARETO_FILTER_FIELDS = [LABOR_CHART_FILTER_FIELDS[0]];
 
+const LABOR_HANA_CHART_FILTER_FIELDS = [
+  {
+    value: 'division',
+    label: 'Division',
+    allLabel: 'All divisions'
+  },
+  {
+    value: 'business_unit',
+    label: 'Business Unit',
+    allLabel: 'All business units'
+  },
+  {
+    value: 'forecasted_cc',
+    label: 'Facility',
+    allLabel: 'All facilities'
+  }
+];
+const LABOR_HANA_PALETTE_FIELDS = LABOR_HANA_CHART_FILTER_FIELDS.map((option) => ({
+  value: option.value,
+  label: option.label
+}));
+const LABOR_HANA_PARETO_FILTER_FIELDS = [LABOR_HANA_CHART_FILTER_FIELDS[2]];
+
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
 
 const CARD_CHIP_OPTIONS = [
@@ -3680,15 +3703,15 @@ export default function App() {
   );
   const [laborViewMode, setLaborViewMode] = useState('monthly');
   const [selectedLaborHanaChartFilterField, setSelectedLaborHanaChartFilterField] = useState(
-    LABOR_CHART_FILTER_FIELDS[0].value
+    LABOR_HANA_CHART_FILTER_FIELDS[0].value
   );
   const [selectedLaborHanaChartFilterValue, setSelectedLaborHanaChartFilterValue] =
     useState(ALL_FILTER_VALUE);
   const [selectedLaborHanaPaletteGroupField, setSelectedLaborHanaPaletteGroupField] = useState(
-    LABOR_PALETTE_FIELDS[0].value
+    LABOR_HANA_PALETTE_FIELDS[0].value
   );
   const [selectedLaborHanaPaletteColorField, setSelectedLaborHanaPaletteColorField] = useState(
-    LABOR_PALETTE_FIELDS[1].value
+    LABOR_HANA_PALETTE_FIELDS[1].value
   );
   const [laborHanaViewMode, setLaborHanaViewMode] = useState('monthly');
   const [selectedCardGroup, setSelectedCardGroup] = useState('all');
@@ -4086,8 +4109,7 @@ export default function App() {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
           source: payload.source,
           sourceRowCount: payload.sourceRowCount,
-          sourceRowLimit: payload.sourceRowLimit,
-          employeeCount: payload.employeeCount,
+          organizationCount: payload.organizationCount,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
       } catch (error) {
@@ -4901,23 +4923,23 @@ export default function App() {
     }
   ];
   const activeLaborHanaChartFilterField =
-    LABOR_CHART_FILTER_FIELDS.find(
+    LABOR_HANA_CHART_FILTER_FIELDS.find(
       (option) => option.value === selectedLaborHanaChartFilterField
-    ) ?? LABOR_CHART_FILTER_FIELDS[0];
-  const laborHanaPaletteGroupFieldOptions = LABOR_PALETTE_FIELDS.filter(
+    ) ?? LABOR_HANA_CHART_FILTER_FIELDS[0];
+  const laborHanaPaletteGroupFieldOptions = LABOR_HANA_PALETTE_FIELDS.filter(
     (option) => option.value !== selectedLaborHanaPaletteColorField
   );
   const activeLaborHanaPaletteGroupField =
     laborHanaPaletteGroupFieldOptions.find(
       (option) => option.value === selectedLaborHanaPaletteGroupField
-    ) ?? laborHanaPaletteGroupFieldOptions[0] ?? LABOR_PALETTE_FIELDS[0];
-  const laborHanaPaletteColorFieldOptions = LABOR_PALETTE_FIELDS.filter(
+    ) ?? laborHanaPaletteGroupFieldOptions[0] ?? LABOR_HANA_PALETTE_FIELDS[0];
+  const laborHanaPaletteColorFieldOptions = LABOR_HANA_PALETTE_FIELDS.filter(
     (option) => option.value !== activeLaborHanaPaletteGroupField.value
   );
   const activeLaborHanaPaletteColorField =
     laborHanaPaletteColorFieldOptions.find(
       (option) => option.value === selectedLaborHanaPaletteColorField
-    ) ?? laborHanaPaletteColorFieldOptions[0] ?? LABOR_PALETTE_FIELDS[1];
+    ) ?? laborHanaPaletteColorFieldOptions[0] ?? LABOR_HANA_PALETTE_FIELDS[1];
   const laborHanaChartFilterValueOptions = getFilterOptions(
     laborHanaState.rows,
     activeLaborHanaChartFilterField.value
@@ -5448,7 +5470,7 @@ export default function App() {
     }
 
     if (
-      LABOR_CHART_FILTER_FIELDS.some(
+      LABOR_HANA_CHART_FILTER_FIELDS.some(
         (option) => option.value === presetState.laborHana?.filterField
       )
     ) {
@@ -5462,7 +5484,7 @@ export default function App() {
     );
 
     if (
-      LABOR_PALETTE_FIELDS.some(
+      LABOR_HANA_PALETTE_FIELDS.some(
         (option) => option.value === presetState.laborHana?.paletteGroupField
       )
     ) {
@@ -5470,7 +5492,7 @@ export default function App() {
     }
 
     if (
-      LABOR_PALETTE_FIELDS.some(
+      LABOR_HANA_PALETTE_FIELDS.some(
         (option) => option.value === presetState.laborHana?.paletteColorField
       )
     ) {
@@ -7324,7 +7346,7 @@ export default function App() {
                           onChange={(nextVariant) => {
                             if (nextVariant === 'pareto') {
                               setSelectedLaborHanaChartFilterField(
-                                LABOR_PARETO_FILTER_FIELDS[0].value
+                                LABOR_HANA_PARETO_FILTER_FIELDS[0].value
                               );
                             }
 
@@ -7339,8 +7361,8 @@ export default function App() {
                           supportsPareto
                           filterToggleAriaLabel="Filter HANA labor chart"
                           filterFieldValue={activeLaborHanaChartFilterField.value}
-                          filterFieldOptions={LABOR_CHART_FILTER_FIELDS}
-                          paretoFieldOptions={LABOR_PARETO_FILTER_FIELDS}
+                          filterFieldOptions={LABOR_HANA_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={LABOR_HANA_PARETO_FILTER_FIELDS}
                           filterFieldAriaLabel="Select HANA labor filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedLaborHanaChartFilterField(nextField);
@@ -7360,7 +7382,7 @@ export default function App() {
 
                             if (nextField === activeLaborHanaPaletteColorField.value) {
                               const nextColorField =
-                                LABOR_PALETTE_FIELDS.find(
+                                LABOR_HANA_PALETTE_FIELDS.find(
                                   (option) => option.value !== nextField
                                 )?.value ?? nextField;
 
@@ -7375,7 +7397,7 @@ export default function App() {
 
                             if (nextField === activeLaborHanaPaletteGroupField.value) {
                               const nextGroupField =
-                                LABOR_PALETTE_FIELDS.find(
+                                LABOR_HANA_PALETTE_FIELDS.find(
                                   (option) => option.value !== nextField
                                 )?.value ?? nextField;
 

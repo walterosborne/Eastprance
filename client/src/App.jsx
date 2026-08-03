@@ -813,6 +813,17 @@ function clampGoalLineToVisibleSeries(goalLine, seriesCollections, maxScaleMulti
     : goalLine;
 }
 
+function labelGoalLineValue(goalLine, valueFormatter = formatNumber) {
+  if (!goalLine) {
+    return null;
+  }
+
+  return {
+    ...goalLine,
+    label: `Goal ${valueFormatter(goalLine.value)}`
+  };
+}
+
 function normalizeText(value) {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
@@ -4790,13 +4801,21 @@ export default function App() {
   const isOtdPalette = chartVariants.otd === 'palette';
   const isOtdPareto = chartVariants.otd === 'pareto';
   const isOtdBarChart = chartVariants.otd === 'bar';
+  const otdGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'otd',
+      isOtdBarChart || isOtdPareto || isOtdPalette ? null : otdViewMode
+    ),
+    formatPercentValue
+  );
   const otdPercentChartYAxis = buildDynamicNumericYAxis(
     OTD_PERCENT_Y_AXIS,
     [otdChartData.deliveredPercent],
     {
       includeZero: true,
       minFloor: 0,
-      maxCeiling: 1
+      maxCeiling: 1,
+      goalLine: otdGoalLine
     }
   );
   const otdUnitsChartYAxis = buildDynamicNumericYAxis(
@@ -4983,11 +5002,14 @@ export default function App() {
       laborHanaPaletteChartData.series
     )
     : null;
-  const controllableCostsGoalLine = getMetricGoalLine(
-    'controllableCosts',
-    isControllableCostsPareto || isControllableCostsPalette
-      ? null
-      : controllableCostsViewMode
+  const controllableCostsGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'controllableCosts',
+      isControllableCostsPareto || isControllableCostsPalette
+        ? null
+        : controllableCostsViewMode
+    ),
+    formatCompactCurrency
   );
   const visibleControllableCostsGoalLine = clampGoalLineToVisibleSeries(
     controllableCostsGoalLine,
@@ -5001,11 +5023,14 @@ export default function App() {
       goalLine: visibleControllableCostsGoalLine
     }
   );
-  const controllableCostsHanaGoalLine = getMetricGoalLine(
-    'controllableCostsHana',
-    isControllableCostsHanaPareto || isControllableCostsHanaPalette
-      ? null
-      : controllableCostsHanaViewMode
+  const controllableCostsHanaGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'controllableCostsHana',
+      isControllableCostsHanaPareto || isControllableCostsHanaPalette
+        ? null
+        : controllableCostsHanaViewMode
+    ),
+    formatCompactCurrency
   );
   const visibleControllableCostsHanaGoalLine = clampGoalLineToVisibleSeries(
     controllableCostsHanaGoalLine,
@@ -5019,13 +5044,19 @@ export default function App() {
       goalLine: visibleControllableCostsHanaGoalLine
     }
   );
-  const sifGoalLine = getMetricGoalLine(
-    'sif',
-    isSifPareto || isSifPalette ? null : sifViewMode
+  const sifGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'sif',
+      isSifPareto || isSifPalette ? null : sifViewMode
+    ),
+    formatIncidentCount
   );
-  const potentialSifGoalLine = getMetricGoalLine(
-    'potentialSif',
-    isPotentialSifPareto || isPotentialSifPalette ? null : potentialSifViewMode
+  const potentialSifGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'potentialSif',
+      isPotentialSifPareto || isPotentialSifPalette ? null : potentialSifViewMode
+    ),
+    formatIncidentCount
   );
   const nmfrGoalLine = getMetricGoalLine(
     'nmfr',
@@ -5046,12 +5077,7 @@ export default function App() {
     nmfrBaseGoalLine,
     [nmfrChartData.map((bucket) => bucket.total)]
   );
-  const labeledNmfrGoalLine = visibleNmfrGoalLine
-    ? {
-      ...visibleNmfrGoalLine,
-      label: `Goal ${formatNumber(visibleNmfrGoalLine.value)}`
-    }
-    : null;
+  const labeledNmfrGoalLine = labelGoalLineValue(visibleNmfrGoalLine, formatNumber);
   const nmfrChartYAxis = buildDynamicNumericYAxis(
     NMFR_Y_AXIS,
     [nmfrChartData.map((bucket) => bucket.total)],
@@ -5061,14 +5087,19 @@ export default function App() {
       minFloor: 0
     }
   );
-  const otdGoalLine = null;
-  const laborGoalLine = getMetricGoalLine(
-    'labor',
-    isLaborPareto || isLaborPalette ? null : laborViewMode
+  const laborGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'labor',
+      isLaborPareto || isLaborPalette ? null : laborViewMode
+    ),
+    formatPercentValue
   );
-  const laborHanaGoalLine = getMetricGoalLine(
-    'laborHana',
-    isLaborHanaPareto || isLaborHanaPalette ? null : laborHanaViewMode
+  const laborHanaGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'laborHana',
+      isLaborHanaPareto || isLaborHanaPalette ? null : laborHanaViewMode
+    ),
+    formatPercentValue
   );
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])

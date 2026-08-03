@@ -1421,32 +1421,57 @@ function buildOtdChartData(rows, viewMode, selectedDateRange) {
   const tooltipLabelLookup = Object.fromEntries(
     buckets.map((bucket) => [bucket.label, bucket.tooltipLabel ?? bucket.label])
   );
+  const contract = buckets.map((bucket) => Number(
+    bucket.monthIndices
+      .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0)
+      .toFixed(2)
+  ));
+  const delivered = buckets.map((bucket) => Number(
+    bucket.monthIndices
+      .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0)
+      .toFixed(2)
+  ));
+  const actualDeliveredPercent = buckets.map((_bucket, index) => {
+    const contractTotal = contract[index];
+    const deliveredTotal = delivered[index];
+
+    if (!Number.isFinite(contractTotal) || contractTotal <= 0) {
+      return 0;
+    }
+
+    return Number((deliveredTotal / contractTotal).toFixed(4));
+  });
+  const deliveredPercent = actualDeliveredPercent.map((value) =>
+    Math.min(Math.max(value, 0), 1)
+  );
+  const deliveredForChart = delivered.map((value, index) => {
+    const contractTotal = contract[index];
+
+    if (!Number.isFinite(contractTotal) || contractTotal <= 0) {
+      return 0;
+    }
+
+    return Math.min(Math.max(value, 0), contractTotal);
+  });
+  const tooltipLookup = Object.fromEntries(
+    buckets.map((bucket, index) => [
+      bucket.label,
+      {
+        contract: contract[index],
+        delivered: delivered[index],
+        deliveredPercent: actualDeliveredPercent[index]
+      }
+    ])
+  );
 
   return {
     labels: buckets.map((bucket) => bucket.label),
     tooltipLabelLookup,
-    contract: buckets.map((bucket) => Number(
-      bucket.monthIndices
-        .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0)
-        .toFixed(2)
-    )),
-    delivered: buckets.map((bucket) => Number(
-      bucket.monthIndices
-        .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0)
-        .toFixed(2)
-    )),
-    deliveredPercent: buckets.map((bucket) => {
-      const contractTotal = bucket.monthIndices
-        .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0);
-      const deliveredTotal = bucket.monthIndices
-        .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0);
-
-      if (!Number.isFinite(contractTotal) || contractTotal <= 0) {
-        return 0;
-      }
-
-      return Number((deliveredTotal / contractTotal).toFixed(4));
-    })
+    tooltipLookup,
+    contract,
+    delivered,
+    deliveredForChart,
+    deliveredPercent
   };
 }
 
@@ -3034,6 +3059,69 @@ function MetricSummaryPanel({
       {showTitle && title ? <p className="metric-summary-title">{title}</p> : null}
       <p className="metric-summary-value">{value}</p>
     </section>
+  );
+}
+
+function OtdChartTooltip(props) {
+  const {
+    chartData,
+    sortSeriesItems: _sortSeriesItems,
+    excludeZeroSeriesItems: _excludeZeroSeriesItems,
+    bucketLabelLookup: _bucketLabelLookup,
+    ...tooltipProps
+  } = props;
+  const tooltipData = useAxesTooltip();
+
+  if (!tooltipData?.length) {
+    return null;
+  }
+
+  return (
+    <ChartsTooltipContainer {...tooltipProps}>
+      <Paper
+        elevation={6}
+        sx={{
+          overflow: 'hidden',
+          borderRadius: '16px',
+          border: '1px solid var(--border)',
+          backgroundColor: 'var(--input-bg)',
+          color: 'var(--input-text)'
+        }}
+      >
+        {tooltipData.map(({ axisId, axisFormattedValue }) => {
+          const bucketLabel = String(axisFormattedValue);
+          const bucketValues = chartData.tooltipLookup[bucketLabel] ?? {};
+
+          return renderTooltipTable({
+            axisId,
+            bucketLabel: getTooltipBucketLabel(
+              bucketLabel,
+              chartData.tooltipLabelLookup
+            ),
+            seriesItems: [
+              {
+                seriesId: 'otd-contract',
+                color: 'var(--chart-line)',
+                formattedLabel: 'Contract Commitment',
+                formattedValue: formatUnits(bucketValues.contract)
+              },
+              {
+                seriesId: 'otd-delivered',
+                color: 'var(--chart-secondary-line)',
+                formattedLabel: 'Actuals Delivered',
+                formattedValue: formatUnits(bucketValues.delivered)
+              },
+              {
+                seriesId: 'otd-percent',
+                color: 'var(--chart-accent-line)',
+                formattedLabel: 'Percent Delivered',
+                formattedValue: formatPercentValue(bucketValues.deliveredPercent)
+              }
+            ]
+          });
+        })}
+      </Paper>
+    </ChartsTooltipContainer>
   );
 }
 
@@ -4701,9 +4789,19 @@ export default function App() {
   );
   const isOtdPalette = chartVariants.otd === 'palette';
   const isOtdPareto = chartVariants.otd === 'pareto';
-  const otdChartYAxis = buildDynamicNumericYAxis(
+  const isOtdBarChart = chartVariants.otd === 'bar';
+  const otdPercentChartYAxis = buildDynamicNumericYAxis(
     OTD_PERCENT_Y_AXIS,
     [otdChartData.deliveredPercent],
+    {
+      includeZero: true,
+      minFloor: 0,
+      maxCeiling: 1
+    }
+  );
+  const otdUnitsChartYAxis = buildDynamicNumericYAxis(
+    OTD_UNITS_Y_AXIS,
+    [otdChartData.contract, otdChartData.deliveredForChart],
     {
       includeZero: true,
       minFloor: 0
@@ -6772,18 +6870,34 @@ export default function App() {
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
                               labels={otdChartData.labels}
-                              yAxis={otdChartYAxis}
-                              series={[
-                                {
-                                  data: otdChartData.deliveredPercent,
-                                  label: 'Delivered vs commitment',
-                                  color: 'var(--chart-line)',
-                                  valueFormatter: formatPercentValue,
-                                  showMark: false
-                                }
-                              ]}
+                              yAxis={isOtdBarChart ? otdUnitsChartYAxis : otdPercentChartYAxis}
+                              series={isOtdBarChart
+                                ? [
+                                  {
+                                    data: otdChartData.contract,
+                                    label: 'Contract Commitment',
+                                    color: 'var(--chart-line)',
+                                    valueFormatter: formatUnits
+                                  },
+                                  {
+                                    data: otdChartData.deliveredForChart,
+                                    label: 'Actuals Delivered',
+                                    color: 'var(--chart-secondary-line)',
+                                    valueFormatter: formatUnits
+                                  }
+                                ]
+                                : [
+                                  {
+                                    data: otdChartData.deliveredPercent,
+                                    label: 'Percent Delivered',
+                                    color: 'var(--chart-line)',
+                                    valueFormatter: formatPercentValue,
+                                    showMark: false
+                                  }
+                                ]}
+                              tooltipComponent={OtdChartTooltip}
                               tooltipProps={{
-                                bucketLabelLookup: otdChartData.tooltipLabelLookup
+                                chartData: otdChartData
                               }}
                               goalLine={otdGoalLine}
                               sx={sharedChartSx}

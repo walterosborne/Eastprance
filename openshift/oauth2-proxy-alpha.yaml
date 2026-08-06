@@ -1,24 +1,20 @@
 providers:
   - id: qmiscorecard-entra
-    provider: entra-id
-    name: Microsoft Entra ID
+    provider: oidc
+    name: EntraID
     clientID: ${ENTRA_APPLICATION_ID}
     clientSecret: ${ENTRA_CLIENT_SECRET}
-    scope: openid profile email
+    scope: openid email profile offline_access User.Read
     code_challenge_method: S256
-    skipClaimsFromProfileURL: true
     additionalClaims:
       - employeeid
       - name
       - oid
       - tid
       - aud
-    microsoftEntraIDConfig:
-      allowedTenants:
-        - ${ENTRA_DIRECTORY_ID}
     oidcConfig:
-      issuerURL: https://login.microsoftonline.com/${ENTRA_DIRECTORY_ID}/v2.0
-      userIDClaim: employeeid
+      issuerURL: https://login.microsoftonline.us/${ENTRA_DIRECTORY_ID}/v2.0
+      userIDClaim: preferred_username
       emailClaim: email
       insecureSkipIssuerVerification: false
       insecureSkipNonce: false

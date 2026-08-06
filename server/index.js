@@ -41,7 +41,7 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
-const LABOR_HANA_DATASET_ENABLED = false;
+const LABOR_HANA_DATASET_ENABLED = true;
 let requestCounter = 0;
 
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);

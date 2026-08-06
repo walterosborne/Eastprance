@@ -45,6 +45,8 @@ The server currently reads these SQL settings:
 - `ENTRA_APPLICATION_ID`
 - `ENTRA_OBJECT_ID`
 - `ENTRA_DIRECTORY_ID`
+- `ENTRA_CLIENT_SECRET`
+- `OAUTH2_PROXY_COOKIE_SECRET`
 - `ALLOW_HARDCODED_IDENTITY_FALLBACK`
 
 `schema` is optional and defaults to `dbo`, but you should set it if your SQL objects live in a non-default schema.
@@ -59,13 +61,17 @@ The server currently reads these SQL settings:
 
 If those are not set, roster falls back to the main SQL connection.
 
-For user identification, Microsoft Entra ID authenticates users through an OAuth2 Proxy
+For user identification, Microsoft Entra ID in Azure US Government authenticates users through an OAuth2 Proxy
 sidecar. The OpenShift Route and Service send browser traffic to OAuth2 Proxy on port `4180`;
 OAuth2 Proxy then forwards authenticated requests to Express on `127.0.0.1:8080`.
+Do not expose the Express container port directly: the backend trusts identity headers injected
+by OAuth2 Proxy, so all browser traffic must enter through the proxy-facing Service port.
 
-The proxy extracts the Entra `employeeid` claim and supplies it to Express as
-`X-Forwarded-EmployeeId`. The backend then attempts roster lookup against both
-`RosterExtractFarm.NetworkID` and `RosterExtractFarm.MyID`.
+The proxy uses `preferred_username` as its primary user identifier and forwards the standard
+`X-Forwarded-User`, `X-Forwarded-Preferred-Username`, and `X-Forwarded-Email` headers. If Entra
+supplies the optional `employeeid` claim, the proxy also forwards it as
+`X-Forwarded-EmployeeId`. The backend normalizes the first available identity and attempts
+roster lookup against both `RosterExtractFarm.NetworkID` and `RosterExtractFarm.MyID`.
 
 The three Entra registration identifiers have different jobs:
 
@@ -75,6 +81,12 @@ The three Entra registration identifiers have different jobs:
 
 The secret must also contain `clientsecret`, which is the client-secret **value**, not its
 Secret ID, and `cookiesecret`, which OAuth2 Proxy uses to protect its session cookie.
+
+The proxy uses the Azure US Government issuer at `login.microsoftonline.us`. Do not replace it
+with the commercial-cloud `login.microsoftonline.com` endpoint. The configured scopes are
+`openid email profile offline_access User.Read`; `offline_access` supports session refresh, and
+`User.Read` supports the Entra user profile. Do not add group-reading scopes unless the deployment
+actually enables an AD group allowlist and the Entra administrator grants the required consent.
 
 `ALLOW_HARDCODED_IDENTITY_FALLBACK` must be `false` in the deployed application container.
 
@@ -108,10 +120,10 @@ Add this as a **Web** redirect URI, replacing the hostname with the actual OpenS
 https://your-qmiscorecard-route.example.com/oauth2/callback
 ```
 
-The ID token must include an `employeeid` claim. It should also include `name`, `email`,
-`preferred_username`, `oid`, and `tid`; the standard `openid profile email` scopes request
-the normal profile claims. No implicit grant or hybrid flow is needed because OAuth2 Proxy
-uses the authorization-code flow with PKCE.
+The ID token should include `name`, `email`, `preferred_username`, `oid`, and `tid`. An
+`employeeid` claim is useful but optional because the backend can derive the network ID from
+`preferred_username` or email before querying the roster. No implicit grant or hybrid flow is
+needed because OAuth2 Proxy uses the authorization-code flow with PKCE.
 
 ### 2. Create the runtime secret
 
@@ -170,7 +182,9 @@ oc patch service/SERVICE_NAME \
 ```
 
 The existing Route should continue pointing at that Service. After rollout, `/headers` should
-show `x_forwarded_employeeid`, `x_entra_user_object_id`, and `x_entra_tenant_id`.
+show `x_forwarded_user`, `x_forwarded_preferred_username`, `x_forwarded_email`,
+`x_entra_user_object_id`, and `x_entra_tenant_id`. It will also show
+`x_forwarded_employeeid` when that optional claim is present.
 
 ## Port
 

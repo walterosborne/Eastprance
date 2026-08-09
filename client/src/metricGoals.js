@@ -32,6 +32,12 @@ const METRIC_GOALS = {
     yearly: .95,
     pareto: .95
   },
+  otdNew: {
+    monthly: .95,
+    quarterly: .95,
+    yearly: .95,
+    pareto: .95
+  },
   labor: {
     monthly: 0.65,
     quarterly: 0.65,

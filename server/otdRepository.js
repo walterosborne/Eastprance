@@ -16,6 +16,8 @@ import {
 
 const MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const OTD_TABLE_NAME = 'otd';
+const OTD_NEW_TABLE_NAME = 'otd_new';
+const DEFAULT_OTD_YEAR = 2026;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const otdFilePath = path.resolve(__dirname, '../data/otd_data.xlsx');
@@ -43,14 +45,20 @@ function normalizeMeasureType(value) {
   return normalizedValue;
 }
 
-function normalizeOtdRow(row) {
+function normalizeYear(value, fallbackYear = null) {
+  const year = Number(value);
+  return Number.isInteger(year) ? year : fallbackYear;
+}
+
+function normalizeOtdRow(row, fallbackYear = null) {
   const normalizedRow = {
     program: row.Program ?? '',
     bu: row.BU ?? '',
     project_id: row['Project ID'] ?? '',
     site: row.Site ?? '',
     type: row.Type ?? '',
-    measure_type: normalizeMeasureType(row.Timeline ?? row['2026'] ?? '')
+    measure_type: normalizeMeasureType(row.Timeline ?? row['2026'] ?? ''),
+    year: normalizeYear(row.Year, fallbackYear)
   };
 
   for (const month of MONTH_COLUMNS) {
@@ -75,7 +83,7 @@ async function readFallbackOtdData(reason) {
   const worksheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils
     .sheet_to_json(worksheet, { defval: null, raw: true })
-    .map(normalizeOtdRow);
+    .map((row) => normalizeOtdRow(row, DEFAULT_OTD_YEAR));
 
   const payload = {
     source: 'excel',
@@ -147,7 +155,7 @@ export async function readOtdData() {
       FROM ${tableName}
       ORDER BY [Project ID] ASC, [Timeline] ASC;
     `);
-    const rows = result.recordset.map(normalizeOtdRow);
+    const rows = result.recordset.map((row) => normalizeOtdRow(row, DEFAULT_OTD_YEAR));
 
     logDebug('otd', 'OTD SQL query completed.', {
       source: 'mssql',
@@ -169,5 +177,75 @@ export async function readOtdData() {
     });
 
     return readFallbackOtdData(`Database read failed: ${error.message}`);
+  }
+}
+
+export async function readOtdNewData() {
+  const stopTimer = createTimer();
+  const { config, missing } = getConnectionConfig();
+
+  logDebug('otd-new', 'Starting new OTD data load.', {
+    hasConnectionConfig: missing.length === 0,
+    tableName: OTD_NEW_TABLE_NAME
+  });
+
+  if (missing.length > 0) {
+    throw new Error(`Missing database environment variables: ${missing.join(', ')}`);
+  }
+
+  try {
+    const pool = await getPool(config);
+    const tableName = formatSqlIdentifier(OTD_NEW_TABLE_NAME, config);
+
+    logDebug('otd-new', 'Executing new OTD SQL query.', {
+      tableName
+    });
+
+    const result = await pool.request().query(`
+      SELECT
+        [Timeline],
+        [Program],
+        [BU],
+        [Project ID],
+        [Site],
+        [Type],
+        [JAN],
+        [FEB],
+        [MAR],
+        [APR],
+        [MAY],
+        [JUN],
+        [JUL],
+        [AUG],
+        [SEP],
+        [OCT],
+        [NOV],
+        [DEC],
+        [Year]
+      FROM ${tableName}
+      ORDER BY [Year] ASC, [Project ID] ASC, [Timeline] ASC;
+    `);
+    const rows = result.recordset.map((row) => normalizeOtdRow(row));
+
+    logDebug('otd-new', 'New OTD SQL query completed.', {
+      source: 'mssql',
+      tableName: OTD_NEW_TABLE_NAME,
+      rowCount: rows.length,
+      duration: formatDuration(stopTimer())
+    });
+
+    return {
+      source: 'mssql',
+      tableName: OTD_NEW_TABLE_NAME,
+      rowCount: rows.length,
+      rows
+    };
+  } catch (error) {
+    logError('otd-new', 'New OTD SQL query failed.', error, {
+      tableName: OTD_NEW_TABLE_NAME,
+      duration: formatDuration(stopTimer())
+    });
+
+    throw error;
   }
 }

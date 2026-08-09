@@ -299,6 +299,7 @@ const CARD_CHIP_OPTIONS = [
       'potentialSif',
       'nmfr',
       'otd',
+      'otdNew',
       'labor',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
@@ -324,7 +325,7 @@ const CARD_CHIP_OPTIONS = [
     key: 'programManagement',
     label: 'Program Management',
     icon: faClipboardCheck,
-    cardKeys: ['otd']
+    cardKeys: ['otd', 'otdNew']
   }
 ];
 
@@ -335,6 +336,7 @@ const DEFAULT_CHART_VARIANTS = {
   potentialSif: 'line',
   nmfr: 'line',
   otd: 'line',
+  otdNew: 'line',
   labor: 'line',
   laborHana: 'line'
 };
@@ -345,6 +347,7 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
   potentialSif: ['line', 'bar', 'palette', 'pareto'],
   nmfr: ['line', 'bar', 'palette', 'pareto'],
   otd: ['line', 'bar', 'palette', 'pareto'],
+  otdNew: ['line', 'bar', 'palette', 'pareto'],
   labor: ['line', 'bar', 'palette', 'pareto'],
   laborHana: ['line', 'bar', 'palette', 'pareto']
 };
@@ -892,6 +895,11 @@ function getFixedMonthStamp(year, monthIndex) {
   return Date.UTC(year, monthIndex, 1);
 }
 
+function getOtdRowYear(row) {
+  const year = Number(row?.year);
+  return Number.isInteger(year) ? year : FIXED_MONTH_METRIC_YEAR;
+}
+
 function formatMonthStamp(stamp) {
   return monthYearFormatter.format(new Date(stamp));
 }
@@ -967,7 +975,8 @@ function getAvailableTimelineStamps({
   sifRows,
   potentialSifRows,
   nmfrRows,
-  hasOtdRows,
+  otdRows = [],
+  otdNewRows = [],
   laborRows = [],
   laborHanaRows = []
 }) {
@@ -993,11 +1002,15 @@ function getAvailableTimelineStamps({
     });
   });
 
-  if (hasOtdRows) {
-    OTD_MONTH_COLUMNS.forEach((_month, monthIndex) => {
-      stampSet.add(getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex));
+  [otdRows, otdNewRows].forEach((rows) => {
+    const years = new Set(rows.map((row) => getOtdRowYear(row)));
+
+    years.forEach((year) => {
+      OTD_MONTH_COLUMNS.forEach((_month, monthIndex) => {
+        stampSet.add(getFixedMonthStamp(year, monthIndex));
+      });
     });
-  }
+  });
 
   [laborRows, laborHanaRows].forEach((rows) => {
     rows.forEach((row) => {
@@ -1398,57 +1411,70 @@ function buildSafetyPaletteChartData(
   };
 }
 
-function getOtdBuckets(viewMode, selectedDateRange) {
-  const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
-    (monthIndex) =>
-      isStampWithinDateRange(
-        getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
-        selectedDateRange
-      )
+function getOtdBuckets(rows, viewMode, selectedDateRange) {
+  const years = Array.from(new Set(rows.map((row) => getOtdRowYear(row)))).sort(
+    (left, right) => left - right
+  );
+  const showYearInMonthlyLabels = years.length > 1;
+  const monthEntries = years.flatMap((year) =>
+    OTD_MONTH_COLUMNS.map((month, monthIndex) => ({
+      year,
+      month,
+      monthIndex,
+      stamp: getFixedMonthStamp(year, monthIndex)
+    })).filter((entry) => isStampWithinDateRange(entry.stamp, selectedDateRange))
   );
 
   if (viewMode === 'monthly') {
-    return monthIndicesInRange.map((monthIndex) => ({
-      label: OTD_MONTH_COLUMNS[monthIndex].label,
-      tooltipLabel: formatFixedMonthLabel(FIXED_MONTH_METRIC_YEAR, monthIndex),
-      monthIndices: [monthIndex]
+    return monthEntries.map(({ year, month, monthIndex, stamp }) => ({
+      label: showYearInMonthlyLabels ? `${month.label} ${year}` : month.label,
+      tooltipLabel: formatFixedMonthLabel(year, monthIndex),
+      monthStamps: [stamp]
     }));
   }
 
   if (viewMode === 'quarterly') {
-    return [0, 3, 6, 9]
-      .map((startIndex, quarterIndex) => {
-        const quarterMonthIndices = [startIndex, startIndex + 1, startIndex + 2].filter(
-          (monthIndex) => monthIndicesInRange.includes(monthIndex)
-        );
+    return years.flatMap((year) =>
+      [0, 3, 6, 9]
+        .map((startIndex, quarterIndex) => {
+          const quarterMonthStamps = [startIndex, startIndex + 1, startIndex + 2]
+            .map((monthIndex) => getFixedMonthStamp(year, monthIndex))
+            .filter((stamp) => isStampWithinDateRange(stamp, selectedDateRange));
 
-        if (quarterMonthIndices.length === 0) {
-          return null;
-        }
+          if (quarterMonthStamps.length === 0) {
+            return null;
+          }
 
-        return {
-          label: `Q${quarterIndex + 1} ${FIXED_MONTH_METRIC_YEAR}`,
-          tooltipLabel: `Q${quarterIndex + 1} ${FIXED_MONTH_METRIC_YEAR}`,
-          monthIndices: quarterMonthIndices
-        };
-      })
-      .filter(Boolean);
+          return {
+            label: `Q${quarterIndex + 1} ${year}`,
+            tooltipLabel: `Q${quarterIndex + 1} ${year}`,
+            monthStamps: quarterMonthStamps
+          };
+        })
+        .filter(Boolean)
+    );
   }
 
-  return monthIndicesInRange.length > 0
-    ? [
-      {
-        label: String(FIXED_MONTH_METRIC_YEAR),
-        tooltipLabel: String(FIXED_MONTH_METRIC_YEAR),
-        monthIndices: monthIndicesInRange
-      }
-    ]
-    : [];
+  return years
+    .map((year) => {
+      const monthStamps = OTD_MONTH_COLUMNS
+        .map((_month, monthIndex) => getFixedMonthStamp(year, monthIndex))
+        .filter((stamp) => isStampWithinDateRange(stamp, selectedDateRange));
+
+      return monthStamps.length > 0
+        ? {
+          label: String(year),
+          tooltipLabel: String(year),
+          monthStamps
+        }
+        : null;
+    })
+    .filter(Boolean);
 }
 
 function buildOtdChartData(rows, viewMode, selectedDateRange) {
-  const contractTotals = OTD_MONTH_COLUMNS.map(() => 0);
-  const deliveredTotals = OTD_MONTH_COLUMNS.map(() => 0);
+  const contractTotals = new Map();
+  const deliveredTotals = new Map();
 
   rows.forEach((row) => {
     const targetSeries =
@@ -1462,27 +1488,30 @@ function buildOtdChartData(rows, viewMode, selectedDateRange) {
       return;
     }
 
-    OTD_MONTH_COLUMNS.forEach(({ key }, index) => {
+    const year = getOtdRowYear(row);
+
+    OTD_MONTH_COLUMNS.forEach(({ key }, monthIndex) => {
       const value = Number(row[key]);
 
       if (Number.isFinite(value)) {
-        targetSeries[index] += value;
+        const stamp = getFixedMonthStamp(year, monthIndex);
+        targetSeries.set(stamp, (targetSeries.get(stamp) ?? 0) + value);
       }
     });
   });
 
-  const buckets = getOtdBuckets(viewMode, selectedDateRange);
+  const buckets = getOtdBuckets(rows, viewMode, selectedDateRange);
   const tooltipLabelLookup = Object.fromEntries(
     buckets.map((bucket) => [bucket.label, bucket.tooltipLabel ?? bucket.label])
   );
   const contract = buckets.map((bucket) => Number(
-    bucket.monthIndices
-      .reduce((sum, monthIndex) => sum + contractTotals[monthIndex], 0)
+    bucket.monthStamps
+      .reduce((sum, stamp) => sum + (contractTotals.get(stamp) ?? 0), 0)
       .toFixed(2)
   ));
   const delivered = buckets.map((bucket) => Number(
-    bucket.monthIndices
-      .reduce((sum, monthIndex) => sum + deliveredTotals[monthIndex], 0)
+    bucket.monthStamps
+      .reduce((sum, stamp) => sum + (deliveredTotals.get(stamp) ?? 0), 0)
       .toFixed(2)
   ));
   const actualDeliveredPercent = buckets.map((_bucket, index) => {
@@ -1684,21 +1713,19 @@ function buildControllableCostsPaletteChartData(
 }
 
 function buildOtdParetoChartData(rows, fieldName, selectedDateRange) {
-  const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
-    (monthIndex) =>
-      isStampWithinDateRange(
-        getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
-        selectedDateRange
-      )
-  );
-
   return buildParetoChartData(
     rows
       .filter((row) => row.measure_type === 'Actuals Delivered')
       .map((row) => ({
         category: row[fieldName],
-        value: monthIndicesInRange.reduce((sum, monthIndex) => {
-          const numericValue = Number(row[OTD_MONTH_COLUMNS[monthIndex].key]);
+        value: OTD_MONTH_COLUMNS.reduce((sum, month, monthIndex) => {
+          const monthStamp = getFixedMonthStamp(getOtdRowYear(row), monthIndex);
+
+          if (!isStampWithinDateRange(monthStamp, selectedDateRange)) {
+            return sum;
+          }
+
+          const numericValue = Number(row[month.key]);
           return Number.isFinite(numericValue) ? sum + numericValue : sum;
         }, 0)
       }))
@@ -1706,13 +1733,6 @@ function buildOtdParetoChartData(rows, fieldName, selectedDateRange) {
 }
 
 function buildOtdPaletteChartData(rows, groupFieldName, colorFieldName, selectedDateRange) {
-  const monthIndicesInRange = OTD_MONTH_COLUMNS.map((_month, monthIndex) => monthIndex).filter(
-    (monthIndex) =>
-      isStampWithinDateRange(
-        getFixedMonthStamp(FIXED_MONTH_METRIC_YEAR, monthIndex),
-        selectedDateRange
-      )
-  );
   const groups = new Map();
   const colorTotals = new Map();
 
@@ -1721,8 +1741,14 @@ function buildOtdPaletteChartData(rows, groupFieldName, colorFieldName, selected
       return;
     }
 
-    const deliveredTotal = monthIndicesInRange.reduce((sum, monthIndex) => {
-      const numericValue = Number(row[OTD_MONTH_COLUMNS[monthIndex].key]);
+    const deliveredTotal = OTD_MONTH_COLUMNS.reduce((sum, month, monthIndex) => {
+      const monthStamp = getFixedMonthStamp(getOtdRowYear(row), monthIndex);
+
+      if (!isStampWithinDateRange(monthStamp, selectedDateRange)) {
+        return sum;
+      }
+
+      const numericValue = Number(row[month.key]);
       return Number.isFinite(numericValue) ? sum + numericValue : sum;
     }, 0);
 
@@ -3467,6 +3493,11 @@ function buildDashboardPresetState({
   selectedOtdChartFilterValue,
   selectedOtdPaletteGroupField,
   selectedOtdPaletteColorField,
+  otdNewViewMode,
+  selectedOtdNewChartFilterField,
+  selectedOtdNewChartFilterValue,
+  selectedOtdNewPaletteGroupField,
+  selectedOtdNewPaletteColorField,
   laborViewMode,
   selectedLaborChartFilterField,
   selectedLaborChartFilterValue,
@@ -3532,6 +3563,13 @@ function buildDashboardPresetState({
       filterValue: selectedOtdChartFilterValue,
       paletteGroupField: selectedOtdPaletteGroupField,
       paletteColorField: selectedOtdPaletteColorField
+    },
+    otdNew: {
+      viewMode: otdNewViewMode,
+      filterField: selectedOtdNewChartFilterField,
+      filterValue: selectedOtdNewChartFilterValue,
+      paletteGroupField: selectedOtdNewPaletteGroupField,
+      paletteColorField: selectedOtdNewPaletteColorField
     },
     labor: {
       viewMode: laborViewMode,
@@ -3634,6 +3672,12 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [otdNewState, setOtdNewState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
   const [laborState, setLaborState] = useState({
     rows: [],
     loading: true,
@@ -3712,6 +3756,19 @@ export default function App() {
     OTD_PALETTE_FIELDS[1].value
   );
   const [otdViewMode, setOtdViewMode] = useState('monthly');
+  const [selectedOtdNewChartFilterField, setSelectedOtdNewChartFilterField] = useState(
+    OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'bu')?.value
+      ?? OTD_CHART_FILTER_FIELDS[0].value
+  );
+  const [selectedOtdNewChartFilterValue, setSelectedOtdNewChartFilterValue] =
+    useState(ALL_FILTER_VALUE);
+  const [selectedOtdNewPaletteGroupField, setSelectedOtdNewPaletteGroupField] = useState(
+    OTD_PALETTE_FIELDS[0].value
+  );
+  const [selectedOtdNewPaletteColorField, setSelectedOtdNewPaletteColorField] = useState(
+    OTD_PALETTE_FIELDS[1].value
+  );
+  const [otdNewViewMode, setOtdNewViewMode] = useState('monthly');
   const [selectedLaborChartFilterField, setSelectedLaborChartFilterField] = useState(
     LABOR_CHART_FILTER_FIELDS[0].value
   );
@@ -3773,6 +3830,7 @@ export default function App() {
     useChartWidth();
   const { chartHostRef: nmfrChartHostRef, chartWidth: nmfrChartWidth } = useChartWidth();
   const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth();
+  const { chartHostRef: otdNewChartHostRef, chartWidth: otdNewChartWidth } = useChartWidth();
   const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth();
   const { chartHostRef: laborHanaChartHostRef, chartWidth: laborHanaChartWidth } = useChartWidth();
 
@@ -4064,6 +4122,51 @@ export default function App() {
       }
     }
 
+    async function loadOtdNewData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson('otd-new', '/api/otd-new');
+
+        if (!isMounted) {
+          logClientDebug('otd-new', 'Component unmounted before new OTD state update.');
+          return;
+        }
+
+        setOtdNewState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: '',
+          source: getSourceLabel(payload.source)
+        });
+
+        logClientDebug('otd-new', 'New OTD state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('otd-new', 'Component unmounted after new OTD load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
+        setOtdNewState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load new OTD data.',
+          source: ''
+        });
+
+        logClientDebug('otd-new', 'New OTD load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
     async function loadLaborData() {
       const startTime = performance.now();
 
@@ -4164,6 +4267,7 @@ export default function App() {
     loadPotentialSifData();
     loadNmfrData();
     loadOtdData();
+    loadOtdNewData();
     loadLaborData();
     if (LABOR_HANA_CARD_ENABLED) {
       loadLaborHanaData();
@@ -4281,7 +4385,8 @@ export default function App() {
     sifRows: sifState.rows,
     potentialSifRows: potentialSifState.rows,
     nmfrRows: nmfrState.rows,
-    hasOtdRows: otdState.rows.length > 0,
+    otdRows: otdState.rows,
+    otdNewRows: otdNewState.rows,
     laborRows: laborState.rows,
     laborHanaRows: laborHanaState.rows
   });
@@ -4881,6 +4986,100 @@ export default function App() {
     }
   );
 
+  const activeOtdNewChartFilterField =
+    OTD_CHART_FILTER_FIELDS.find((option) => option.value === selectedOtdNewChartFilterField) ??
+    OTD_CHART_FILTER_FIELDS[0];
+  const otdNewPaletteGroupFieldOptions = OTD_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedOtdNewPaletteColorField
+  );
+  const activeOtdNewPaletteGroupField =
+    otdNewPaletteGroupFieldOptions.find(
+      (option) => option.value === selectedOtdNewPaletteGroupField
+    )
+    ?? otdNewPaletteGroupFieldOptions[0]
+    ?? OTD_PALETTE_FIELDS[0];
+  const otdNewPaletteColorFieldOptions = OTD_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeOtdNewPaletteGroupField.value
+  );
+  const activeOtdNewPaletteColorField =
+    otdNewPaletteColorFieldOptions.find(
+      (option) => option.value === selectedOtdNewPaletteColorField
+    )
+    ?? otdNewPaletteColorFieldOptions[0]
+    ?? OTD_PALETTE_FIELDS[1];
+  const baseFilteredOtdNewRows = otdNewState.rows;
+  const otdNewChartFilterValueOptions = getFilterOptions(
+    baseFilteredOtdNewRows,
+    activeOtdNewChartFilterField.value
+  );
+  const activeOtdNewChartFilterValue = normalizeFilterValue(
+    selectedOtdNewChartFilterValue,
+    otdNewChartFilterValueOptions
+  );
+  const otdNewFilterApplies = ['line', 'bar'].includes(chartVariants.otdNew);
+  const filteredOtdNewRows = baseFilteredOtdNewRows.filter((row) => {
+    if (!otdNewFilterApplies) {
+      return true;
+    }
+
+    return (
+      activeOtdNewChartFilterValue === ALL_FILTER_VALUE ||
+      row[activeOtdNewChartFilterField.value] === activeOtdNewChartFilterValue
+    );
+  });
+  const otdNewChartData = buildOtdChartData(
+    filteredOtdNewRows,
+    otdNewViewMode,
+    selectedDateRange
+  );
+  const otdNewPaletteChartData = buildOtdPaletteChartData(
+    baseFilteredOtdNewRows,
+    activeOtdNewPaletteGroupField.value,
+    activeOtdNewPaletteColorField.value,
+    selectedDateRange
+  );
+  const otdNewParetoChartData = buildOtdParetoChartData(
+    baseFilteredOtdNewRows,
+    activeOtdNewChartFilterField.value,
+    selectedDateRange
+  );
+  const isOtdNewPalette = chartVariants.otdNew === 'palette';
+  const isOtdNewPareto = chartVariants.otdNew === 'pareto';
+  const isOtdNewBarChart = chartVariants.otdNew === 'bar';
+  const otdNewGoalLine = labelGoalLineValue(
+    getMetricGoalLine(
+      'otdNew',
+      isOtdNewBarChart || isOtdNewPareto || isOtdNewPalette ? null : otdNewViewMode
+    ),
+    formatPercentValue
+  );
+  const otdNewPercentChartYAxis = buildDynamicNumericYAxis(
+    OTD_PERCENT_Y_AXIS,
+    [otdNewChartData.deliveredPercent],
+    {
+      includeZero: true,
+      minFloor: 0,
+      maxCeiling: 1,
+      goalLine: otdNewGoalLine
+    }
+  );
+  const otdNewUnitsChartYAxis = buildDynamicNumericYAxis(
+    OTD_UNITS_Y_AXIS,
+    [otdNewChartData.contract, otdNewChartData.deliveredForChart],
+    {
+      includeZero: true,
+      minFloor: 0
+    }
+  );
+  const otdNewPaletteChartYAxis = buildDynamicNumericYAxis(
+    OTD_UNITS_Y_AXIS,
+    otdNewPaletteChartData.series.map((seriesItem) => seriesItem.data),
+    {
+      includeZero: true,
+      minFloor: 0
+    }
+  );
+
   const activeLaborChartFilterField =
     LABOR_CHART_FILTER_FIELDS.find((option) => option.value === selectedLaborChartFilterField) ??
     LABOR_CHART_FILTER_FIELDS[0];
@@ -5107,6 +5306,12 @@ export default function App() {
   const otdTooltipLegend = isOtdPalette
     ? buildTooltipLegend(`Color by ${activeOtdPaletteColorField.label}`, otdPaletteChartData.series)
     : null;
+  const otdNewTooltipLegend = isOtdNewPalette
+    ? buildTooltipLegend(
+      `Color by ${activeOtdNewPaletteColorField.label}`,
+      otdNewPaletteChartData.series
+    )
+    : null;
   const laborTooltipLegend = isLaborPalette
     ? buildTooltipLegend(`Color by ${activeLaborPaletteColorField.label}`, laborPaletteChartData.series)
     : null;
@@ -5229,6 +5434,7 @@ export default function App() {
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
     otd: activeCardKeys.has('otd'),
+    otdNew: activeCardKeys.has('otdNew'),
     labor: activeCardKeys.has('labor'),
     laborHana: activeCardKeys.has('laborHana')
   };
@@ -5294,6 +5500,7 @@ export default function App() {
       potentialSif: nextVariant,
       nmfr: nextVariant,
       otd: nextVariant,
+      otdNew: nextVariant,
       labor: nextVariant,
       laborHana: nextVariant
     });
@@ -5438,6 +5645,10 @@ export default function App() {
       setOtdViewMode(presetState.otd.viewMode);
     }
 
+    if (Object.hasOwn(OTD_VIEW_CONFIG, presetState.otdNew?.viewMode)) {
+      setOtdNewViewMode(presetState.otdNew.viewMode);
+    }
+
     if (Object.hasOwn(LABOR_VIEW_CONFIG, presetState.labor?.viewMode)) {
       setLaborViewMode(presetState.labor.viewMode);
     }
@@ -5538,6 +5749,30 @@ export default function App() {
       OTD_PALETTE_FIELDS.some((option) => option.value === presetState.otd?.paletteColorField)
     ) {
       setSelectedOtdPaletteColorField(presetState.otd.paletteColorField);
+    }
+
+    if (
+      OTD_CHART_FILTER_FIELDS.some((option) => option.value === presetState.otdNew?.filterField)
+    ) {
+      setSelectedOtdNewChartFilterField(presetState.otdNew.filterField);
+    }
+
+    setSelectedOtdNewChartFilterValue(
+      typeof presetState.otdNew?.filterValue === 'string'
+        ? presetState.otdNew.filterValue
+        : ALL_FILTER_VALUE
+    );
+
+    if (
+      OTD_PALETTE_FIELDS.some((option) => option.value === presetState.otdNew?.paletteGroupField)
+    ) {
+      setSelectedOtdNewPaletteGroupField(presetState.otdNew.paletteGroupField);
+    }
+
+    if (
+      OTD_PALETTE_FIELDS.some((option) => option.value === presetState.otdNew?.paletteColorField)
+    ) {
+      setSelectedOtdNewPaletteColorField(presetState.otdNew.paletteColorField);
     }
 
     if (
@@ -5680,6 +5915,11 @@ export default function App() {
         selectedOtdChartFilterValue,
         selectedOtdPaletteGroupField,
         selectedOtdPaletteColorField,
+        otdNewViewMode,
+        selectedOtdNewChartFilterField,
+        selectedOtdNewChartFilterValue,
+        selectedOtdNewPaletteGroupField,
+        selectedOtdNewPaletteColorField,
         laborViewMode,
         selectedLaborChartFilterField,
         selectedLaborChartFilterValue,
@@ -6385,7 +6625,7 @@ export default function App() {
             )}
 
             {visibleCards.sif && (
-              <article className="analytics-card" style={{ order: 8 }}>
+              <article className="analytics-card" style={{ order: 9 }}>
                 <CardHeader
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
@@ -6568,7 +6808,7 @@ export default function App() {
             )}
 
             {visibleCards.potentialSif && (
-              <article className="analytics-card" style={{ order: 7 }}>
+              <article className="analytics-card" style={{ order: 8 }}>
                 <CardHeader
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
@@ -7127,6 +7367,216 @@ export default function App() {
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
                             setOtdViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(OTD_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {visibleCards.otdNew && (
+              <article className="analytics-card" style={{ order: 7 }}>
+                <CardHeader
+                  title="On Time Delivery (OTD New)"
+                  info={METRIC_INFO.otdNew}
+                  tooltipLegend={otdNewTooltipLegend}
+                />
+
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <div ref={otdNewChartHostRef} className="chart-host">
+                      {otdNewState.loading && <p className="chart-message">Loading new OTD data...</p>}
+
+                      {!otdNewState.loading && otdNewState.error && (
+                        <p className="chart-message chart-message-error">{otdNewState.error}</p>
+                      )}
+
+                      {!otdNewState.loading &&
+                        !otdNewState.error &&
+                        (baseFilteredOtdNewRows.length === 0 ||
+                          (isOtdNewPareto
+                            ? otdNewParetoChartData.labels.length === 0
+                            : isOtdNewPalette
+                              ? otdNewPaletteChartData.labels.length === 0
+                              : otdNewChartData.labels.length === 0)) && (
+                          <p className="chart-message">
+                            {otdNewState.rows.length === 0
+                              ? 'No new OTD rows are available for charting.'
+                              : filteredOtdNewRows.length === 0 && otdNewFilterApplies
+                                ? 'No new OTD rows match the selected filters.'
+                                : 'No new OTD months fall within the selected date range.'}
+                          </p>
+                        )}
+
+                      {!otdNewState.loading &&
+                        !otdNewState.error &&
+                        (isOtdNewPareto
+                          ? otdNewParetoChartData.labels.length > 0
+                          : isOtdNewPalette
+                            ? otdNewPaletteChartData.labels.length > 0
+                            : otdNewChartData.labels.length > 0) &&
+                        otdNewChartWidth > 0 && (
+                          isOtdNewPareto ? (
+                            <ParetoMetricChart
+                              width={otdNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={otdNewParetoChartData.labels}
+                              values={otdNewParetoChartData.values}
+                              cumulativeShares={otdNewParetoChartData.cumulativeShares}
+                              barLabel="Actuals Delivered"
+                              barColor="var(--chart-line)"
+                              barAxis={OTD_UNITS_Y_AXIS}
+                              barValueFormatter={formatUnits}
+                              goalLine={otdNewGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isOtdNewPalette ? (
+                            <StackedCategoryBarChart
+                              width={otdNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={otdNewPaletteChartData.labels}
+                              yAxis={otdNewPaletteChartYAxis}
+                              series={otdNewPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatUnits
+                              }))}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.otdNew === 'bar' ? 'bar' : 'line'}
+                              width={otdNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={otdNewChartData.labels}
+                              yAxis={
+                                isOtdNewBarChart
+                                  ? otdNewUnitsChartYAxis
+                                  : otdNewPercentChartYAxis
+                              }
+                              series={isOtdNewBarChart
+                                ? [
+                                  {
+                                    data: otdNewChartData.contract,
+                                    label: 'Contract Commitment',
+                                    color: 'var(--chart-line)',
+                                    valueFormatter: formatUnits
+                                  },
+                                  {
+                                    data: otdNewChartData.deliveredForChart,
+                                    label: 'Actuals Delivered',
+                                    color: 'var(--chart-secondary-line)',
+                                    valueFormatter: formatUnits
+                                  }
+                                ]
+                                : [
+                                  {
+                                    data: otdNewChartData.deliveredPercent,
+                                    label: 'Percent Delivered',
+                                    color: 'var(--chart-line)',
+                                    valueFormatter: formatPercentValue,
+                                    showMark: false
+                                  }
+                                ]}
+                              tooltipComponent={OtdChartTooltip}
+                              tooltipProps={{
+                                chartData: otdNewChartData
+                              }}
+                              goalLine={otdNewGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          )
+                        )}
+                    </div>
+
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.otdNew}
+                          onChange={(nextVariant) => {
+                            if (nextVariant === 'pareto') {
+                              setSelectedOtdNewChartFilterField(
+                                OTD_PARETO_FILTER_FIELDS[0].value
+                              );
+                            }
+
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              otdNew: nextVariant
+                            }));
+                          }}
+                          alwaysGridToggle
+                          supportsFilter
+                          supportsPalette
+                          supportsPareto
+                          filterToggleAriaLabel="New OTD time series"
+                          filterFieldValue={activeOtdNewChartFilterField.value}
+                          filterFieldOptions={OTD_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={OTD_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select new OTD filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedOtdNewChartFilterField(nextField);
+                            setSelectedOtdNewChartFilterValue(ALL_FILTER_VALUE);
+                          }}
+                          filterValue={activeOtdNewChartFilterValue}
+                          filterValueOptions={otdNewChartFilterValueOptions}
+                          filterValueAllLabel={activeOtdNewChartFilterField.allLabel}
+                          filterValueAriaLabel="Select new OTD filter value"
+                          onFilterValueChange={setSelectedOtdNewChartFilterValue}
+                          paletteToggleAriaLabel="New OTD grouped palette chart"
+                          paletteGroupFieldValue={activeOtdNewPaletteGroupField.value}
+                          paletteGroupFieldOptions={otdNewPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select new OTD group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedOtdNewPaletteGroupField(nextField);
+
+                            if (nextField === activeOtdNewPaletteColorField.value) {
+                              const nextColorField =
+                                OTD_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedOtdNewPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeOtdNewPaletteColorField.value}
+                          paletteColorFieldOptions={otdNewPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select new OTD color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedOtdNewPaletteColorField(nextField);
+
+                            if (nextField === activeOtdNewPaletteGroupField.value) {
+                              const nextGroupField =
+                                OTD_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedOtdNewPaletteGroupField(nextGroupField);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <ToggleButtonGroup
+                        value={otdNewViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setOtdNewViewMode(nextMode);
                           }
                         }}
                         sx={timelineToggleGroupSx}

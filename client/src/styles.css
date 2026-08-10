@@ -117,6 +117,25 @@ body {
   background-image: none;
 }
 
+:root[data-theme='dark'] .chart-host svg text,
+:root[data-theme='dark'] .chart-host .MuiChartsAxis-tickLabel,
+:root[data-theme='dark'] .chart-host .MuiChartsAxis-label,
+:root[data-theme='dark'] .chart-host .MuiChartsLegend-label,
+:root[data-theme='dark'] .chart-host .MuiChartsReferenceLine-label,
+:root[data-theme='dark'] .chart-host .MuiBarLabel-root {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+:root[data-theme='dark'] .chart-host .MuiChartsAxis-line,
+:root[data-theme='dark'] .chart-host .MuiChartsAxis-tick {
+  stroke: #ffffff !important;
+}
+
+:root[data-theme='dark'] .chart-host .MuiChartsGrid-line {
+  stroke: var(--chart-grid) !important;
+}
+
 :root[data-theme='dark'] .MuiMenu-paper,
 :root[data-theme='dark'] .MuiPopover-paper {
   border: 1px solid var(--border);

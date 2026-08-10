@@ -141,7 +141,7 @@ function buildOtdMetricInfo(baseInfo, goalLineDetails = null) {
   const usedRecentBaseline = Boolean(goalLineDetails?.usedRecentBaseline);
 
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
-    explanation: 'ARIMA projects the next percent-delivered value. Forecasts more than 20 percentage points from the recent six-month median use that median before applying the stretch target.',
+    explanation: 'ARIMA projects the next percent-delivered value using completed months only. Forecasts more than 20 percentage points from the recent six-month median use that median before applying the stretch target.',
     forecastDescription: usedRecentBaseline
       ? 'the ARIMA model with its recent-performance safeguard'
       : 'the ARIMA model',

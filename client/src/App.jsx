@@ -4878,14 +4878,21 @@ export default function App() {
     'monthly',
     selectedDateRange
   );
+  const currentOtdMonthStamp = getMonthStartStamp(new Date());
   const otdLastDeliveredIndex = otdGoalForecastData.delivered.reduce(
     (lastIndex, deliveredValue, index) =>
-      deliveredValue > 0 && otdGoalForecastData.contract[index] > 0 ? index : lastIndex,
+      otdGoalForecastData.bucketEndStamps[index] < currentOtdMonthStamp &&
+      deliveredValue > 0 &&
+      otdGoalForecastData.contract[index] > 0
+        ? index
+        : lastIndex,
     -1
   );
   const otdGoalForecastSeriesValues = otdGoalForecastData.deliveredPercent.filter(
     (_value, index) =>
-      index <= otdLastDeliveredIndex && otdGoalForecastData.contract[index] > 0
+      otdGoalForecastData.bucketEndStamps[index] < currentOtdMonthStamp &&
+      index <= otdLastDeliveredIndex &&
+      otdGoalForecastData.contract[index] > 0
   );
   const otdGoalForecastSeriesSignature = otdGoalForecastSeriesValues.join('|');
   const otdForecastMonthLabel = getNextMonthLabelAfterStamp(

@@ -129,6 +129,13 @@ const CONTROLLABLE_COSTS_VIEW_CONFIG = {
   }
 };
 
+const CONTROLLABLE_COSTS_HANA_VIEW_CONFIG = {
+  monthly: {
+    label: 'Monthly'
+  },
+  ...CONTROLLABLE_COSTS_VIEW_CONFIG
+};
+
 const CONTROLLABLE_CHART_FILTER_FIELDS = [
   {
     value: 'address',
@@ -357,25 +364,25 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
 };
 const PRESET_SLOT_OPTIONS = [1, 2, 3];
 const CONTROLLABLE_PALETTE_COLORS = [
-  '#28223c',
-  '#111827',
-  '#1f3b5c',
-  '#284b74',
-  '#34618d',
-  '#4a79a8',
-  '#5f8fc0',
-  '#7ba7d1',
-  '#9fc0e3',
-  '#343046',
-  '#403b50',
-  '#4b5563',
-  '#5b6170',
-  '#6b7280',
-  '#7c8591',
-  '#374151',
-  '#9aa4b3',
-  '#cbd5e1',
-  '#e7edf5'
+  'var(--chart-palette-1)',
+  'var(--chart-palette-2)',
+  'var(--chart-palette-3)',
+  'var(--chart-palette-4)',
+  'var(--chart-palette-5)',
+  'var(--chart-palette-6)',
+  'var(--chart-palette-7)',
+  'var(--chart-palette-8)',
+  'var(--chart-palette-9)',
+  'var(--chart-palette-10)',
+  'var(--chart-palette-11)',
+  'var(--chart-palette-12)',
+  'var(--chart-palette-13)',
+  'var(--chart-palette-14)',
+  'var(--chart-palette-15)',
+  'var(--chart-palette-16)',
+  'var(--chart-palette-17)',
+  'var(--chart-palette-18)',
+  'var(--chart-palette-19)'
 ];
 
 const LABOR_VIEW_CONFIG = {
@@ -396,9 +403,9 @@ const LABOR_VIEW_CONFIG = {
   }
 };
 
-const DEFAULT_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
+const DEFAULT_CHART_MARGIN = { top: 12, right: 12, bottom: 4, left: 0 };
 const INCIDENT_CHART_MARGIN = DEFAULT_CHART_MARGIN;
-const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
+const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 4, left: 0 };
 const CHART_HEIGHT = 332;
 const INCIDENT_CHART_HEIGHT = CHART_HEIGHT;
 const INCIDENT_X_AXIS_HEIGHT = 28;
@@ -1109,7 +1116,15 @@ function buildControllableCostsChartData(rows, viewMode, selectedDateRange) {
     let bucketLabel = '';
     let sortValue = 0;
 
-    if (viewMode === 'quarterly') {
+    if (viewMode === 'monthly') {
+      if (stamp == null) {
+        return;
+      }
+
+      bucketKey = String(stamp);
+      bucketLabel = formatMonthStamp(stamp);
+      sortValue = stamp;
+    } else if (viewMode === 'quarterly') {
       const quarterNumber = getQuarterNumber(row.quarter);
 
       if (quarterNumber == null) {
@@ -3731,7 +3746,7 @@ export default function App() {
     useState(CONTROLLABLE_HANA_PALETTE_FIELDS[0].value);
   const [selectedControllableHanaPaletteColorField, setSelectedControllableHanaPaletteColorField] =
     useState(CONTROLLABLE_HANA_PALETTE_FIELDS[1].value);
-  const [controllableCostsHanaViewMode, setControllableCostsHanaViewMode] = useState('quarterly');
+  const [controllableCostsHanaViewMode, setControllableCostsHanaViewMode] = useState('monthly');
   const [sifViewMode, setSifViewMode] = useState('monthly');
   const [potentialSifViewMode, setPotentialSifViewMode] = useState('monthly');
   const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
@@ -5597,7 +5612,7 @@ export default function App() {
 
     if (
       Object.hasOwn(
-        CONTROLLABLE_COSTS_VIEW_CONFIG,
+        CONTROLLABLE_COSTS_HANA_VIEW_CONFIG,
         presetState.controllableCostsHana?.viewMode
       )
     ) {
@@ -6652,7 +6667,7 @@ export default function App() {
                         }}
                         sx={timelineToggleGroupSx}
                       >
-                        {Object.entries(CONTROLLABLE_COSTS_VIEW_CONFIG).map(([mode, config]) => (
+                        {Object.entries(CONTROLLABLE_COSTS_HANA_VIEW_CONFIG).map(([mode, config]) => (
                           <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
                             {config.label}
                           </ToggleButton>
@@ -7859,7 +7874,7 @@ const selectMenuProps = {
       border: '1px solid var(--border)',
       backgroundColor: 'var(--input-bg)',
       color: 'var(--input-text)',
-      boxShadow: '0 12px 28px rgba(0, 0, 0, 0.08)'
+      boxShadow: '0 12px 28px var(--popover-shadow)'
     }
   }
 };

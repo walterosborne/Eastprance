@@ -4,6 +4,25 @@
   --grey-200: #e7ebf0;
   --grey-100: #f3f5f7;
   --white: #ffffff;
+  --chart-palette-1: #28223c;
+  --chart-palette-2: #111827;
+  --chart-palette-3: #1f3b5c;
+  --chart-palette-4: #284b74;
+  --chart-palette-5: #34618d;
+  --chart-palette-6: #4a79a8;
+  --chart-palette-7: #5f8fc0;
+  --chart-palette-8: #7ba7d1;
+  --chart-palette-9: #9fc0e3;
+  --chart-palette-10: #343046;
+  --chart-palette-11: #403b50;
+  --chart-palette-12: #4b5563;
+  --chart-palette-13: #5b6170;
+  --chart-palette-14: #6b7280;
+  --chart-palette-15: #7c8591;
+  --chart-palette-16: #374151;
+  --chart-palette-17: #9aa4b3;
+  --chart-palette-18: #cbd5e1;
+  --chart-palette-19: #e7edf5;
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   color: var(--text-primary);
 }
@@ -31,30 +50,53 @@
   --input-text: var(--theme-blue);
   --input-border: var(--grey-300);
   --shadow: rgba(0, 0, 0, 0.04);
+  --popover-shadow: rgba(0, 0, 0, 0.08);
 }
 
 :root[data-theme='dark'] {
-  --page-bg: #111827;
-  --surface: #1f2937;
-  --surface-muted: rgba(255, 255, 255, 0.08);
-  --surface-soft: var(--white);
-  --chart-surface: var(--white);
-  --chart-text: var(--theme-blue);
-  --text-primary: var(--white);
-  --text-secondary: var(--white);
-  --text-inverse: var(--theme-blue);
-  --border: rgba(255, 255, 255, 0.3);
-  --chart-line: var(--theme-blue);
-  --chart-accent-line: #5b6170;
-  --chart-secondary-line: #9aa4b3;
-  --chart-tertiary-line: #9aa4b3;
-  --chart-grid: var(--grey-300);
-  --selected-bg: var(--white);
-  --selected-text: var(--theme-blue);
-  --input-bg: var(--white);
-  --input-text: var(--theme-blue);
-  --input-border: rgba(255, 255, 255, 0.35);
-  --shadow: rgba(0, 0, 0, 0.1);
+  color-scheme: dark;
+  --page-bg: #080d18;
+  --surface: #121b2a;
+  --surface-muted: #182335;
+  --surface-soft: #1e2b3f;
+  --surface-hover: #24344c;
+  --chart-surface: #0e1726;
+  --chart-text: #dce6f2;
+  --text-primary: #f4f7fb;
+  --text-secondary: #b7c3d3;
+  --text-inverse: #f8fafc;
+  --border: #2a394e;
+  --chart-line: #79a8dc;
+  --chart-accent-line: #b1bdcb;
+  --chart-secondary-line: #748499;
+  --chart-tertiary-line: #d0a86e;
+  --chart-grid: #273548;
+  --selected-bg: #3f6f9f;
+  --selected-text: #ffffff;
+  --input-bg: #172235;
+  --input-text: #eef3f9;
+  --input-border: #35465e;
+  --shadow: rgba(0, 0, 0, 0.34);
+  --popover-shadow: rgba(0, 0, 0, 0.52);
+  --chart-palette-1: #9bc5ef;
+  --chart-palette-2: #7db1e3;
+  --chart-palette-3: #609bd3;
+  --chart-palette-4: #4785bd;
+  --chart-palette-5: #376fa4;
+  --chart-palette-6: #b7cadf;
+  --chart-palette-7: #9bafc6;
+  --chart-palette-8: #8096ae;
+  --chart-palette-9: #687f98;
+  --chart-palette-10: #d5dde7;
+  --chart-palette-11: #bdc7d3;
+  --chart-palette-12: #a5b0be;
+  --chart-palette-13: #8e9aa9;
+  --chart-palette-14: #788596;
+  --chart-palette-15: #637184;
+  --chart-palette-16: #55708f;
+  --chart-palette-17: #8ba6c3;
+  --chart-palette-18: #c7d7e8;
+  --chart-palette-19: #e2eaf3;
 }
 
 * {
@@ -65,6 +107,64 @@ body {
   margin: 0;
   min-height: 100vh;
   background: var(--page-bg);
+}
+
+:root[data-theme='dark'] .MuiPaper-root {
+  background-image: none;
+}
+
+:root[data-theme='dark'] .MuiMenu-paper,
+:root[data-theme='dark'] .MuiPopover-paper {
+  border: 1px solid var(--border);
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  box-shadow: 0 16px 36px var(--popover-shadow);
+}
+
+:root[data-theme='dark'] .MuiMenuItem-root {
+  color: var(--input-text);
+}
+
+:root[data-theme='dark'] .MuiMenuItem-root:hover,
+:root[data-theme='dark'] .MuiMenuItem-root.Mui-selected:hover {
+  background-color: var(--surface-hover);
+}
+
+:root[data-theme='dark'] .MuiMenuItem-root.Mui-selected {
+  background-color: color-mix(in srgb, var(--selected-bg) 42%, var(--input-bg));
+}
+
+:root[data-theme='dark'] .MuiToggleButton-root:not(.Mui-selected):hover {
+  background-color: var(--surface-hover);
+}
+
+:root[data-theme='dark'] .MuiTooltip-tooltip {
+  border: 1px solid var(--border);
+  background-color: var(--surface-soft);
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px var(--popover-shadow);
+}
+
+:root[data-theme='dark'] .Toastify__toast-theme--light {
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text-primary);
+  box-shadow: 0 14px 34px var(--popover-shadow);
+}
+
+:root[data-theme='dark'] .Toastify__close-button--light {
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+
+:root[data-theme='dark'] .Toastify__progress-bar--bg {
+  background: var(--surface-muted);
+}
+
+:root[data-theme='dark'] input,
+:root[data-theme='dark'] select,
+:root[data-theme='dark'] textarea {
+  color-scheme: dark;
 }
 
 #root {
@@ -92,8 +192,8 @@ body {
   align-items: center;
   width: 100%;
   min-height: 76px;
-  background: var(--white);
-  border-bottom: 1px solid var(--grey-300);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   box-shadow: 0 10px 28px var(--shadow);
 }
 
@@ -126,7 +226,7 @@ a.branding-banner-main:hover {
 .branding-banner-title {
   margin: 0;
   min-width: 0;
-  color: var(--theme-blue);
+  color: var(--text-primary);
   font-family: "Poppins", "Avenir Next", "Segoe UI", sans-serif;
   font-size: clamp(1.2rem, 2vw, 1.7rem);
   font-weight: 700;
@@ -266,7 +366,7 @@ a.branding-banner-main:hover {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--input-bg);
-  color: var(--theme-blue);
+  color: var(--input-text);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
@@ -277,6 +377,14 @@ a.branding-banner-main:hover {
 
 .global-date-filter-shortcut:hover {
   border-color: var(--selected-bg);
+}
+
+:root[data-theme='dark'] .global-date-filter-shortcut:not(.global-date-filter-shortcut-active):hover,
+:root[data-theme='dark'] .preset-toolbar-toggle-button:not(.preset-toolbar-toggle-button-active):hover,
+:root[data-theme='dark'] .preset-slot-button:not(.preset-slot-button-active):hover,
+:root[data-theme='dark'] .preset-action-button:not(.preset-action-button-primary):hover:not(:disabled),
+:root[data-theme='dark'] .filter-toggle:hover {
+  background: var(--surface-hover);
 }
 
 .global-date-filter-shortcut-active {
@@ -994,7 +1102,7 @@ h1 {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--input-bg);
-  color: var(--theme-blue);
+  color: var(--input-text);
   font: inherit;
   font-size: 0.76rem;
   font-weight: 700;
@@ -1053,7 +1161,7 @@ h1 {
 
 .metric-overview-band {
   display: grid;
-  grid-template-columns: 65% 30%;
+  grid-template-columns: 55% 40%;
   column-gap: 5%;
   align-items: center;
   width: 100%;
@@ -1147,8 +1255,8 @@ h1 {
   align-items: start;
   justify-items: stretch;
   width: 100%;
-  height: 340px;
-  min-height: 340px;
+  height: 338px;
+  min-height: 338px;
   max-width: 100%;
   min-width: 0;
   padding: 0.15rem 0.2rem 0.05rem;

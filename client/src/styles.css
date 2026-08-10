@@ -639,7 +639,7 @@ a.branding-banner-main:hover {
   display: grid;
   grid-template-rows: auto auto;
   align-content: start;
-  gap: 1.15rem;
+  gap: 0.55rem;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -1053,7 +1053,8 @@ h1 {
 
 .metric-overview-band {
   display: grid;
-  grid-template-columns: minmax(84px, 0.75fr) minmax(0, 1.25fr);
+  grid-template-columns: 65% 30%;
+  column-gap: 5%;
   align-items: center;
   width: 100%;
   height: 72px;
@@ -1070,7 +1071,7 @@ h1 {
   align-content: center;
   gap: 0.22rem;
   min-width: 0;
-  padding-right: 0.65rem;
+  padding-right: 0;
 }
 
 .metric-overview-value,
@@ -1105,8 +1106,9 @@ h1 {
   flex-wrap: wrap;
   align-content: center;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.45rem 0.7rem;
+  justify-content: flex-start;
+  justify-self: stretch;
+  gap: 0.35rem;
   min-width: 0;
 }
 
@@ -1114,12 +1116,14 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  flex: 0 0 100%;
   min-width: 0;
   color: var(--text-secondary);
   font-size: 0.64rem;
   font-weight: 650;
   line-height: 1.1;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .metric-overview-legend-swatch {
@@ -1143,8 +1147,8 @@ h1 {
   align-items: start;
   justify-items: stretch;
   width: 100%;
-  height: 372px;
-  min-height: 372px;
+  height: 340px;
+  min-height: 340px;
   max-width: 100%;
   min-width: 0;
   padding: 0.15rem 0.2rem 0.05rem;

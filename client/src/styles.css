@@ -35,6 +35,8 @@
   --surface-soft: var(--grey-200);
   --chart-surface: var(--white);
   --chart-text: var(--theme-blue);
+  --chart-axis: var(--chart-grid);
+  --chart-annotation: var(--theme-blue);
   --text-primary: var(--theme-blue);
   --text-secondary: var(--theme-blue);
   --text-inverse: var(--white);
@@ -61,7 +63,9 @@
   --surface-soft: #1e2b3f;
   --surface-hover: #24344c;
   --chart-surface: #0e1726;
-  --chart-text: #dce6f2;
+  --chart-text: #f1f5f9;
+  --chart-axis: #e2e8f0;
+  --chart-annotation: #f8fafc;
   --text-primary: #f4f7fb;
   --text-secondary: #b7c3d3;
   --text-inverse: #f8fafc;
@@ -1275,7 +1279,7 @@ h1 {
   top: 0.65rem;
   left: 0.8rem;
   z-index: 1;
-  color: var(--chart-text);
+  color: var(--chart-annotation);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;

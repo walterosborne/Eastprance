@@ -409,6 +409,7 @@ const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 4, left: 0 };
 const CHART_HEIGHT = 332;
 const INCIDENT_CHART_HEIGHT = CHART_HEIGHT;
 const INCIDENT_X_AXIS_HEIGHT = 28;
+const Y_AXIS_WIDTH_STEPS = [44, 52, 60, 68, 76, 84, 96];
 const FIXED_MONTH_METRIC_YEAR = 2026;
 const OTD_UNITS_Y_AXIS = [
   {
@@ -447,6 +448,7 @@ const NMFR_Y_AXIS = [
 ];
 const LABOR_Y_AXIS = [
   {
+    label: 'Direct %',
     width: 52,
     valueFormatter: formatPercentAxis,
     tickLabelStyle: { fontSize: 11 }
@@ -454,6 +456,7 @@ const LABOR_Y_AXIS = [
 ];
 const LABOR_HOURS_Y_AXIS = [
   {
+    label: 'Hours',
     width: 60,
     valueFormatter: formatCompactHoursAxis,
     tickLabelStyle: { fontSize: 11 }
@@ -499,24 +502,24 @@ const monthYearFormatter = new Intl.DateTimeFormat('en-US', {
 
 const sharedChartSx = {
   '& .MuiChartsAxis-line, & .MuiChartsAxis-tick': {
-    stroke: 'var(--chart-grid)'
+    stroke: 'var(--chart-axis)'
   },
   '& .MuiChartsGrid-line': {
     stroke: 'var(--chart-grid)'
   },
-  '& .MuiChartsAxis-tickLabel, & .MuiChartsLegend-label': {
+  '& .MuiChartsAxis-tickLabel, & .MuiChartsAxis-label, & .MuiChartsLegend-label, & .MuiBarLabel-root': {
     fill: 'var(--chart-text)'
   }
 };
 
 const goalLineStyle = {
-  stroke: 'var(--text-primary)',
+  stroke: 'var(--chart-annotation)',
   strokeDasharray: '6 4',
   strokeWidth: 1.5
 };
 
 const goalLabelStyle = {
-  fill: 'var(--text-secondary)',
+  fill: 'var(--chart-annotation)',
   fontSize: 11,
   fontWeight: 600
 };
@@ -760,6 +763,85 @@ function formatCompactHoursAxis(value) {
     : formatCompactWholeNumber(numericValue);
 
   return `${formattedValue} hrs`;
+}
+
+function estimateAxisLabelWidth(label, fontSize) {
+  return Array.from(String(label ?? '')).reduce((width, character) => {
+    if (/[1.,:;|\s]/.test(character)) {
+      return width + fontSize * 0.34;
+    }
+
+    if (/[$%MW@]/.test(character)) {
+      return width + fontSize * 0.78;
+    }
+
+    if (/[-+()[\]]/.test(character)) {
+      return width + fontSize * 0.46;
+    }
+
+    return width + fontSize * 0.59;
+  }, 0);
+}
+
+function formatAxisTickSample(axisConfig, value) {
+  try {
+    if (typeof axisConfig.valueFormatter === 'function') {
+      return axisConfig.valueFormatter(value, { location: 'tick' });
+    }
+  } catch {
+    // Fall through to a stable numeric label when a formatter needs chart-only context.
+  }
+
+  return numberFormatter.format(value);
+}
+
+function getAdaptiveYAxisConfig(axisConfig, seriesCollections = []) {
+  const numericValues = seriesCollections
+    .flatMap((seriesValues) => (Array.isArray(seriesValues) ? seriesValues : []))
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  const configuredMin = Number(axisConfig.min);
+  const configuredMax = Number(axisConfig.max);
+  const minValue = Number.isFinite(configuredMin)
+    ? configuredMin
+    : numericValues.length > 0
+      ? Math.min(...numericValues)
+      : 0;
+  const maxValue = Number.isFinite(configuredMax)
+    ? configuredMax
+    : numericValues.length > 0
+      ? Math.max(...numericValues)
+      : minValue;
+  const range = maxValue - minValue;
+  const sampleValues = range === 0
+    ? [minValue]
+    : Array.from({ length: 5 }, (_unused, index) => minValue + (range * index) / 4);
+
+  if (minValue <= 0 && maxValue >= 0) {
+    sampleValues.push(0);
+  }
+
+  const tickFontSize = Number(axisConfig.tickLabelStyle?.fontSize) || 11;
+  const widestTickLabel = sampleValues.reduce((maxWidth, value) => {
+    const label = formatAxisTickSample(axisConfig, value);
+    return Math.max(maxWidth, estimateAxisLabelWidth(label, tickFontSize));
+  }, 0);
+  const titleAllowance = axisConfig.label ? 18 : 0;
+  const requiredWidth = Math.ceil(widestTickLabel + 13 + titleAllowance);
+  const width =
+    Y_AXIS_WIDTH_STEPS.find((candidateWidth) => candidateWidth >= requiredWidth)
+    ?? Y_AXIS_WIDTH_STEPS[Y_AXIS_WIDTH_STEPS.length - 1];
+
+  return {
+    ...axisConfig,
+    width
+  };
+}
+
+function getAdaptiveYAxis(axisConfigs, seriesCollections = []) {
+  return axisConfigs.map((axisConfig) =>
+    getAdaptiveYAxisConfig(axisConfig, seriesCollections)
+  );
 }
 
 function formatDebugDuration(durationMs) {
@@ -2443,6 +2525,10 @@ function MetricTrendChart({
   goalLine = null,
   sx = sharedChartSx
 }) {
+  const chartYAxis = getAdaptiveYAxis(
+    yAxis,
+    series.map((seriesConfig) => seriesConfig.data)
+  );
   const chartProps = {
     width,
     height,
@@ -2455,7 +2541,7 @@ function MetricTrendChart({
         data: labels
       }
     ],
-    yAxis,
+    yAxis: chartYAxis,
     series:
       variant === 'bar'
         ? series.map(({ showMark, ...seriesConfig }) => seriesConfig)
@@ -2503,6 +2589,14 @@ function StackedCategoryBarChart({
   series,
   sx = sharedChartSx
 }) {
+  const stackedYAxis = getAdaptiveYAxis(
+    yAxis.map((axisConfig) => ({
+      ...axisConfig,
+      min: axisConfig.min ?? 0
+    })),
+    series.map((seriesConfig) => seriesConfig.data)
+  );
+
   return (
     <BarChart
       width={width}
@@ -2516,10 +2610,7 @@ function StackedCategoryBarChart({
           data: labels
         }
       ]}
-      yAxis={yAxis.map((axisConfig) => ({
-        ...axisConfig,
-        min: axisConfig.min ?? 0
-      }))}
+      yAxis={stackedYAxis}
       series={series.map((seriesConfig) => ({
         ...seriesConfig,
         stack: 'total'
@@ -2568,6 +2659,27 @@ function ParetoMetricChart({
   goalLine = null,
   sx = sharedChartSx
 }) {
+  const paretoYAxis = [
+    getAdaptiveYAxisConfig(
+      {
+        id: 'value-axis',
+        ...barAxis[0]
+      },
+      [values]
+    ),
+    getAdaptiveYAxisConfig(
+      {
+        id: 'cumulative-axis',
+        position: 'right',
+        min: 0,
+        max: 1,
+        valueFormatter: formatPercentAxis,
+        tickLabelStyle: { fontSize: 11 }
+      },
+      [cumulativeShares]
+    )
+  ];
+
   return (
     <ChartsContainer
       width={width}
@@ -2602,21 +2714,7 @@ function ParetoMetricChart({
           data: labels
         }
       ]}
-      yAxis={[
-        {
-          id: 'value-axis',
-          ...barAxis[0]
-        },
-        {
-          id: 'cumulative-axis',
-          position: 'right',
-          min: 0,
-          max: 1,
-          width: 44,
-          valueFormatter: formatPercentAxis,
-          tickLabelStyle: { fontSize: 11 }
-        }
-      ]}
+      yAxis={paretoYAxis}
       sx={sx}
     >
       <ChartsGrid horizontal />
@@ -7472,7 +7570,7 @@ export default function App() {
                       legendItems={laborOverviewLegend}
                       ariaLabel="Direct labor utilization overview"
                     />
-                    <div ref={laborChartHostRef} className="chart-host chart-host-with-axis-unit">
+                    <div ref={laborChartHostRef} className="chart-host">
                       {laborState.loading && (
                         <p className="chart-message">Loading labor utilization data...</p>
                       )}
@@ -7535,9 +7633,7 @@ export default function App() {
                               sx={sharedChartSx}
                             />
                           ) : (
-                            <>
-                              <span className="chart-axis-unit-label">Direct %</span>
-                              <MetricTrendChart
+                            <MetricTrendChart
                                 variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
                                 width={laborChartWidth}
                                 height={CHART_HEIGHT}
@@ -7555,7 +7651,6 @@ export default function App() {
                                 }}
                                 goalLine={laborGoalLine}
                               />
-                            </>
                           )
                         )}
                     </div>
@@ -7671,7 +7766,7 @@ export default function App() {
                     />
                     <div
                       ref={laborHanaChartHostRef}
-                      className="chart-host chart-host-with-axis-unit"
+                      className="chart-host"
                     >
                       {laborHanaState.loading && (
                         <p className="chart-message">Loading HANA labor utilization data...</p>
@@ -7738,9 +7833,7 @@ export default function App() {
                               sx={sharedChartSx}
                             />
                           ) : (
-                            <>
-                              <span className="chart-axis-unit-label">Direct %</span>
-                              <MetricTrendChart
+                            <MetricTrendChart
                                 variant={chartVariants.laborHana === 'bar' ? 'bar' : 'line'}
                                 width={laborHanaChartWidth}
                                 height={CHART_HEIGHT}
@@ -7758,7 +7851,6 @@ export default function App() {
                                 }}
                                 goalLine={laborHanaGoalLine}
                               />
-                            </>
                           )
                         )}
                     </div>

@@ -397,11 +397,11 @@ const LABOR_VIEW_CONFIG = {
 };
 
 const DEFAULT_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
-const INCIDENT_CHART_MARGIN = { top: 2, right: 12, bottom: 14, left: 0 };
+const INCIDENT_CHART_MARGIN = DEFAULT_CHART_MARGIN;
 const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 20, left: 0 };
 const CHART_HEIGHT = 332;
-const INCIDENT_CHART_HEIGHT = 366;
-const INCIDENT_X_AXIS_HEIGHT = 24;
+const INCIDENT_CHART_HEIGHT = CHART_HEIGHT;
+const INCIDENT_X_AXIS_HEIGHT = 28;
 const FIXED_MONTH_METRIC_YEAR = 2026;
 const OTD_UNITS_Y_AXIS = [
   {
@@ -471,6 +471,11 @@ const wholeNumberFormatter = new Intl.NumberFormat('en-US', {
 });
 
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 1
+});
+const overviewNumberFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
   minimumFractionDigits: 0,
   maximumFractionDigits: 1
 });
@@ -709,6 +714,24 @@ function formatPercentValue(value) {
 
 function formatPercentAxis(value) {
   return `${numberFormatter.format(Number(value ?? 0) * 100)}%`;
+}
+
+function formatOverviewCurrency(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return '--';
+  }
+
+  const sign = numericValue < 0 ? '-' : '';
+  return `${sign}$${overviewNumberFormatter.format(Math.abs(numericValue))}`;
+}
+
+function sumNumericValues(values) {
+  return values.reduce((sum, value) => {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? sum + numericValue : sum;
+  }, 0);
 }
 
 function formatIncidentCount(value) {
@@ -2398,7 +2421,7 @@ function MetricTrendChart({
   xAxisHeight = 28,
   yAxis,
   series,
-  hideLegend = false,
+  hideLegend = true,
   tooltipComponent = StandardChartTooltip,
   tooltipTrigger = 'axis',
   tooltipProps = {},
@@ -3085,22 +3108,13 @@ function renderMetricInfoContent(info) {
   );
 }
 
-function CardHeader({ title, info, tooltipLegend = null, summaryValue = null, summaryAriaLabel = '' }) {
+function CardHeader({ title, info, tooltipLegend = null }) {
   const metricInfo = info || DEFAULT_METRIC_INFO;
 
   return (
     <div className="card-header">
       <div className="card-header-main">
         <h2 className="card-title">{title}</h2>
-        {summaryValue != null && (
-          <MetricSummaryPanel
-            title=""
-            value={summaryValue}
-            showTitle={false}
-            ariaLabel={summaryAriaLabel || `${title} overall value`}
-            className="metric-summary-panel-header"
-          />
-        )}
       </div>
       <div className="card-info">
         <button
@@ -3135,20 +3149,28 @@ function CardHeader({ title, info, tooltipLegend = null, summaryValue = null, su
   );
 }
 
-function MetricSummaryPanel({
-  title,
-  value,
-  className = '',
-  showTitle = true,
-  ariaLabel = ''
-}) {
+function MetricOverviewBand({ value, label, legendItems = [], ariaLabel = '' }) {
   return (
     <section
-      className={`filter-panel metric-summary-panel ${className}`.trim()}
+      className="metric-overview-band"
       aria-label={ariaLabel || undefined}
     >
-      {showTitle && title ? <p className="metric-summary-title">{title}</p> : null}
-      <p className="metric-summary-value">{value}</p>
+      <div className="metric-overview-summary">
+        <p className="metric-overview-value">{value}</p>
+        <p className="metric-overview-label">{label}</p>
+      </div>
+      <div className="metric-overview-legend" aria-label="Chart legend">
+        {legendItems.map((item) => (
+          <div key={`${item.label}-${item.color}`} className="metric-overview-legend-item">
+            <span
+              aria-hidden="true"
+              className="metric-overview-legend-swatch"
+              style={{ backgroundColor: item.color }}
+            />
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -4458,6 +4480,9 @@ export default function App() {
     controllableCostsViewMode,
     selectedDateRange
   );
+  const controllableCostsSummaryValue = formatOverviewCurrency(
+    sumNumericValues(controllableCostsChartData.total)
+  );
   const controllableCostsParetoChartData = buildControllableCostsParetoChartData(
     baseFilteredControllableCostsRows,
     activeControllableChartFilterField.value,
@@ -4534,6 +4559,9 @@ export default function App() {
     filteredControllableCostsHanaRows,
     controllableCostsHanaViewMode,
     selectedDateRange
+  );
+  const controllableCostsHanaSummaryValue = formatOverviewCurrency(
+    sumNumericValues(controllableCostsHanaChartData.total)
   );
   const controllableCostsHanaParetoChartData = buildControllableCostsParetoChartData(
     baseFilteredControllableCostsHanaRows,
@@ -4873,6 +4901,11 @@ export default function App() {
     );
   });
   const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
+  const otdOverallContract = sumNumericValues(otdChartData.contract);
+  const otdOverallDelivered = sumNumericValues(otdChartData.delivered);
+  const otdSummaryValue = otdOverallContract > 0
+    ? formatPercentValue(otdOverallDelivered / otdOverallContract)
+    : '--';
   const otdGoalForecastData = buildOtdChartData(
     filteredOtdRows,
     'monthly',
@@ -5063,6 +5096,11 @@ export default function App() {
     laborViewMode,
     selectedDateRange
   );
+  const laborOverallHours = sumNumericValues(laborChartData.totals);
+  const laborOverallDirectHours = sumNumericValues(laborChartData.direct);
+  const laborSummaryValue = laborOverallHours > 0
+    ? formatPercentValue(laborOverallDirectHours / laborOverallHours)
+    : '--';
   const laborPaletteChartData = buildLaborPaletteChartData(
     laborState.rows,
     activeLaborPaletteGroupField.value,
@@ -5129,6 +5167,11 @@ export default function App() {
     laborHanaViewMode,
     selectedDateRange
   );
+  const laborHanaOverallHours = sumNumericValues(laborHanaChartData.totals);
+  const laborHanaOverallDirectHours = sumNumericValues(laborHanaChartData.direct);
+  const laborHanaSummaryValue = laborHanaOverallHours > 0
+    ? formatPercentValue(laborHanaOverallDirectHours / laborHanaOverallHours)
+    : '--';
   const laborHanaGoalForecastData = buildLaborUtilizationChartData(
     filteredLaborHanaRows,
     'monthly',
@@ -5257,6 +5300,82 @@ export default function App() {
       laborHanaPaletteChartData.series
     )
     : null;
+  const paretoCumulativeLegendItem = {
+    label: 'Cumulative share',
+    color: 'var(--chart-accent-line)'
+  };
+  const controllableCostsOverviewLegend = isControllableCostsPalette
+    ? []
+    : isControllableCostsPareto
+      ? [
+        { label: 'Total cost', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [
+        { label: 'Controllable', color: 'var(--chart-line)' },
+        { label: 'Uncontrollable', color: 'var(--chart-accent-line)' }
+      ];
+  const controllableCostsHanaOverviewLegend = isControllableCostsHanaPalette
+    ? []
+    : isControllableCostsHanaPareto
+      ? [
+        { label: 'Total cost', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [{ label: 'Total cost', color: 'var(--chart-line)' }];
+  const sifOverviewLegend = isSifPalette
+    ? []
+    : isSifPareto
+      ? [
+        { label: 'SIF incidents', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [{ label: 'SIF incidents', color: 'var(--chart-line)' }];
+  const potentialSifOverviewLegend = isPotentialSifPalette
+    ? []
+    : isPotentialSifPareto
+      ? [
+        { label: 'Potential SIFs', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [{ label: 'Potential SIFs', color: 'var(--chart-line)' }];
+  const nmfrOverviewLegend = isNmfrPalette
+    ? []
+    : isNmfrPareto
+      ? [
+        { label: 'NMFR', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [{ label: 'NMFR', color: 'var(--chart-line)' }];
+  const otdOverviewLegend = isOtdPalette
+    ? []
+    : isOtdPareto
+      ? [
+        { label: 'Actuals delivered', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : isOtdBarChart
+        ? [
+          { label: 'Contract commitment', color: 'var(--chart-line)' },
+          { label: 'Actuals delivered', color: 'var(--chart-secondary-line)' }
+        ]
+        : [{ label: 'Percent delivered', color: 'var(--chart-line)' }];
+  const laborOverviewLegend = isLaborPalette
+    ? []
+    : isLaborPareto
+      ? [
+        { label: 'Direct hours', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [{ label: 'Direct labor share', color: 'var(--chart-line)' }];
+  const laborHanaOverviewLegend = isLaborHanaPalette
+    ? []
+    : isLaborHanaPareto
+      ? [
+        { label: 'Direct hours', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [{ label: 'Direct labor share', color: 'var(--chart-line)' }];
   const controllableCostsGoalLine = labelGoalLineValue(
     getMetricGoalLine(
       'controllableCosts',
@@ -6145,6 +6264,16 @@ export default function App() {
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={
+                        controllableCostsState.loading || controllableCostsState.error
+                          ? '--'
+                          : controllableCostsSummaryValue
+                      }
+                      label="Total Cost"
+                      legendItems={controllableCostsOverviewLegend}
+                      ariaLabel="Controllable costs overview"
+                    />
                     <div ref={controllableCostsChartHostRef} className="chart-host">
                       {controllableCostsState.loading && (
                         <p className="chart-message">Loading controllable costs data...</p>
@@ -6343,6 +6472,16 @@ export default function App() {
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={
+                        controllableCostsHanaState.loading || controllableCostsHanaState.error
+                          ? '--'
+                          : controllableCostsHanaSummaryValue
+                      }
+                      label="Total Cost"
+                      legendItems={controllableCostsHanaOverviewLegend}
+                      ariaLabel="HANA controllable costs overview"
+                    />
                     <div ref={controllableCostsHanaChartHostRef} className="chart-host">
                       {controllableCostsHanaState.loading && (
                         <p className="chart-message">Loading HANA cost data...</p>
@@ -6531,12 +6670,16 @@ export default function App() {
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
                   tooltipLegend={sifTooltipLegend}
-                  summaryValue={sifState.loading || sifState.error ? '--' : sifSummaryValue}
-                  summaryAriaLabel="SIF incidents overall value"
                 />
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
+                      label="SIF Incidents"
+                      legendItems={sifOverviewLegend}
+                      ariaLabel="SIF incidents overview"
+                    />
                     <div ref={sifChartHostRef} className="chart-host">
                       {sifState.loading && <p className="chart-message">Loading SIF data...</p>}
 
@@ -6714,16 +6857,20 @@ export default function App() {
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
                   tooltipLegend={potentialSifTooltipLegend}
-                  summaryValue={
-                    potentialSifState.loading || potentialSifState.error
-                      ? '--'
-                      : potentialSifSummaryValue
-                  }
-                  summaryAriaLabel="Potential SIF incidents overall value"
                 />
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={
+                        potentialSifState.loading || potentialSifState.error
+                          ? '--'
+                          : potentialSifSummaryValue
+                      }
+                      label="Potential SIFs"
+                      legendItems={potentialSifOverviewLegend}
+                      ariaLabel="Potential SIF incidents overview"
+                    />
                     <div ref={potentialSifChartHostRef} className="chart-host">
                       {potentialSifState.loading && (
                         <p className="chart-message">Loading potential SIF data...</p>
@@ -6905,12 +7052,16 @@ export default function App() {
                   title="Near Miss Frequency Rate"
                   info={nmfrMetricInfo}
                   tooltipLegend={nmfrTooltipLegend}
-                  summaryValue={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
-                  summaryAriaLabel="Near miss frequency rate overall value"
                 />
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
+                      label="NMFR"
+                      legendItems={nmfrOverviewLegend}
+                      ariaLabel="Near miss frequency rate overview"
+                    />
                     <div ref={nmfrChartHostRef} className="chart-host">
                       {nmfrState.loading && <p className="chart-message">Loading NMFR data...</p>}
 
@@ -7092,6 +7243,12 @@ export default function App() {
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={otdState.loading || otdState.error ? '--' : otdSummaryValue}
+                      label="Percent Delivered"
+                      legendItems={otdOverviewLegend}
+                      ariaLabel="On time delivery overview"
+                    />
                     <div ref={otdChartHostRef} className="chart-host">
                       {otdState.loading && <p className="chart-message">Loading OTD data...</p>}
 
@@ -7294,6 +7451,12 @@ export default function App() {
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={laborState.loading || laborState.error ? '--' : laborSummaryValue}
+                      label="Direct Labor"
+                      legendItems={laborOverviewLegend}
+                      ariaLabel="Direct labor utilization overview"
+                    />
                     <div ref={laborChartHostRef} className="chart-host chart-host-with-axis-unit">
                       {laborState.loading && (
                         <p className="chart-message">Loading labor utilization data...</p>
@@ -7481,6 +7644,16 @@ export default function App() {
 
                 <div className="dashboard-grid">
                   <div className="visual-column">
+                    <MetricOverviewBand
+                      value={
+                        laborHanaState.loading || laborHanaState.error
+                          ? '--'
+                          : laborHanaSummaryValue
+                      }
+                      label="Direct Labor"
+                      legendItems={laborHanaOverviewLegend}
+                      ariaLabel="HANA direct labor utilization overview"
+                    />
                     <div
                       ref={laborHanaChartHostRef}
                       className="chart-host chart-host-with-axis-unit"

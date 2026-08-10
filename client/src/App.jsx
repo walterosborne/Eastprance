@@ -4941,6 +4941,7 @@ export default function App() {
 
         logClientDebug('otd-goal', 'Updated ARIMA goal line from monthly percent delivered.', {
           observationCount: otdGoalForecastSeriesValues.length,
+          monthlyPercentDelivered: otdGoalForecastSeriesValues,
           goalLine
         });
         setOtdArimaGoalLine(goalLine);

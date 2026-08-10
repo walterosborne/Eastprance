@@ -1,4 +1,4 @@
-import { METRIC_INFO } from './metricInfoRaw';
+import { METRIC_INFO } from './metricInfoRaw.js';
 
 const DEFAULT_METRIC_INFO = 'Display metric info here';
 
@@ -58,7 +58,11 @@ function appendMetricInfo(baseInfo, extraEntries) {
 function buildArimaMetricInfo(
   baseInfo,
   goalLineDetails,
-  { explanation, valueFormatter = formatMetricInfoNumber }
+  {
+    explanation,
+    forecastDescription = 'the ARIMA model',
+    valueFormatter = formatMetricInfoNumber
+  }
 ) {
   const status = String(goalLineDetails?.status ?? '').trim();
   const expectedValue = Number(goalLineDetails?.expectedValue);
@@ -68,8 +72,8 @@ function buildArimaMetricInfo(
   const observationCount = Number(goalLineDetails?.observationCount);
   const requiredObservations = Number(goalLineDetails?.requiredObservations);
   const expectedValuePrefix = forecastMonthLabel
-    ? `Based on the ARIMA model, the expected value for ${forecastMonthLabel} is `
-    : 'Based on the ARIMA model, the expected value for the next month after the latest filtered month is ';
+    ? `Based on ${forecastDescription}, the expected value for ${forecastMonthLabel} is `
+    : `Based on ${forecastDescription}, the expected value for the next month after the latest filtered month is `;
 
   return appendMetricInfo(baseInfo, [
     { text: 'Goal Lines', bold: true },
@@ -134,8 +138,13 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
 }
 
 function buildOtdMetricInfo(baseInfo, goalLineDetails = null) {
+  const usedRecentBaseline = Boolean(goalLineDetails?.usedRecentBaseline);
+
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
-    explanation: 'ARIMA projects the next percent-delivered value, then raises that forecast slightly to create a realistic stretch target.',
+    explanation: 'ARIMA projects the next percent-delivered value. Forecasts more than 20 percentage points from the recent six-month median use that median before applying the stretch target.',
+    forecastDescription: usedRecentBaseline
+      ? 'the ARIMA model with its recent-performance safeguard'
+      : 'the ARIMA model',
     valueFormatter: formatMetricInfoShare
   });
 }

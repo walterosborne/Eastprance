@@ -1,14 +1,22 @@
-import { DEFAULT_GOAL_LABEL } from './metricGoals';
+import { DEFAULT_GOAL_LABEL } from './metricGoals.js';
 
 const NMFR_ARIMA_MIN_OBSERVATIONS = 10;
 const NMFR_GOAL_CHALLENGE_RATIO = 0.03;
 const OTD_ARIMA_MIN_OBSERVATIONS = 10;
 const OTD_GOAL_CHALLENGE_RATIO = 0.03;
+const OTD_RECENT_BASELINE_MONTHS = 6;
+const OTD_MAX_FORECAST_DEVIATION = 0.2;
 const LABOR_HANA_ARIMA_MIN_OBSERVATIONS = 10;
 const LABOR_HANA_GOAL_CHALLENGE_RATIO = 0.03;
 const NMFR_ARIMA_OPTIONS = Object.freeze({
   p: 1,
   d: 1,
+  q: 1,
+  verbose: false
+});
+const OTD_ARIMA_OPTIONS = Object.freeze({
+  p: 1,
+  d: 0,
   q: 1,
   verbose: false
 });
@@ -27,6 +35,15 @@ function roundRate(value) {
 
 function roundShare(value) {
   return Number(value.toFixed(4));
+}
+
+function getMedian(values) {
+  const sortedValues = [...values].sort((left, right) => left - right);
+  const middleIndex = Math.floor(sortedValues.length / 2);
+
+  return sortedValues.length % 2 === 0
+    ? (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2
+    : sortedValues[middleIndex];
 }
 
 async function loadArimaConstructor() {
@@ -76,7 +93,9 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
 }
 
 export async function forecastOtdGoalLineFromSeries(seriesValues) {
-  const numericSeries = normalizeSeries(seriesValues);
+  const numericSeries = normalizeSeries(seriesValues).map((value) =>
+    Math.min(1, Math.max(0, value))
+  );
 
   if (numericSeries.length < OTD_ARIMA_MIN_OBSERVATIONS) {
     return null;
@@ -86,15 +105,25 @@ export async function forecastOtdGoalLineFromSeries(seriesValues) {
   let model = null;
 
   try {
-    model = new ARIMA(NMFR_ARIMA_OPTIONS).train(numericSeries);
+    const percentagePointSeries = numericSeries.map((value) => value * 100);
+    const recentBaselineValue = getMedian(
+      numericSeries.slice(-OTD_RECENT_BASELINE_MONTHS)
+    );
+
+    model = new ARIMA(OTD_ARIMA_OPTIONS).train(percentagePointSeries);
     const [predictions] = model.predict(1);
-    const predictedValue = Number(predictions?.[0]);
+    const predictedValue = Number(predictions?.[0]) / 100;
 
     if (!Number.isFinite(predictedValue)) {
       return null;
     }
 
-    const expectedValue = roundShare(Math.min(1, Math.max(0, predictedValue)));
+    const boundedPrediction = Math.min(1, Math.max(0, predictedValue));
+    const usedRecentBaseline =
+      Math.abs(boundedPrediction - recentBaselineValue) > OTD_MAX_FORECAST_DEVIATION;
+    const expectedValue = roundShare(
+      usedRecentBaseline ? recentBaselineValue : boundedPrediction
+    );
     const goalValue = roundShare(
       Math.min(1, expectedValue * (1 + OTD_GOAL_CHALLENGE_RATIO))
     );
@@ -107,7 +136,10 @@ export async function forecastOtdGoalLineFromSeries(seriesValues) {
       value: goalValue,
       expectedValue,
       goalValue,
-      challengePercent
+      challengePercent,
+      rawExpectedValue: roundShare(boundedPrediction),
+      recentBaselineValue: roundShare(recentBaselineValue),
+      usedRecentBaseline
     };
   } finally {
     model?.destroy?.();

@@ -409,7 +409,7 @@ const LABOR_CHART_MARGIN = { top: 12, right: 12, bottom: 4, left: 0 };
 const CHART_HEIGHT = 332;
 const INCIDENT_CHART_HEIGHT = CHART_HEIGHT;
 const INCIDENT_X_AXIS_HEIGHT = 28;
-const Y_AXIS_WIDTH_STEPS = [44, 52, 60, 68, 76, 84, 96];
+const Y_AXIS_WIDTH_STEPS = [28, 34, 40, 46, 52, 58, 64, 72, 80, 88];
 const FIXED_MONTH_METRIC_YEAR = 2026;
 const OTD_UNITS_Y_AXIS = [
   {
@@ -448,7 +448,6 @@ const NMFR_Y_AXIS = [
 ];
 const LABOR_Y_AXIS = [
   {
-    label: 'Direct %',
     width: 52,
     valueFormatter: formatPercentAxis,
     tickLabelStyle: { fontSize: 11 }
@@ -827,7 +826,7 @@ function getAdaptiveYAxisConfig(axisConfig, seriesCollections = []) {
     return Math.max(maxWidth, estimateAxisLabelWidth(label, tickFontSize));
   }, 0);
   const titleAllowance = axisConfig.label ? 18 : 0;
-  const requiredWidth = Math.ceil(widestTickLabel + 13 + titleAllowance);
+  const requiredWidth = Math.ceil(widestTickLabel + 8 + titleAllowance);
   const width =
     Y_AXIS_WIDTH_STEPS.find((candidateWidth) => candidateWidth >= requiredWidth)
     ?? Y_AXIS_WIDTH_STEPS[Y_AXIS_WIDTH_STEPS.length - 1];
@@ -5014,17 +5013,33 @@ export default function App() {
     );
   });
   const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
-  const otdOverallContract = sumNumericValues(otdChartData.contract);
-  const otdOverallDelivered = sumNumericValues(otdChartData.delivered);
-  const otdSummaryValue = otdOverallContract > 0
-    ? formatPercentValue(otdOverallDelivered / otdOverallContract)
-    : '--';
   const otdGoalForecastData = buildOtdChartData(
     filteredOtdRows,
     'monthly',
     selectedDateRange
   );
   const currentOtdMonthStamp = getMonthStartStamp(new Date());
+  const completedOtdMonthIndices = otdGoalForecastData.bucketEndStamps.reduce(
+    (indices, bucketStamp, index) => {
+      if (bucketStamp < currentOtdMonthStamp) {
+        indices.push(index);
+      }
+
+      return indices;
+    },
+    []
+  );
+  const otdOverallContract = completedOtdMonthIndices.reduce(
+    (sum, index) => sum + Number(otdGoalForecastData.contract[index] ?? 0),
+    0
+  );
+  const otdOverallDelivered = completedOtdMonthIndices.reduce(
+    (sum, index) => sum + Number(otdGoalForecastData.delivered[index] ?? 0),
+    0
+  );
+  const otdSummaryValue = otdOverallContract > 0
+    ? formatPercentValue(otdOverallDelivered / otdOverallContract)
+    : '--';
   const otdLastDeliveredIndex = otdGoalForecastData.delivered.reduce(
     (lastIndex, deliveredValue, index) =>
       otdGoalForecastData.bucketEndStamps[index] < currentOtdMonthStamp &&

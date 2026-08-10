@@ -61,6 +61,9 @@ function buildAuthTransportDebug(request, authCandidates) {
     'x_forwarded_employeeid',
     'x_forwarded_name',
     'x_forwarded_email',
+    'x_auth_request_user',
+    'x_auth_request_preferred_username',
+    'x_auth_request_email',
     'x_entra_user_object_id',
     'x_entra_tenant_id',
     'x_entra_application_id'

@@ -67,11 +67,12 @@ OAuth2 Proxy then forwards authenticated requests to Express on `127.0.0.1:8080`
 Do not expose the Express container port directly: the backend trusts identity headers injected
 by OAuth2 Proxy, so all browser traffic must enter through the proxy-facing Service port.
 
-The proxy uses `preferred_username` as its primary user identifier and forwards the standard
-`X-Forwarded-User`, `X-Forwarded-Preferred-Username`, and `X-Forwarded-Email` headers. If Entra
-supplies the optional `employeeid` claim, the proxy also forwards it as
-`X-Forwarded-EmployeeId`. The backend normalizes the first available identity and attempts
-roster lookup against both `RosterExtractFarm.NetworkID` and `RosterExtractFarm.MyID`.
+The proxy uses the Entra email claim as its primary user identifier and forwards the standard
+`X-Forwarded-User`, `X-Forwarded-Preferred-Username`, and `X-Forwarded-Email` headers. It also
+enables the equivalent `X-Auth-Request-*` response headers for compatibility with an external-auth
+proxy layout. The backend normalizes the first available identity, removes the email domain when
+present, and attempts roster lookup against both `RosterExtractFarm.NetworkID` and
+`RosterExtractFarm.MyID`.
 
 The three Entra registration identifiers have different jobs:
 
@@ -108,8 +109,7 @@ The app accepts uppercase variants if your deployment tooling injects those inst
 
 The files under `openshift/` provide the auth sidecar configuration:
 
-- `oauth2-proxy-alpha.yaml` configures Entra OIDC, the Express upstream, and identity headers.
-- `oauth2-proxy-sidecar-patch.yaml` adds OAuth2 Proxy `v7.15.2` to the existing app pod.
+- `oauth2-proxy-sidecar-patch.yaml` adds and configures OAuth2 Proxy `v7.15.2` in the existing app pod.
 - `qmiscorecard-service-patch.yaml` changes the Service target from Express to OAuth2 Proxy.
 
 ### 1. Configure the Entra app registration
@@ -120,10 +120,10 @@ Add this as a **Web** redirect URI, replacing the hostname with the actual OpenS
 https://your-qmiscorecard-route.example.com/oauth2/callback
 ```
 
-The ID token should include `name`, `email`, `preferred_username`, `oid`, and `tid`. An
-`employeeid` claim is useful but optional because the backend can derive the network ID from
-`preferred_username` or email before querying the roster. No implicit grant or hybrid flow is
-needed because OAuth2 Proxy uses the authorization-code flow with PKCE.
+The ID token should include `name` and `email`; `preferred_username`, `oid`, `tid`, and
+`employeeid` are useful but optional for this application. The backend derives the network ID from
+the email before querying the roster. No implicit grant or hybrid flow is needed because OAuth2
+Proxy uses the authorization-code flow with PKCE.
 
 ### 2. Create the runtime secret
 
@@ -139,15 +139,7 @@ oc create secret generic qmiscorecard-entra \
   --from-literal=cookiesecret="$(openssl rand -base64 32 | tr -- '+/' '-_')"
 ```
 
-### 3. Create the proxy ConfigMap
-
-```bash
-oc create configmap qmiscorecard-oauth2-proxy \
-  --from-file=alpha.yaml=openshift/oauth2-proxy-alpha.yaml \
-  --dry-run=client -o yaml | oc apply -f -
-```
-
-### 4. Add the sidecar
+### 3. Add the sidecar
 
 Replace `DEPLOYMENT_NAME` with the current app Deployment name:
 
@@ -170,7 +162,7 @@ headers used to construct secure redirects.
   value: ROUTER_CIDR_1,ROUTER_CIDR_2
 ```
 
-### 5. Send Service traffic through the proxy
+### 4. Send Service traffic through the proxy
 
 The supplied patch assumes the Service exposes port `8080`. If its current `port` differs,
 edit that value first, but keep `targetPort: oauth2-proxy`.
@@ -182,9 +174,21 @@ oc patch service/SERVICE_NAME \
 ```
 
 The existing Route should continue pointing at that Service. After rollout, `/headers` should
-show `x_forwarded_user`, `x_forwarded_preferred_username`, `x_forwarded_email`,
-`x_entra_user_object_id`, and `x_entra_tenant_id`. It will also show
-`x_forwarded_employeeid` when that optional claim is present.
+show at least `x_forwarded_user` and `x_forwarded_email`. Depending on the Entra token, it may also
+show `x_forwarded_preferred_username`. If the proxy is configured as external auth instead of the
+direct upstream used here, the equivalent `x_auth_request_*` headers are accepted by the backend.
+
+Confirm the public Route actually enters OAuth2 Proxy:
+
+```bash
+oc get service/SERVICE_NAME -o jsonpath='{.spec.ports[*].targetPort}{"\n"}'
+oc logs deployment/DEPLOYMENT_NAME -c oauth2-proxy --tail=100
+```
+
+The first command must print `oauth2-proxy`. Through the public Route, `/oauth2/userinfo` should
+return the authenticated session email and `/headers` should report at least one populated identity
+field. If the app loads without an Entra redirect while no proxy session cookie exists, the Route or
+Service is still bypassing OAuth2 Proxy.
 
 ## Port
 

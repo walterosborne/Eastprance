@@ -6,6 +6,9 @@ const AUTH_CANDIDATE_FIELDS = [
   ['x_forwarded_preferred_username', 'X-Forwarded-Preferred-Username'],
   ['x_forwarded_name', 'X-Forwarded-Name'],
   ['x_forwarded_email', 'X-Forwarded-Email'],
+  ['x_auth_request_user', 'X-Auth-Request-User'],
+  ['x_auth_request_preferred_username', 'X-Auth-Request-Preferred-Username'],
+  ['x_auth_request_email', 'X-Auth-Request-Email'],
   ['x_entra_user_object_id', 'X-Entra-User-Object-Id'],
   ['x_entra_tenant_id', 'X-Entra-Tenant-Id'],
   ['x_entra_application_id', 'X-Entra-Application-Id'],
@@ -127,6 +130,9 @@ export function getLikelyAuthUser(authCandidates = {}) {
     || authCandidates.x_forwarded_user
     || authCandidates.x_forwarded_preferred_username
     || authCandidates.x_forwarded_email
+    || authCandidates.x_auth_request_user
+    || authCandidates.x_auth_request_preferred_username
+    || authCandidates.x_auth_request_email
     || null
   );
 }
@@ -166,11 +172,16 @@ function getHeaderBackedIdentity(authCandidates = {}) {
     source: 'entra-oauth2-proxy',
     employee_id: employeeId,
     network_id: employeeId,
-    email: normalizeText(authCandidates.x_forwarded_email),
+    email: normalizeText(
+      authCandidates.x_forwarded_email
+      || authCandidates.x_auth_request_email
+    ),
     name: normalizeText(authCandidates.x_forwarded_name),
     preferred_username: normalizeText(
       authCandidates.x_forwarded_preferred_username
       || authCandidates.x_forwarded_user
+      || authCandidates.x_auth_request_preferred_username
+      || authCandidates.x_auth_request_user
     ),
     entra_user_object_id: normalizeText(authCandidates.x_entra_user_object_id),
     entra_tenant_id: normalizeText(authCandidates.x_entra_tenant_id)

@@ -1263,7 +1263,7 @@ h1 {
   min-height: 338px;
   max-width: 100%;
   min-width: 0;
-  padding: 0.15rem 0.2rem 0.05rem;
+  padding: 0.15rem 0.05rem 0.05rem;
   border-radius: 14px;
   background: var(--chart-surface);
   border: 1px solid var(--border);

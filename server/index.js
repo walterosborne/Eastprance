@@ -22,7 +22,7 @@ import {
 } from './dashboardPresetsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
-import { readOtdData, readOtdNewData } from './otdRepository.js';
+import { readOtdData } from './otdRepository.js';
 import {
   getSafetyMetricPayload,
   readSafetyEventMetricsData,
@@ -47,7 +47,6 @@ let requestCounter = 0;
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
 registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
 registerSqlDatasetCache('otd', readOtdData);
-registerSqlDatasetCache('otd-new', readOtdNewData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
 if (LABOR_HANA_DATASET_ENABLED) {
   registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
@@ -237,16 +236,6 @@ app.get('/api/otd', async (request, response) => {
     'otd',
     () => getCachedSqlDataset('otd'),
     'Unable to read OTD data.'
-  );
-});
-
-app.get('/api/otd-new', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'otd-new',
-    () => getCachedSqlDataset('otd-new'),
-    'Unable to read new OTD data.'
   );
 });
 

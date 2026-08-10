@@ -1,19 +1,6 @@
-// Each metric can be a plain string, a multiline string, an array of bullets,
-// or objects like { text, bold, underline, bullet }. Whole-line markers also
-// work: **bold**, __underlined__, and **__both__**.
-const DEFAULT_METRIC_INFO = 'Display metric info here';
+import { METRIC_INFO } from './metricInfoRaw';
 
-const METRIC_INFO = {
-  controllableCosts: 'Compares controllable and uncontrollable costs over time.',
-  controllableCostsHana: 'Shows total HANA costs over time by organization.',
-  sif: 'Counts significant injuries or fatalities over time.',
-  potentialSif: 'Counts potential serious injury or fatality incidents.',
-  nmfr: 'Tracks near miss frequency rate across periods.',
-  otd: 'Compares committed units against actual delivered units.',
-  otdNew: 'Compares the new OTD table against committed units.',
-  labor: 'Shows direct labor hours as percent of total.',
-  laborHana: 'Shows HANA direct labor hours as percent of total.'
-};
+const DEFAULT_METRIC_INFO = 'Display metric info here';
 
 const metricInfoNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
@@ -46,6 +33,13 @@ function formatMetricInfoPercent(value) {
     : 'Unavailable';
 }
 
+function formatMetricInfoShare(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? formatMetricInfoPercent(numericValue * 100)
+    : 'Unavailable';
+}
+
 function createMetricInfoTextPart(text, options = {}) {
   return {
     text,
@@ -61,7 +55,11 @@ function appendMetricInfo(baseInfo, extraEntries) {
   ];
 }
 
-function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
+function buildArimaMetricInfo(
+  baseInfo,
+  goalLineDetails,
+  { explanation, valueFormatter = formatMetricInfoNumber }
+) {
   const status = String(goalLineDetails?.status ?? '').trim();
   const expectedValue = Number(goalLineDetails?.expectedValue);
   const goalValue = Number(goalLineDetails?.goalValue);
@@ -77,7 +75,7 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
     { text: 'Goal Lines', bold: true },
     {
       bullet: true,
-      text: 'ARIMA projects the next NMFR value, then tightens that forecast slightly to create a realistic stretch target.'
+      text: explanation
     },
     status === 'insufficient_data'
       ? {
@@ -106,9 +104,9 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
         bullet: true,
         parts: [
           createMetricInfoTextPart(expectedValuePrefix),
-          createMetricInfoTextPart(formatMetricInfoNumber(expectedValue), { bold: true }),
+          createMetricInfoTextPart(valueFormatter(expectedValue), { bold: true }),
           createMetricInfoTextPart(', and the goal line has been set to '),
-          createMetricInfoTextPart(formatMetricInfoNumber(goalValue), { bold: true }),
+          createMetricInfoTextPart(valueFormatter(goalValue), { bold: true }),
           createMetricInfoTextPart(' to present a '),
           createMetricInfoTextPart(formatMetricInfoPercent(challengePercent), { bold: true }),
           createMetricInfoTextPart(' challenge.')
@@ -129,9 +127,23 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
   ]);
 }
 
+function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next NMFR value, then tightens that forecast slightly to create a realistic stretch target.'
+  });
+}
+
+function buildOtdMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next percent-delivered value, then raises that forecast slightly to create a realistic stretch target.',
+    valueFormatter: formatMetricInfoShare
+  });
+}
+
 export {
   DEFAULT_METRIC_INFO,
   METRIC_INFO,
   appendMetricInfo,
-  buildNmfrMetricInfo
+  buildNmfrMetricInfo,
+  buildOtdMetricInfo
 };

@@ -2,6 +2,8 @@ import { DEFAULT_GOAL_LABEL } from './metricGoals';
 
 const NMFR_ARIMA_MIN_OBSERVATIONS = 10;
 const NMFR_GOAL_CHALLENGE_RATIO = 0.03;
+const OTD_ARIMA_MIN_OBSERVATIONS = 10;
+const OTD_GOAL_CHALLENGE_RATIO = 0.03;
 const LABOR_HANA_ARIMA_MIN_OBSERVATIONS = 10;
 const LABOR_HANA_GOAL_CHALLENGE_RATIO = 0.03;
 const NMFR_ARIMA_OPTIONS = Object.freeze({
@@ -73,6 +75,45 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
   }
 }
 
+export async function forecastOtdGoalLineFromSeries(seriesValues) {
+  const numericSeries = normalizeSeries(seriesValues);
+
+  if (numericSeries.length < OTD_ARIMA_MIN_OBSERVATIONS) {
+    return null;
+  }
+
+  const ARIMA = await loadArimaConstructor();
+  let model = null;
+
+  try {
+    model = new ARIMA(NMFR_ARIMA_OPTIONS).train(numericSeries);
+    const [predictions] = model.predict(1);
+    const predictedValue = Number(predictions?.[0]);
+
+    if (!Number.isFinite(predictedValue)) {
+      return null;
+    }
+
+    const expectedValue = roundShare(Math.min(1, Math.max(0, predictedValue)));
+    const goalValue = roundShare(
+      Math.min(1, expectedValue * (1 + OTD_GOAL_CHALLENGE_RATIO))
+    );
+    const challengePercent = expectedValue > 0
+      ? Number((((goalValue / expectedValue) - 1) * 100).toFixed(2))
+      : 0;
+
+    return {
+      label: DEFAULT_GOAL_LABEL,
+      value: goalValue,
+      expectedValue,
+      goalValue,
+      challengePercent
+    };
+  } finally {
+    model?.destroy?.();
+  }
+}
+
 export async function forecastLaborHanaGoalLineFromSeries(seriesValues) {
   const numericSeries = normalizeSeries(seriesValues);
 
@@ -112,5 +153,6 @@ export async function forecastLaborHanaGoalLineFromSeries(seriesValues) {
 
 export {
   LABOR_HANA_ARIMA_MIN_OBSERVATIONS,
-  NMFR_ARIMA_MIN_OBSERVATIONS
+  NMFR_ARIMA_MIN_OBSERVATIONS,
+  OTD_ARIMA_MIN_OBSERVATIONS
 };

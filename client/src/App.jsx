@@ -4525,11 +4525,23 @@ export default function App() {
         { value: maximumDateIndex }
       ]
       : [];
+  const formatDateSliderValue = (value) => {
+    const normalizedIndex = Math.max(
+      0,
+      Math.min(Math.round(Number(value) || 0), maximumDateIndex)
+    );
+
+    return availableTimelineStamps.length > 0
+      ? formatMonthStamp(availableTimelineStamps[normalizedIndex])
+      : '';
+  };
   const dateSliderStartLabel =
-    availableTimelineStamps.length > 0 ? formatMonthStamp(availableTimelineStamps[0]) : '';
+    availableTimelineStamps.length > 0
+      ? formatDateSliderValue(activeDateRangeIndices[0])
+      : '';
   const dateSliderEndLabel =
     availableTimelineStamps.length > 0
-      ? formatMonthStamp(availableTimelineStamps[maximumDateIndex])
+      ? formatDateSliderValue(activeDateRangeIndices[1])
       : '';
 
   useEffect(() => {
@@ -6163,7 +6175,9 @@ export default function App() {
                             step={1}
                             marks={dateSliderMarks}
                             disableSwap
-                            valueLabelDisplay="off"
+                            valueLabelDisplay="auto"
+                            valueLabelFormat={formatDateSliderValue}
+                            getAriaValueText={formatDateSliderValue}
                             onChange={(_event, nextValue) => {
                               if (Array.isArray(nextValue)) {
                                 setSelectedDateRangeIndices(nextValue);

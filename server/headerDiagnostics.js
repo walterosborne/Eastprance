@@ -3,6 +3,7 @@ import {
   getAuthCandidateHeaders,
   getHeaderValue,
   getLikelyAuthUser,
+  getRequestIdentityDiagnostics,
   normalizePotentialNetworkId
 } from './requestIdentity.js';
 
@@ -115,6 +116,7 @@ export function buildHeadersDebugPayload(request) {
       remotePort: request.socket?.remotePort ?? null
     },
     authTransport: buildAuthTransportDebug(request, authCandidates),
+    identityDiagnostics: getRequestIdentityDiagnostics(request),
     authCandidates,
     networkIdPreview: {
       normalizedCandidates: Object.fromEntries(

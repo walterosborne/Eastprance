@@ -14,6 +14,7 @@ import {
 } from './sqlConnection.js';
 import {
   HARDCODED_NETWORK_ID,
+  getRequestIdentityDiagnostics,
   resolveRequestIdentity
 } from './requestIdentity.js';
 
@@ -174,6 +175,8 @@ export async function readCurrentUser(request) {
   const stopTimer = createTimer();
   let employeeIdentifier = '';
   let identitySource = '';
+
+  logDebug('current-user', 'Identity transport diagnostics.', getRequestIdentityDiagnostics(request));
 
   try {
     const identity = await resolveRequestIdentity(request, HARDCODED_NETWORK_ID);

@@ -68,7 +68,8 @@ export function normalizeControllableCostsHanaRow(row) {
     cost: normalizeNumber(row.cost ?? row['Amount in Global Currency']),
     sector: normalizeText(row.sector ?? row.Sector),
     division: normalizeText(row.division ?? row.Division),
-    business_unit: normalizeText(row.business_unit ?? row['Business Unit'])
+    business_unit: normalizeText(row.business_unit ?? row['Business Unit']),
+    facility: normalizeText(row.facility ?? row['Cost Center'])
   };
 }
 
@@ -101,7 +102,8 @@ export async function readControllableCostsHanaData() {
           TRY_CONVERT(float, source.[Amount in Global Currency]) AS [cost],
           LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Sector]), ''))) AS [sector],
           LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Division]), ''))) AS [division],
-          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Business Unit]), ''))) AS [business_unit]
+          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Business Unit]), ''))) AS [business_unit],
+          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Cost Center]), ''))) AS [facility]
         FROM ${tableName} AS source
       )
       SELECT
@@ -111,6 +113,7 @@ export async function readControllableCostsHanaData() {
         [sector],
         [division],
         [business_unit],
+        [facility],
         SUM([cost]) AS [cost]
       FROM normalized_costs
       WHERE [document_date] IS NOT NULL
@@ -120,12 +123,14 @@ export async function readControllableCostsHanaData() {
         [document_date],
         [sector],
         [division],
-        [business_unit]
+        [business_unit],
+        [facility]
       ORDER BY
         [document_date] ASC,
         [sector] ASC,
         [division] ASC,
-        [business_unit] ASC;
+        [business_unit] ASC,
+        [facility] ASC;
     `);
     const rows = result.recordset
       .map(normalizeControllableCostsHanaRow)

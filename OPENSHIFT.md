@@ -47,6 +47,8 @@ The server currently reads these SQL settings:
 - `ENTRA_DIRECTORY_ID`
 - `ENTRA_CLIENT_SECRET`
 - `OAUTH2_PROXY_COOKIE_SECRET`
+- `OAUTH2_PROXY_REDIRECT_URL`
+- `OAUTH2_PROXY_TRUSTED_PROXY_IPS`
 - `ALLOW_HARDCODED_IDENTITY_FALLBACK`
 
 `schema` is optional and defaults to `dbo`, but you should set it if your SQL objects live in a non-default schema.
@@ -81,7 +83,9 @@ The three Entra registration identifiers have different jobs:
 - `objectid` is the app-registration Object ID. It is loaded as deployment metadata but is not used by the OAuth protocol.
 
 The secret must also contain `clientsecret`, which is the client-secret **value**, not its
-Secret ID, and `cookiesecret`, which OAuth2 Proxy uses to protect its session cookie.
+Secret ID; `cookiesecret`, which OAuth2 Proxy uses to protect its session cookie;
+`redirecturl`, which is the public Route followed by `/oauth2/callback`; and
+`trustedproxyips`, which is the comma-separated list of OpenShift router CIDRs.
 
 The proxy uses the Azure US Government issuer at `login.microsoftonline.us`. Do not replace it
 with the commercial-cloud `login.microsoftonline.com` endpoint. The configured scopes are
@@ -136,8 +140,14 @@ oc create secret generic qmiscorecard-entra \
   --from-literal=objectid='APP-REGISTRATION-OBJECT-ID' \
   --from-literal=directoryid='DIRECTORY-TENANT-ID' \
   --from-literal=clientsecret='CLIENT-SECRET-VALUE' \
-  --from-literal=cookiesecret="$(openssl rand -base64 32 | tr -- '+/' '-_')"
+  --from-literal=cookiesecret="$(openssl rand -base64 32 | tr -- '+/' '-_')" \
+  --from-literal=redirecturl='https://YOUR-QMI-ROUTE/oauth2/callback' \
+  --from-literal=trustedproxyips='ROUTER_CIDR_1,ROUTER_CIDR_2'
 ```
+
+If the secret already exists, update it through the OpenShift console or recreate/apply it with
+all seven keys. The sidecar deliberately treats `redirecturl` and `trustedproxyips` as required so
+it cannot start with a callback for the wrong Route or blindly trust forwarded headers.
 
 ### 3. Add the sidecar
 
@@ -152,15 +162,10 @@ oc patch deployment/DEPLOYMENT_NAME \
 If the cluster cannot pull `quay.io/oauth2-proxy/oauth2-proxy:v7.15.2`, mirror that exact
 image into the internal registry and update the patch's `image` field.
 
-Ask the OpenShift platform team for the router source IPs or CIDR ranges, then add them to
-the sidecar as a comma-separated `OAUTH2_PROXY_TRUSTED_PROXY_IPS` value. Do not use
-`0.0.0.0/0`; the trusted list determines which callers may supply the `X-Forwarded-*`
-headers used to construct secure redirects.
-
-```yaml
-- name: OAUTH2_PROXY_TRUSTED_PROXY_IPS
-  value: ROUTER_CIDR_1,ROUTER_CIDR_2
-```
+Ask the OpenShift platform team for the router source IPs or CIDR ranges and store them in the
+secret's comma-separated `trustedproxyips` key. Do not copy CIDRs from another project and do not
+use `0.0.0.0/0`; the trusted list determines which callers may supply the `X-Forwarded-*` headers
+used to construct secure redirects.
 
 ### 4. Send Service traffic through the proxy
 
@@ -183,12 +188,26 @@ Confirm the public Route actually enters OAuth2 Proxy:
 ```bash
 oc get service/SERVICE_NAME -o jsonpath='{.spec.ports[*].targetPort}{"\n"}'
 oc logs deployment/DEPLOYMENT_NAME -c oauth2-proxy --tail=100
+oc logs deployment/DEPLOYMENT_NAME -c APP_CONTAINER_NAME --tail=100
 ```
 
 The first command must print `oauth2-proxy`. Through the public Route, `/oauth2/userinfo` should
 return the authenticated session email and `/headers` should report at least one populated identity
 field. If the app loads without an Entra redirect while no proxy session cookie exists, the Route or
 Service is still bypassing OAuth2 Proxy.
+
+The sidecar emits standard, authentication, and request logs with an `X-Request-Id` correlation ID.
+When current-user or preset resolution runs, the app also writes an `Identity transport diagnostics`
+entry. Check these fields first:
+
+- `socket.remoteAddress` should be `127.0.0.1` or `::ffff:127.0.0.1` for the sidecar architecture.
+  Any router or pod-network address means the request reached Express without using the sidecar.
+- `identity.populatedIdentityFields` should contain `x_forwarded_user`, `x_forwarded_email`, or an
+  equivalent `x_auth_request_*` field.
+- `sessionTransport.oauth2ProxyCookiePresent` shows whether the expected proxy session cookie
+  reached the upstream without logging its value.
+- `configuration` confirms that the Entra identifiers and fallback mode were loaded without printing
+  any secret values.
 
 ## Port
 

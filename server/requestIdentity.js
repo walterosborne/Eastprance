@@ -19,6 +19,20 @@ const AUTH_CANDIDATE_FIELDS = [
   ['x_forwarded_for', 'X-Forwarded-For']
 ];
 
+const IDENTITY_CANDIDATE_KEYS = [
+  'x_forwarded_employeeid',
+  'x_forwarded_user',
+  'x_forwarded_preferred_username',
+  'x_forwarded_name',
+  'x_forwarded_email',
+  'x_auth_request_user',
+  'x_auth_request_preferred_username',
+  'x_auth_request_email',
+  'x_entra_user_object_id',
+  'x_entra_tenant_id',
+  'x_entra_application_id'
+];
+
 function getFirstDefinedEnvValue(...keys) {
   for (const key of keys) {
     const value = process.env[key];
@@ -61,6 +75,25 @@ function shouldAllowHardcodedIdentityFallback() {
     ),
     process.env.NODE_ENV !== 'production'
   );
+}
+
+function getAuthorizationScheme(request) {
+  const authorization = normalizeText(getHeaderValue(request, 'Authorization'));
+
+  return authorization ? authorization.split(/\s+/, 1)[0] : '';
+}
+
+function getCookieNames(request) {
+  const cookieHeader = normalizeText(getHeaderValue(request, 'Cookie'));
+
+  if (!cookieHeader) {
+    return [];
+  }
+
+  return cookieHeader
+    .split(';')
+    .map((cookie) => cookie.split('=', 1)[0].trim())
+    .filter(Boolean);
 }
 
 function buildHardcodedFallbackIdentity(fallbackNetworkId = HARDCODED_NETWORK_ID) {
@@ -122,6 +155,63 @@ export function getAuthCandidateHeaders(request) {
   return Object.fromEntries(
     AUTH_CANDIDATE_FIELDS.map(([key, headerName]) => [key, getHeaderValue(request, headerName)])
   );
+}
+
+export function getRequestIdentityDiagnostics(request) {
+  const authCandidates = getAuthCandidateHeaders(request);
+  const identityCandidates = Object.fromEntries(
+    IDENTITY_CANDIDATE_KEYS.map((key) => [key, normalizeText(authCandidates[key])])
+  );
+  const populatedIdentityFields = IDENTITY_CANDIDATE_KEYS.filter(
+    (key) => Boolean(identityCandidates[key])
+  );
+  const config = getEntraApplicationConfig();
+  const cookieNames = getCookieNames(request);
+  const likelyAuthUser = getLikelyAuthUser(authCandidates);
+
+  return {
+    requestId: request.requestId ?? null,
+    request: {
+      method: request.method,
+      path: request.originalUrl ?? request.url ?? request.path,
+      host: normalizeText(getHeaderValue(request, 'Host')),
+      forwardedHost: normalizeText(getHeaderValue(request, 'X-Forwarded-Host')),
+      forwardedProto: normalizeText(getHeaderValue(request, 'X-Forwarded-Proto')),
+      forwardedPort: normalizeText(getHeaderValue(request, 'X-Forwarded-Port')),
+      forwardedUri: normalizeText(getHeaderValue(request, 'X-Forwarded-Uri')),
+      originalUrl: normalizeText(getHeaderValue(request, 'X-Original-Url'))
+    },
+    socket: {
+      localAddress: request.socket?.localAddress ?? null,
+      localPort: request.socket?.localPort ?? null,
+      remoteAddress: request.socket?.remoteAddress ?? null,
+      remotePort: request.socket?.remotePort ?? null,
+      expectedSidecarSource: '127.0.0.1 or ::ffff:127.0.0.1'
+    },
+    identity: {
+      populatedIdentityFields,
+      candidates: identityCandidates,
+      likelyAuthUser: normalizeText(likelyAuthUser),
+      normalizedEmployeeIdentifier: normalizePotentialNetworkId(likelyAuthUser)
+    },
+    sessionTransport: {
+      cookieHeaderPresent: cookieNames.length > 0,
+      cookieNames,
+      oauth2ProxyCookiePresent: cookieNames.includes('__Host-qmiscorecard'),
+      authorizationHeaderPresent: Boolean(getAuthorizationScheme(request)),
+      authorizationScheme: getAuthorizationScheme(request) || null,
+      forwardedForPresent: Boolean(authCandidates.x_forwarded_for),
+      realIpHeaderPresent: Boolean(getHeaderValue(request, 'X-Real-Ip')),
+      requestIdHeader: normalizeText(getHeaderValue(request, 'X-Request-Id'))
+    },
+    configuration: {
+      entraApplicationIdConfigured: Boolean(config.applicationId),
+      entraObjectIdConfigured: Boolean(config.objectId),
+      entraDirectoryIdConfigured: Boolean(config.directoryId),
+      hardcodedFallbackAllowed: shouldAllowHardcodedIdentityFallback(),
+      nodeEnvironment: process.env.NODE_ENV || ''
+    }
+  };
 }
 
 export function getLikelyAuthUser(authCandidates = {}) {

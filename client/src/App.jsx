@@ -179,6 +179,11 @@ const CONTROLLABLE_HANA_CHART_FILTER_FIELDS = [
     value: 'business_unit',
     label: 'Business Unit',
     allLabel: 'All business units'
+  },
+  {
+    value: 'facility',
+    label: 'Facility',
+    allLabel: 'All facilities'
   }
 ];
 

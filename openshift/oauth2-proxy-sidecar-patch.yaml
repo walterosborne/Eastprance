@@ -49,6 +49,16 @@ spec:
                   key: clientsecret
             - name: OAUTH2_PROXY_OIDC_ISSUER_URL
               value: https://login.microsoftonline.us/$(ENTRA_DIRECTORY_ID)/v2.0
+            - name: OAUTH2_PROXY_REDIRECT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: qmiscorecard-entra
+                  key: redirecturl
+            - name: OAUTH2_PROXY_TRUSTED_PROXY_IPS
+              valueFrom:
+                secretKeyRef:
+                  name: qmiscorecard-entra
+                  key: trustedproxyips
             - name: OAUTH2_PROXY_USER_ID_CLAIM
               value: email
             - name: OAUTH2_PROXY_OIDC_EMAIL_CLAIM
@@ -91,6 +101,14 @@ spec:
               value: 'true'
             - name: OAUTH2_PROXY_SKIP_PROVIDER_BUTTON
               value: 'true'
+            - name: OAUTH2_PROXY_STANDARD_LOGGING
+              value: 'true'
+            - name: OAUTH2_PROXY_AUTH_LOGGING
+              value: 'true'
+            - name: OAUTH2_PROXY_REQUEST_LOGGING
+              value: 'true'
+            - name: OAUTH2_PROXY_REQUEST_ID_HEADER
+              value: X-Request-Id
             - name: OAUTH2_PROXY_SILENCE_PING_LOGGING
               value: 'true'
           ports:

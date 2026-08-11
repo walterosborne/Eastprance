@@ -69,7 +69,7 @@ export function normalizeControllableCostsHanaRow(row) {
     sector: normalizeText(row.sector ?? row.Sector),
     division: normalizeText(row.division ?? row.Division),
     business_unit: normalizeText(row.business_unit ?? row['Business Unit']),
-    facility: normalizeText(row.facility ?? row['Cost Center'])
+    facility: normalizeText(row.facility ?? row['Cost Center Description'])
   };
 }
 
@@ -103,7 +103,7 @@ export async function readControllableCostsHanaData() {
           LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Sector]), ''))) AS [sector],
           LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Division]), ''))) AS [division],
           LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Business Unit]), ''))) AS [business_unit],
-          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Cost Center]), ''))) AS [facility]
+          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Cost Center Description]), ''))) AS [facility]
         FROM ${tableName} AS source
       )
       SELECT

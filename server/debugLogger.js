@@ -21,6 +21,10 @@ export function logDebug(scope, message, metadata) {
   console.log(`${buildPrefix(scope)} ${message}`);
 }
 
+export function logDebugJson(scope, message, metadata = {}) {
+  console.log(`${buildPrefix(scope)} ${message} ${JSON.stringify(metadata)}`);
+}
+
 export function logError(scope, message, error, metadata) {
   const payload = {
     ...(metadata || {}),

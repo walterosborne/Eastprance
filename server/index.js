@@ -6,6 +6,7 @@ import {
   createTimer,
   formatDuration,
   logDebug,
+  logDebugJson,
   logError
 } from './debugLogger.js';
 import {
@@ -29,6 +30,11 @@ import {
   readSafetyNmfrData
 } from './sifRepository.js';
 import { closeDatabaseConnection } from './sqlConnection.js';
+import {
+  IDENTITY_DIAGNOSTICS_VERSION,
+  getEntraApplicationConfig,
+  getRequestIdentityLogSummary
+} from './requestIdentity.js';
 import {
   getCachedSqlDataset,
   registerSqlDatasetCache,
@@ -68,6 +74,17 @@ app.use((request, response, next) => {
   request.requestId = requestId;
 
   logDebug('api', `#${requestId} ${request.method} ${request.path} started.`);
+
+  if (
+    request.path === '/api/current-user'
+    || request.path.startsWith('/api/dashboard-presets')
+  ) {
+    logDebugJson(
+      'entra-debug',
+      'Auth-sensitive API request received.',
+      getRequestIdentityLogSummary(request)
+    );
+  }
 
   response.on('finish', () => {
     logDebug('api', `#${requestId} ${request.method} ${request.path} completed.`, {
@@ -110,9 +127,17 @@ async function sendDatasetResponse(request, response, scope, loadDataset, failur
 }
 
 app.get('/api/health', (_request, response) => {
+  const entraConfig = getEntraApplicationConfig();
+
   response.json({
     message: 'Express backend is running.',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    authDiagnostics: {
+      version: IDENTITY_DIAGNOSTICS_VERSION,
+      applicationIdConfigured: Boolean(entraConfig.applicationId),
+      objectIdConfigured: Boolean(entraConfig.objectId),
+      directoryIdConfigured: Boolean(entraConfig.directoryId)
+    }
   });
 });
 
@@ -140,7 +165,9 @@ app.get('/api/current-user', async (request, response) => {
 
     response.status(500).json({
       message: 'Unable to resolve the current user.',
-      error: error.message
+      error: error.message,
+      requestId: request.requestId ?? null,
+      authDiagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION
     });
   }
 });
@@ -172,7 +199,9 @@ app.get('/api/dashboard-presets', async (request, response) => {
 
     response.status(500).json({
       message: 'Unable to load dashboard presets.',
-      error: error.message
+      error: error.message,
+      requestId: request.requestId ?? null,
+      authDiagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION
     });
   }
 });
@@ -210,7 +239,9 @@ app.put('/api/dashboard-presets/:slot', async (request, response) => {
 
     response.status(500).json({
       message: 'Unable to save dashboard preset.',
-      error: error.message
+      error: error.message,
+      requestId: request.requestId ?? null,
+      authDiagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION
     });
   }
 });
@@ -368,6 +399,14 @@ async function startServer() {
 const server = await startServer();
 
 console.log(`Server listening on http://${connectHost}:${port}`);
+logDebugJson('entra-debug', 'Identity diagnostics enabled.', {
+  diagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION,
+  nodeEnvironment: process.env.NODE_ENV || '',
+  applicationIdConfigured: Boolean(getEntraApplicationConfig().applicationId),
+  objectIdConfigured: Boolean(getEntraApplicationConfig().objectId),
+  directoryIdConfigured: Boolean(getEntraApplicationConfig().directoryId),
+  expectedProxyArchitecture: 'OAuth2 Proxy sidecar -> 127.0.0.1:8080'
+});
 
 startSqlDatasetCacheScheduler();
 void warmAllSqlDatasetCaches('server startup warm');

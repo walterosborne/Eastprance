@@ -1,4 +1,5 @@
 export const HARDCODED_NETWORK_ID = 'N35589';
+export const IDENTITY_DIAGNOSTICS_VERSION = 'entra-debug-2026-08-18.1';
 
 const AUTH_CANDIDATE_FIELDS = [
   ['x_forwarded_employeeid', 'X-Forwarded-EmployeeId'],
@@ -214,6 +215,52 @@ export function getRequestIdentityDiagnostics(request) {
   };
 }
 
+function isLoopbackAddress(value) {
+  const normalizedValue = normalizeText(value).toLowerCase();
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(normalizedValue);
+}
+
+export function getRequestIdentityLogSummary(request) {
+  const diagnostics = getRequestIdentityDiagnostics(request);
+  const { candidates } = diagnostics.identity;
+
+  return {
+    diagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION,
+    requestId: diagnostics.requestId,
+    method: diagnostics.request.method,
+    path: diagnostics.request.path,
+    host: diagnostics.request.host,
+    forwardedHost: diagnostics.request.forwardedHost,
+    forwardedProto: diagnostics.request.forwardedProto,
+    forwardedPort: diagnostics.request.forwardedPort,
+    remoteAddress: diagnostics.socket.remoteAddress,
+    remotePort: diagnostics.socket.remotePort,
+    localAddress: diagnostics.socket.localAddress,
+    localPort: diagnostics.socket.localPort,
+    requestArrivedFromLoopbackSidecar: isLoopbackAddress(diagnostics.socket.remoteAddress),
+    populatedIdentityFields: diagnostics.identity.populatedIdentityFields,
+    forwardedEmployeeId: candidates.x_forwarded_employeeid,
+    forwardedUser: candidates.x_forwarded_user,
+    forwardedPreferredUsername: candidates.x_forwarded_preferred_username,
+    forwardedEmail: candidates.x_forwarded_email,
+    authRequestUser: candidates.x_auth_request_user,
+    authRequestPreferredUsername: candidates.x_auth_request_preferred_username,
+    authRequestEmail: candidates.x_auth_request_email,
+    normalizedEmployeeIdentifier: diagnostics.identity.normalizedEmployeeIdentifier,
+    cookieNames: diagnostics.sessionTransport.cookieNames,
+    oauth2ProxyCookiePresent: diagnostics.sessionTransport.oauth2ProxyCookiePresent,
+    authorizationHeaderPresent: diagnostics.sessionTransport.authorizationHeaderPresent,
+    authorizationScheme: diagnostics.sessionTransport.authorizationScheme,
+    forwardedForPresent: diagnostics.sessionTransport.forwardedForPresent,
+    requestIdHeader: diagnostics.sessionTransport.requestIdHeader,
+    entraApplicationIdConfigured: diagnostics.configuration.entraApplicationIdConfigured,
+    entraObjectIdConfigured: diagnostics.configuration.entraObjectIdConfigured,
+    entraDirectoryIdConfigured: diagnostics.configuration.entraDirectoryIdConfigured,
+    hardcodedFallbackAllowed: diagnostics.configuration.hardcodedFallbackAllowed,
+    nodeEnvironment: diagnostics.configuration.nodeEnvironment
+  };
+}
+
 export function getLikelyAuthUser(authCandidates = {}) {
   return (
     authCandidates.x_forwarded_employeeid
@@ -296,9 +343,12 @@ export async function resolveRequestIdentity(
     return buildHardcodedFallbackIdentity(fallbackNetworkId);
   }
 
-  throw new Error(
+  const error = new Error(
     'No Microsoft Entra identity was forwarded by OAuth2 Proxy, and hardcoded fallback is disabled.'
   );
+
+  error.identityDiagnostics = getRequestIdentityLogSummary(request);
+  throw error;
 }
 
 export function getRequestNetworkId(

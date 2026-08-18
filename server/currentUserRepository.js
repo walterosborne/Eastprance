@@ -5,6 +5,7 @@ import {
   createTimer,
   formatDuration,
   logDebug,
+  logDebugJson,
   logError
 } from './debugLogger.js';
 import {
@@ -14,7 +15,7 @@ import {
 } from './sqlConnection.js';
 import {
   HARDCODED_NETWORK_ID,
-  getRequestIdentityDiagnostics,
+  getRequestIdentityLogSummary,
   resolveRequestIdentity
 } from './requestIdentity.js';
 
@@ -176,7 +177,11 @@ export async function readCurrentUser(request) {
   let employeeIdentifier = '';
   let identitySource = '';
 
-  logDebug('current-user', 'Identity transport diagnostics.', getRequestIdentityDiagnostics(request));
+  logDebugJson(
+    'entra-debug',
+    'Identity transport summary.',
+    getRequestIdentityLogSummary(request)
+  );
 
   try {
     const identity = await resolveRequestIdentity(request, HARDCODED_NETWORK_ID);
@@ -259,6 +264,7 @@ export async function readCurrentUser(request) {
     logError('current-user', 'Failed to resolve current user.', error, {
       employeeIdentifier,
       identitySource,
+      identityDiagnostics: error.identityDiagnostics ?? getRequestIdentityLogSummary(request),
       duration: formatDuration(stopTimer())
     });
     throw error;

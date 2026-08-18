@@ -189,6 +189,7 @@ Confirm the public Route actually enters OAuth2 Proxy:
 oc get service/SERVICE_NAME -o jsonpath='{.spec.ports[*].targetPort}{"\n"}'
 oc logs deployment/DEPLOYMENT_NAME -c oauth2-proxy --tail=100
 oc logs deployment/DEPLOYMENT_NAME -c APP_CONTAINER_NAME --tail=100
+oc logs deployment/DEPLOYMENT_NAME --all-containers=true --prefix=true --tail=200
 ```
 
 The first command must print `oauth2-proxy`. Through the public Route, `/oauth2/userinfo` should
@@ -199,6 +200,11 @@ Service is still bypassing OAuth2 Proxy.
 The sidecar emits standard, authentication, and request logs with an `X-Request-Id` correlation ID.
 When current-user or preset resolution runs, the app also writes an `Identity transport diagnostics`
 entry. Check these fields first:
+
+- Open `/api/health` and confirm `authDiagnostics.version` is
+  `entra-debug-2026-08-18.1`. If it is absent, the Deployment is still running an older image.
+- Search the app-container logs for `[entra-debug]`. Those records are one-line JSON so OpenShift
+  cannot hide their fields in a collapsed multiline object.
 
 - `socket.remoteAddress` should be `127.0.0.1` or `::ffff:127.0.0.1` for the sidecar architecture.
   Any router or pod-network address means the request reached Express without using the sidecar.

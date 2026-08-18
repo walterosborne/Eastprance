@@ -11,11 +11,14 @@ import {
   faSun
 } from '@fortawesome/free-solid-svg-icons';
 import {
+  Autocomplete,
+  Checkbox,
   FormControl,
   MenuItem,
   Paper,
   Select,
   Slider,
+  TextField,
   ToggleButton,
   ToggleButtonGroup
 } from '@mui/material';
@@ -943,12 +946,24 @@ function getFilterOptions(rows, fieldName) {
   ).sort((left, right) => left.localeCompare(right));
 }
 
-function normalizeFilterValue(value, options) {
-  if (value === ALL_FILTER_VALUE) {
-    return ALL_FILTER_VALUE;
-  }
+function coerceFilterValues(value) {
+  const candidateValues = Array.isArray(value) ? value : [value];
 
-  return options.includes(value) ? value : ALL_FILTER_VALUE;
+  return Array.from(new Set(candidateValues.filter(
+    (candidate) =>
+      typeof candidate === 'string'
+      && candidate.length > 0
+      && candidate !== ALL_FILTER_VALUE
+  )));
+}
+
+function normalizeFilterValues(value, options) {
+  const optionSet = new Set(options);
+  return coerceFilterValues(value).filter((candidate) => optionSet.has(candidate));
+}
+
+function rowMatchesFilterValues(rowValue, selectedValues) {
+  return selectedValues.length === 0 || selectedValues.includes(rowValue);
 }
 
 function clampGoalLineToVisibleSeries(goalLine, seriesCollections, maxScaleMultiplier = 5) {
@@ -2766,7 +2781,7 @@ function ChartTypeToggleWithFilter({
   paretoFieldOptions = [],
   filterFieldAriaLabel = 'Filter field',
   onFilterFieldChange = null,
-  filterValue = ALL_FILTER_VALUE,
+  filterValue = [],
   filterValueOptions = [],
   filterValueAllLabel = 'All',
   filterValueAriaLabel = 'Filter value',
@@ -2870,27 +2885,51 @@ function ChartTypeToggleWithFilter({
           )}
 
           {(isLineFilterMode || isBarFilterMode) && (
-            <FormControl fullWidth size="small" sx={inlineChartFilterSelectStyles}>
-              <Select
-                value={filterValue}
-                displayEmpty
-                onChange={(event) => {
-                  onFilterValueChange?.(event.target.value);
-                }}
-                renderValue={(selectedValue) =>
-                  selectedValue === ALL_FILTER_VALUE ? filterValueAllLabel : selectedValue
-                }
-                MenuProps={selectMenuProps}
-                inputProps={{ 'aria-label': filterValueAriaLabel }}
-              >
-                <MenuItem value={ALL_FILTER_VALUE}>{filterValueAllLabel}</MenuItem>
-                {filterValueOptions.map((option) => (
-                  <MenuItem key={option} value={option}>
+            <Autocomplete
+              multiple
+              disableCloseOnSelect
+              options={filterValueOptions}
+              value={filterValue}
+              onChange={(_event, nextValues) => {
+                onFilterValueChange?.(nextValues);
+              }}
+              renderValue={(selectedValues) => (
+                <span className="chart-filter-value-summary">
+                  {selectedValues.length === 1
+                    ? selectedValues[0]
+                    : `${selectedValues.length} selected`}
+                </span>
+              )}
+              renderOption={(optionProps, option, { selected }) => {
+                const { key, ...remainingOptionProps } = optionProps;
+
+                return (
+                  <li key={key} {...remainingOptionProps}>
+                    <Checkbox
+                      checked={selected}
+                      size="small"
+                      disableRipple
+                      sx={autocompleteOptionCheckboxSx}
+                    />
                     {option}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                  </li>
+                );
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={filterValue.length === 0 ? filterValueAllLabel : 'Search...'}
+                  inputProps={{
+                    ...params.inputProps,
+                    'aria-label': filterValueAriaLabel
+                  }}
+                />
+              )}
+              slotProps={{
+                paper: selectMenuProps.PaperProps
+              }}
+              sx={inlineChartFilterAutocompleteStyles}
+            />
           )}
 
           {isPaletteMode && (
@@ -3834,7 +3873,7 @@ export default function App() {
     CONTROLLABLE_CHART_FILTER_FIELDS[0].value
   );
   const [selectedControllableChartFilterValue, setSelectedControllableChartFilterValue] =
-    useState(ALL_FILTER_VALUE);
+    useState([]);
   const [selectedControllablePaletteGroupField, setSelectedControllablePaletteGroupField] =
     useState(CONTROLLABLE_PALETTE_FIELDS[0].value);
   const [selectedControllablePaletteColorField, setSelectedControllablePaletteColorField] =
@@ -3843,7 +3882,7 @@ export default function App() {
   const [selectedControllableHanaChartFilterField, setSelectedControllableHanaChartFilterField] =
     useState(CONTROLLABLE_HANA_CHART_FILTER_FIELDS[0].value);
   const [selectedControllableHanaChartFilterValue, setSelectedControllableHanaChartFilterValue] =
-    useState(ALL_FILTER_VALUE);
+    useState([]);
   const [selectedControllableHanaPaletteGroupField, setSelectedControllableHanaPaletteGroupField] =
     useState(CONTROLLABLE_HANA_PALETTE_FIELDS[0].value);
   const [selectedControllableHanaPaletteColorField, setSelectedControllableHanaPaletteColorField] =
@@ -3855,7 +3894,7 @@ export default function App() {
   const [selectedSifChartFilterField, setSelectedSifChartFilterField] = useState(
     SAFETY_CHART_FILTER_FIELDS[0].value
   );
-  const [selectedSifChartFilterValue, setSelectedSifChartFilterValue] = useState(ALL_FILTER_VALUE);
+  const [selectedSifChartFilterValue, setSelectedSifChartFilterValue] = useState([]);
   const [selectedSifPaletteGroupField, setSelectedSifPaletteGroupField] = useState(
     SAFETY_PALETTE_FIELDS[0].value
   );
@@ -3865,7 +3904,7 @@ export default function App() {
   const [selectedPotentialSifChartFilterField, setSelectedPotentialSifChartFilterField] =
     useState(SAFETY_CHART_FILTER_FIELDS[0].value);
   const [selectedPotentialSifChartFilterValue, setSelectedPotentialSifChartFilterValue] =
-    useState(ALL_FILTER_VALUE);
+    useState([]);
   const [selectedPotentialSifPaletteGroupField, setSelectedPotentialSifPaletteGroupField] =
     useState(SAFETY_PALETTE_FIELDS[0].value);
   const [selectedPotentialSifPaletteColorField, setSelectedPotentialSifPaletteColorField] =
@@ -3873,7 +3912,7 @@ export default function App() {
   const [selectedNmfrChartFilterField, setSelectedNmfrChartFilterField] = useState(
     SAFETY_CHART_FILTER_FIELDS[0].value
   );
-  const [selectedNmfrChartFilterValue, setSelectedNmfrChartFilterValue] = useState(ALL_FILTER_VALUE);
+  const [selectedNmfrChartFilterValue, setSelectedNmfrChartFilterValue] = useState([]);
   const [selectedNmfrPaletteGroupField, setSelectedNmfrPaletteGroupField] = useState(
     SAFETY_PALETTE_FIELDS[0].value
   );
@@ -3883,7 +3922,7 @@ export default function App() {
   const [selectedOtdChartFilterField, setSelectedOtdChartFilterField] = useState(
     OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'bu')?.value ?? OTD_CHART_FILTER_FIELDS[0].value
   );
-  const [selectedOtdChartFilterValue, setSelectedOtdChartFilterValue] = useState(ALL_FILTER_VALUE);
+  const [selectedOtdChartFilterValue, setSelectedOtdChartFilterValue] = useState([]);
   const [selectedOtdPaletteGroupField, setSelectedOtdPaletteGroupField] = useState(
     OTD_PALETTE_FIELDS[0].value
   );
@@ -3895,7 +3934,7 @@ export default function App() {
     LABOR_CHART_FILTER_FIELDS[0].value
   );
   const [selectedLaborChartFilterValue, setSelectedLaborChartFilterValue] =
-    useState(ALL_FILTER_VALUE);
+    useState([]);
   const [selectedLaborPaletteGroupField, setSelectedLaborPaletteGroupField] = useState(
     LABOR_PALETTE_FIELDS[0].value
   );
@@ -3907,7 +3946,7 @@ export default function App() {
     LABOR_HANA_CHART_FILTER_FIELDS[0].value
   );
   const [selectedLaborHanaChartFilterValue, setSelectedLaborHanaChartFilterValue] =
-    useState(ALL_FILTER_VALUE);
+    useState([]);
   const [selectedLaborHanaPaletteGroupField, setSelectedLaborHanaPaletteGroupField] = useState(
     LABOR_HANA_PALETTE_FIELDS[0].value
   );
@@ -4586,7 +4625,7 @@ export default function App() {
     baseFilteredControllableCostsRows,
     activeControllableChartFilterField.value
   );
-  const activeControllableChartFilterValue = normalizeFilterValue(
+  const activeControllableChartFilterValue = normalizeFilterValues(
     selectedControllableChartFilterValue,
     controllableChartFilterValueOptions
   );
@@ -4597,8 +4636,10 @@ export default function App() {
     }
 
     return (
-      activeControllableChartFilterValue === ALL_FILTER_VALUE ||
-      row[activeControllableChartFilterField.value] === activeControllableChartFilterValue
+      rowMatchesFilterValues(
+        row[activeControllableChartFilterField.value],
+        activeControllableChartFilterValue
+      )
     );
   });
   const globallyFilteredControllableCostsRows = filteredControllableCostsRows.filter((row) =>
@@ -4663,7 +4704,7 @@ export default function App() {
     baseFilteredControllableCostsHanaRows,
     activeControllableHanaChartFilterField.value
   );
-  const activeControllableHanaChartFilterValue = normalizeFilterValue(
+  const activeControllableHanaChartFilterValue = normalizeFilterValues(
     selectedControllableHanaChartFilterValue,
     controllableHanaChartFilterValueOptions
   );
@@ -4676,9 +4717,10 @@ export default function App() {
     }
 
     return (
-      activeControllableHanaChartFilterValue === ALL_FILTER_VALUE
-      || row[activeControllableHanaChartFilterField.value]
-        === activeControllableHanaChartFilterValue
+      rowMatchesFilterValues(
+        row[activeControllableHanaChartFilterField.value],
+        activeControllableHanaChartFilterValue
+      )
     );
   });
   const globallyFilteredControllableCostsHanaRows = filteredControllableCostsHanaRows.filter(
@@ -4741,15 +4783,14 @@ export default function App() {
     baseFilteredSifRows,
     activeSifChartFilterField.value
   );
-  const activeSifChartFilterValue = normalizeFilterValue(
+  const activeSifChartFilterValue = normalizeFilterValues(
     selectedSifChartFilterValue,
     sifChartFilterValueOptions
   );
   const sifFilterApplies = ['line', 'bar'].includes(chartVariants.sif);
   const filteredSifRows = baseFilteredSifRows.filter((row) => (
     !sifFilterApplies
-    || activeSifChartFilterValue === ALL_FILTER_VALUE
-    || row[activeSifChartFilterField.value] === activeSifChartFilterValue
+    || rowMatchesFilterValues(row[activeSifChartFilterField.value], activeSifChartFilterValue)
   ));
   const globallyFilteredSifRows = filteredSifRows.filter((row) =>
     isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
@@ -4808,15 +4849,17 @@ export default function App() {
     baseFilteredPotentialSifRows,
     activePotentialSifChartFilterField.value
   );
-  const activePotentialSifChartFilterValue = normalizeFilterValue(
+  const activePotentialSifChartFilterValue = normalizeFilterValues(
     selectedPotentialSifChartFilterValue,
     potentialSifChartFilterValueOptions
   );
   const potentialSifFilterApplies = ['line', 'bar'].includes(chartVariants.potentialSif);
   const filteredPotentialSifRows = baseFilteredPotentialSifRows.filter((row) => (
     !potentialSifFilterApplies
-    || activePotentialSifChartFilterValue === ALL_FILTER_VALUE
-    || row[activePotentialSifChartFilterField.value] === activePotentialSifChartFilterValue
+    || rowMatchesFilterValues(
+      row[activePotentialSifChartFilterField.value],
+      activePotentialSifChartFilterValue
+    )
   ));
   const globallyFilteredPotentialSifRows = filteredPotentialSifRows.filter((row) =>
     isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
@@ -4874,15 +4917,14 @@ export default function App() {
     baseFilteredNmfrRows,
     activeNmfrChartFilterField.value
   );
-  const activeNmfrChartFilterValue = normalizeFilterValue(
+  const activeNmfrChartFilterValue = normalizeFilterValues(
     selectedNmfrChartFilterValue,
     nmfrChartFilterValueOptions
   );
   const nmfrFilterApplies = ['line', 'bar'].includes(chartVariants.nmfr);
   const filteredNmfrRows = baseFilteredNmfrRows.filter((row) => (
     !nmfrFilterApplies
-    || activeNmfrChartFilterValue === ALL_FILTER_VALUE
-    || row[activeNmfrChartFilterField.value] === activeNmfrChartFilterValue
+    || rowMatchesFilterValues(row[activeNmfrChartFilterField.value], activeNmfrChartFilterValue)
   ));
   const globallyFilteredNmfrRows = filteredNmfrRows.filter((row) =>
     isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
@@ -5014,7 +5056,7 @@ export default function App() {
     baseFilteredOtdRows,
     activeOtdChartFilterField.value
   );
-  const activeOtdChartFilterValue = normalizeFilterValue(
+  const activeOtdChartFilterValue = normalizeFilterValues(
     selectedOtdChartFilterValue,
     otdChartFilterValueOptions
   );
@@ -5025,8 +5067,7 @@ export default function App() {
     }
 
     return (
-      activeOtdChartFilterValue === ALL_FILTER_VALUE ||
-      row[activeOtdChartFilterField.value] === activeOtdChartFilterValue
+      rowMatchesFilterValues(row[activeOtdChartFilterField.value], activeOtdChartFilterValue)
     );
   });
   const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
@@ -5221,7 +5262,7 @@ export default function App() {
     laborState.rows,
     activeLaborChartFilterField.value
   );
-  const activeLaborChartFilterValue = normalizeFilterValue(
+  const activeLaborChartFilterValue = normalizeFilterValues(
     selectedLaborChartFilterValue,
     laborChartFilterValueOptions
   );
@@ -5232,8 +5273,7 @@ export default function App() {
     }
 
     return (
-      activeLaborChartFilterValue === ALL_FILTER_VALUE ||
-      row[activeLaborChartFilterField.value] === activeLaborChartFilterValue
+      rowMatchesFilterValues(row[activeLaborChartFilterField.value], activeLaborChartFilterValue)
     );
   });
   const laborChartData = buildLaborUtilizationChartData(
@@ -5292,7 +5332,7 @@ export default function App() {
     laborHanaState.rows,
     activeLaborHanaChartFilterField.value
   );
-  const activeLaborHanaChartFilterValue = normalizeFilterValue(
+  const activeLaborHanaChartFilterValue = normalizeFilterValues(
     selectedLaborHanaChartFilterValue,
     laborHanaChartFilterValueOptions
   );
@@ -5303,8 +5343,10 @@ export default function App() {
     }
 
     return (
-      activeLaborHanaChartFilterValue === ALL_FILTER_VALUE ||
-      row[activeLaborHanaChartFilterField.value] === activeLaborHanaChartFilterValue
+      rowMatchesFilterValues(
+        row[activeLaborHanaChartFilterField.value],
+        activeLaborHanaChartFilterValue
+      )
     );
   });
   const laborHanaChartData = buildLaborUtilizationChartData(
@@ -5760,9 +5802,7 @@ export default function App() {
     }
 
     setSelectedSifChartFilterValue(
-      typeof presetState.sif?.filterValue === 'string'
-        ? presetState.sif.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.sif?.filterValue)
     );
 
     if (
@@ -5790,9 +5830,7 @@ export default function App() {
     }
 
     setSelectedPotentialSifChartFilterValue(
-      typeof presetState.potentialSif?.filterValue === 'string'
-        ? presetState.potentialSif.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.potentialSif?.filterValue)
     );
 
     if (
@@ -5822,9 +5860,7 @@ export default function App() {
     }
 
     setSelectedNmfrChartFilterValue(
-      typeof presetState.nmfr?.filterValue === 'string'
-        ? presetState.nmfr.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.nmfr?.filterValue)
     );
 
     if (
@@ -5860,9 +5896,7 @@ export default function App() {
     }
 
     setSelectedControllableChartFilterValue(
-      typeof presetState.controllableCosts?.filterValue === 'string'
-        ? presetState.controllableCosts.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.controllableCosts?.filterValue)
     );
 
     if (
@@ -5896,9 +5930,7 @@ export default function App() {
     }
 
     setSelectedControllableHanaChartFilterValue(
-      typeof presetState.controllableCostsHana?.filterValue === 'string'
-        ? presetState.controllableCostsHana.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.controllableCostsHana?.filterValue)
     );
 
     if (
@@ -5928,9 +5960,7 @@ export default function App() {
     }
 
     setSelectedOtdChartFilterValue(
-      typeof presetState.otd?.filterValue === 'string'
-        ? presetState.otd.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.otd?.filterValue)
     );
 
     if (
@@ -5952,9 +5982,7 @@ export default function App() {
     }
 
     setSelectedLaborChartFilterValue(
-      typeof presetState.labor?.filterValue === 'string'
-        ? presetState.labor.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.labor?.filterValue)
     );
 
     if (
@@ -5978,9 +6006,7 @@ export default function App() {
     }
 
     setSelectedLaborHanaChartFilterValue(
-      typeof presetState.laborHana?.filterValue === 'string'
-        ? presetState.laborHana.filterValue
-        : ALL_FILTER_VALUE
+      coerceFilterValues(presetState.laborHana?.filterValue)
     );
 
     if (
@@ -6543,7 +6569,7 @@ export default function App() {
                           filterFieldAriaLabel="Select controllable costs filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedControllableChartFilterField(nextField);
-                            setSelectedControllableChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedControllableChartFilterValue([]);
                           }}
                           filterValue={activeControllableChartFilterValue}
                           filterValueOptions={controllableChartFilterValueOptions}
@@ -6747,7 +6773,7 @@ export default function App() {
                           filterFieldAriaLabel="Select HANA costs filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedControllableHanaChartFilterField(nextField);
-                            setSelectedControllableHanaChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedControllableHanaChartFilterValue([]);
                           }}
                           filterValue={activeControllableHanaChartFilterValue}
                           filterValueOptions={controllableHanaChartFilterValueOptions}
@@ -6934,7 +6960,7 @@ export default function App() {
                           filterFieldAriaLabel="Select SIF filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedSifChartFilterField(nextField);
-                            setSelectedSifChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedSifChartFilterValue([]);
                           }}
                           filterValue={activeSifChartFilterValue}
                           filterValueOptions={sifChartFilterValueOptions}
@@ -7129,7 +7155,7 @@ export default function App() {
                           filterFieldAriaLabel="Select potential SIF filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedPotentialSifChartFilterField(nextField);
-                            setSelectedPotentialSifChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedPotentialSifChartFilterValue([]);
                           }}
                           filterValue={activePotentialSifChartFilterValue}
                           filterValueOptions={potentialSifChartFilterValueOptions}
@@ -7316,7 +7342,7 @@ export default function App() {
                           filterFieldAriaLabel="Select NMFR filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedNmfrChartFilterField(nextField);
-                            setSelectedNmfrChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedNmfrChartFilterValue([]);
                           }}
                           filterValue={activeNmfrChartFilterValue}
                           filterValueOptions={nmfrChartFilterValueOptions}
@@ -7524,7 +7550,7 @@ export default function App() {
                           filterFieldAriaLabel="Select OTD filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedOtdChartFilterField(nextField);
-                            setSelectedOtdChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedOtdChartFilterValue([]);
                           }}
                           filterValue={activeOtdChartFilterValue}
                           filterValueOptions={otdChartFilterValueOptions}
@@ -7714,7 +7740,7 @@ export default function App() {
                           filterFieldAriaLabel="Select labor filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedLaborChartFilterField(nextField);
-                            setSelectedLaborChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedLaborChartFilterValue([]);
                           }}
                           filterValue={activeLaborChartFilterValue}
                           filterValueOptions={laborChartFilterValueOptions}
@@ -7916,7 +7942,7 @@ export default function App() {
                           filterFieldAriaLabel="Select HANA labor filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedLaborHanaChartFilterField(nextField);
-                            setSelectedLaborHanaChartFilterValue(ALL_FILTER_VALUE);
+                            setSelectedLaborHanaChartFilterValue([]);
                           }}
                           filterValue={activeLaborHanaChartFilterValue}
                           filterValueOptions={laborHanaChartFilterValueOptions}
@@ -8060,6 +8086,75 @@ const inlineChartFilterSelectStyles = {
   },
   '& .MuiSvgIcon-root': {
     color: 'var(--input-text)',
+    fontSize: '0.95rem'
+  }
+};
+
+const autocompleteOptionCheckboxSx = {
+  p: 0.25,
+  mr: 0.6,
+  color: 'var(--text-secondary)',
+  '&.Mui-checked': {
+    color: 'var(--selected-bg)'
+  }
+};
+
+const inlineChartFilterAutocompleteStyles = {
+  width: '100%',
+  minWidth: 0,
+  '& .MuiOutlinedInput-root': {
+    minHeight: 32,
+    height: 32,
+    flexWrap: 'nowrap',
+    borderRadius: '999px',
+    padding: '0 50px 0 10px !important',
+    fontSize: '0.75rem',
+    color: 'var(--input-text)',
+    backgroundColor: 'var(--input-bg)'
+  },
+  '& .MuiAutocomplete-input': {
+    minWidth: '20px !important',
+    padding: '0 !important',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    color: 'var(--input-text)'
+  },
+  '& .MuiAutocomplete-input::placeholder': {
+    color: 'var(--input-text)',
+    opacity: 1
+  },
+  '& .chart-filter-value-summary': {
+    minWidth: 0,
+    maxWidth: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flexShrink: 1,
+    fontWeight: 600,
+    color: 'var(--input-text)'
+  },
+  '& .MuiOutlinedInput-root.Mui-focused .chart-filter-value-summary': {
+    display: 'none'
+  },
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--input-border)'
+  },
+  '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--text-primary)'
+  },
+  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--text-primary)'
+  },
+  '& .MuiAutocomplete-endAdornment': {
+    right: 5,
+    top: '50%',
+    transform: 'translateY(-50%)'
+  },
+  '& .MuiAutocomplete-clearIndicator, & .MuiAutocomplete-popupIndicator': {
+    p: 0.25,
+    color: 'var(--input-text)'
+  },
+  '& .MuiSvgIcon-root': {
     fontSize: '0.95rem'
   }
 };

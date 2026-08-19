@@ -13,14 +13,15 @@ const METRIC_GOALS = {
     pareto: 900000
   },
   sif: {
-    monthly: 1,
-    quarterly: 3,
-    yearly: 12
+    default: 0,
+    monthly: 0,
+    quarterly: 0,
+    yearly: 0
   },
   potentialSif: {
-    monthly: 4,
-    quarterly: 12,
-    yearly: 48
+    monthly: 0,
+    quarterly: 2,
+    yearly: 4
   },
   nmfr: {
     monthly: 4.5,

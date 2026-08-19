@@ -6,6 +6,8 @@ import {
   faChartColumn,
   faChartLine,
   faClipboardCheck,
+  faEllipsis,
+  faFilter,
   faMoon,
   faSeedling,
   faSun
@@ -305,6 +307,59 @@ const LABOR_HANA_PALETTE_FIELDS = LABOR_HANA_CHART_FILTER_FIELDS.map((option) =>
   label: option.label
 }));
 const LABOR_HANA_PARETO_FILTER_FIELDS = [LABOR_HANA_CHART_FILTER_FIELDS[2]];
+
+const GLOBAL_FILTER_DIMENSIONS = [
+  {
+    key: 'division',
+    label: 'Division',
+    allLabel: 'All divisions'
+  },
+  {
+    key: 'businessUnit',
+    label: 'Business Unit',
+    allLabel: 'All business units'
+  },
+  {
+    key: 'facility',
+    label: 'Facility',
+    allLabel: 'All facilities'
+  }
+];
+
+const GLOBAL_FILTER_FIELD_MAP = {
+  controllableCosts: {
+    facility: 'address'
+  },
+  controllableCostsHana: {
+    division: 'division',
+    businessUnit: 'business_unit',
+    facility: 'facility'
+  },
+  sif: {
+    division: 'division',
+    facility: 'site'
+  },
+  potentialSif: {
+    division: 'division',
+    facility: 'site'
+  },
+  nmfr: {
+    division: 'division',
+    facility: 'site'
+  },
+  otd: {
+    businessUnit: 'bu',
+    facility: 'site'
+  },
+  labor: {
+    facility: 'forecasted_cc'
+  },
+  laborHana: {
+    division: 'division',
+    businessUnit: 'business_unit',
+    facility: 'forecasted_cc'
+  }
+};
 
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
 const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = false;
@@ -965,6 +1020,71 @@ function normalizeFilterValues(value, options) {
 
 function rowMatchesFilterValues(rowValue, selectedValues) {
   return selectedValues.length === 0 || selectedValues.includes(rowValue);
+}
+
+function createEmptyGlobalFilters() {
+  return Object.fromEntries(GLOBAL_FILTER_DIMENSIONS.map(({ key }) => [key, []]));
+}
+
+function normalizeGlobalFilterValue(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getGlobalFilterOptions(rowsByMetric, dimensionKey) {
+  const values = new Set();
+
+  Object.entries(rowsByMetric).forEach(([metricKey, rows]) => {
+    const fieldName = GLOBAL_FILTER_FIELD_MAP[metricKey]?.[dimensionKey];
+
+    if (!fieldName || !Array.isArray(rows)) {
+      return;
+    }
+
+    rows.forEach((row) => {
+      const normalizedValue = normalizeGlobalFilterValue(row?.[fieldName]);
+
+      if (normalizedValue) {
+        values.add(normalizedValue);
+      }
+    });
+  });
+
+  return Array.from(values).sort((left, right) => left.localeCompare(right));
+}
+
+function normalizeGlobalFilters(value, optionsByDimension = null) {
+  return Object.fromEntries(
+    GLOBAL_FILTER_DIMENSIONS.map(({ key }) => {
+      const selectedValues = coerceFilterValues(value?.[key]);
+      const availableOptions = optionsByDimension?.[key];
+
+      return [
+        key,
+        Array.isArray(availableOptions)
+          ? selectedValues.filter((selectedValue) => availableOptions.includes(selectedValue))
+          : selectedValues
+      ];
+    })
+  );
+}
+
+function applyGlobalFilters(rows, metricKey, globalFilters) {
+  const metricFieldMap = GLOBAL_FILTER_FIELD_MAP[metricKey];
+
+  if (!metricFieldMap || !Array.isArray(rows)) {
+    return rows;
+  }
+
+  return rows.filter((row) => GLOBAL_FILTER_DIMENSIONS.every(({ key }) => {
+    const selectedValues = globalFilters[key] ?? [];
+    const fieldName = metricFieldMap[key];
+
+    if (selectedValues.length === 0 || !fieldName) {
+      return true;
+    }
+
+    return selectedValues.includes(normalizeGlobalFilterValue(row?.[fieldName]));
+  }));
 }
 
 function clampGoalLineToVisibleSeries(goalLine, seriesCollections, maxScaleMultiplier = 5) {
@@ -3652,6 +3772,7 @@ async function fetchApiJson(scope, url, options = {}) {
 function buildDashboardPresetState({
   themeMode,
   selectedCardGroup,
+  globalFilters,
   chartVariants,
   controllableCostsViewMode,
   selectedControllableChartFilterField,
@@ -3697,10 +3818,11 @@ function buildDashboardPresetState({
   selectedDateRange
 }) {
   return {
-    version: 1,
+    version: 2,
     savedAt: new Date().toISOString(),
     themeMode,
     selectedCardGroup,
+    globalFilters: normalizeGlobalFilters(globalFilters),
     chartVariants,
     dateRange: {
       hasCustomizedDateRange,
@@ -3804,6 +3926,62 @@ function resolvePresetDateRangeIndices(availableTimelineStamps, presetState) {
   }
 
   return [startIndex, endIndex];
+}
+
+function GlobalFilterField({ dimension, options, value, onChange }) {
+  return (
+    <div className="global-filter-field">
+      <label className="global-filter-field-label" htmlFor={`global-filter-${dimension.key}`}>
+        {dimension.label}
+      </label>
+      <Autocomplete
+        multiple
+        disableCloseOnSelect
+        options={options}
+        value={value}
+        onChange={(_event, nextValues) => {
+          onChange(nextValues);
+        }}
+        renderValue={(selectedValues) => (
+          <span className="global-filter-value-summary">
+            {selectedValues.length === 1
+              ? selectedValues[0]
+              : `${selectedValues.length} selected`}
+          </span>
+        )}
+        renderOption={(optionProps, option, { selected }) => {
+          const { key, ...remainingOptionProps } = optionProps;
+
+          return (
+            <li key={key} {...remainingOptionProps}>
+              <Checkbox
+                checked={selected}
+                size="small"
+                disableRipple
+                sx={autocompleteOptionCheckboxSx}
+              />
+              {option}
+            </li>
+          );
+        }}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            id={`global-filter-${dimension.key}`}
+            placeholder={value.length === 0 ? dimension.allLabel : 'Search...'}
+            inputProps={{
+              ...params.inputProps,
+              'aria-label': `Filter dashboard by ${dimension.label}`
+            }}
+          />
+        )}
+        slotProps={{
+          paper: selectMenuProps.PaperProps
+        }}
+        sx={globalFilterAutocompleteStyles}
+      />
+    </div>
+  );
 }
 
 export default function App() {
@@ -3956,6 +4134,9 @@ export default function App() {
   );
   const [laborHanaViewMode, setLaborHanaViewMode] = useState('monthly');
   const [selectedCardGroup, setSelectedCardGroup] = useState('all');
+  const [globalFilters, setGlobalFilters] = useState(createEmptyGlobalFilters);
+  const [isGlobalFiltersOpen, setIsGlobalFiltersOpen] = useState(false);
+  const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(false);
   const [chartVariants, setChartVariants] = useState(DEFAULT_CHART_VARIANTS);
   const [selectedDateRangeIndices, setSelectedDateRangeIndices] = useState([0, 0]);
   const [hasCustomizedDateRange, setHasCustomizedDateRange] = useState(false);
@@ -4585,6 +4766,41 @@ export default function App() {
     availableTimelineStamps.length > 0
       ? formatDateSliderValue(activeDateRangeIndices[1])
       : '';
+  const dashboardRowsByMetric = {
+    controllableCosts: controllableCostsState.rows,
+    controllableCostsHana: controllableCostsHanaState.rows,
+    sif: sifState.rows,
+    potentialSif: potentialSifState.rows,
+    nmfr: nmfrState.rows,
+    otd: otdState.rows,
+    labor: laborState.rows,
+    laborHana: laborHanaState.rows
+  };
+  const globalFilterOptions = Object.fromEntries(
+    GLOBAL_FILTER_DIMENSIONS.map(({ key }) => [
+      key,
+      getGlobalFilterOptions(dashboardRowsByMetric, key)
+    ])
+  );
+  const activeGlobalFilters = normalizeGlobalFilters(globalFilters, globalFilterOptions);
+  const activeGlobalFilterCount = Object.values(activeGlobalFilters).reduce(
+    (count, selectedValues) => count + selectedValues.length,
+    0
+  );
+  const activeGlobalFilterSummaries = GLOBAL_FILTER_DIMENSIONS.flatMap((dimension) => {
+    const selectedValues = activeGlobalFilters[dimension.key];
+
+    if (selectedValues.length === 0) {
+      return [];
+    }
+
+    return [{
+      ...dimension,
+      summary: selectedValues.length === 1
+        ? `${dimension.label}: ${selectedValues[0]}`
+        : `${dimension.label}: ${selectedValues.length} selected`
+    }];
+  });
 
   useEffect(() => {
     if (!pendingPresetDateRange || availableTimelineStamps.length === 0) {
@@ -4623,7 +4839,11 @@ export default function App() {
     controllablePaletteColorFieldOptions.find(
       (option) => option.value === selectedControllablePaletteColorField
     ) ?? controllablePaletteColorFieldOptions[0] ?? CONTROLLABLE_PALETTE_FIELDS[1];
-  const baseFilteredControllableCostsRows = controllableCostsState.rows;
+  const baseFilteredControllableCostsRows = applyGlobalFilters(
+    controllableCostsState.rows,
+    'controllableCosts',
+    activeGlobalFilters
+  );
   const controllableChartFilterValueOptions = getFilterOptions(
     baseFilteredControllableCostsRows,
     activeControllableChartFilterField.value
@@ -4702,7 +4922,11 @@ export default function App() {
     )
     ?? controllableHanaPaletteColorFieldOptions[0]
     ?? CONTROLLABLE_HANA_PALETTE_FIELDS[1];
-  const baseFilteredControllableCostsHanaRows = controllableCostsHanaState.rows;
+  const baseFilteredControllableCostsHanaRows = applyGlobalFilters(
+    controllableCostsHanaState.rows,
+    'controllableCostsHana',
+    activeGlobalFilters
+  );
   const controllableHanaChartFilterValueOptions = getFilterOptions(
     baseFilteredControllableCostsHanaRows,
     activeControllableHanaChartFilterField.value
@@ -4779,8 +5003,13 @@ export default function App() {
     sifPaletteColorFieldOptions.find((option) => option.value === selectedSifPaletteColorField)
     ?? sifPaletteColorFieldOptions[0]
     ?? SAFETY_PALETTE_FIELDS[1];
-  const baseFilteredSifRows = sifState.rows.filter(
-    (row) => Number(row.kpi_id) === SIF_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  const baseFilteredSifRows = applyGlobalFilters(
+    sifState.rows.filter(
+      (row) => Number(row.kpi_id) === SIF_KPI_ID
+        && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+    ),
+    'sif',
+    activeGlobalFilters
   );
   const sifChartFilterValueOptions = getFilterOptions(
     baseFilteredSifRows,
@@ -4843,10 +5072,13 @@ export default function App() {
     potentialSifPaletteColorFieldOptions.find(
       (option) => option.value === selectedPotentialSifPaletteColorField
     ) ?? potentialSifPaletteColorFieldOptions[0] ?? SAFETY_PALETTE_FIELDS[1];
-  const baseFilteredPotentialSifRows = potentialSifState.rows.filter(
-    (row) =>
-      Number(row.kpi_id) === POTENTIAL_SIF_KPI_ID &&
-      normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  const baseFilteredPotentialSifRows = applyGlobalFilters(
+    potentialSifState.rows.filter(
+      (row) => Number(row.kpi_id) === POTENTIAL_SIF_KPI_ID
+        && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+    ),
+    'potentialSif',
+    activeGlobalFilters
   );
   const potentialSifChartFilterValueOptions = getFilterOptions(
     baseFilteredPotentialSifRows,
@@ -4913,8 +5145,13 @@ export default function App() {
     nmfrPaletteColorFieldOptions.find((option) => option.value === selectedNmfrPaletteColorField)
     ?? nmfrPaletteColorFieldOptions[0]
     ?? SAFETY_PALETTE_FIELDS[1];
-  const baseFilteredNmfrRows = nmfrState.rows.filter(
-    (row) => Number(row.kpi_id) === NMFR_KPI_ID && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+  const baseFilteredNmfrRows = applyGlobalFilters(
+    nmfrState.rows.filter(
+      (row) => Number(row.kpi_id) === NMFR_KPI_ID
+        && normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
+    ),
+    'nmfr',
+    activeGlobalFilters
   );
   const nmfrChartFilterValueOptions = getFilterOptions(
     baseFilteredNmfrRows,
@@ -5054,7 +5291,11 @@ export default function App() {
     otdPaletteColorFieldOptions.find((option) => option.value === selectedOtdPaletteColorField)
     ?? otdPaletteColorFieldOptions[0]
     ?? OTD_PALETTE_FIELDS[1];
-  const baseFilteredOtdRows = otdState.rows;
+  const baseFilteredOtdRows = applyGlobalFilters(
+    otdState.rows,
+    'otd',
+    activeGlobalFilters
+  );
   const otdChartFilterValueOptions = getFilterOptions(
     baseFilteredOtdRows,
     activeOtdChartFilterField.value
@@ -5261,8 +5502,13 @@ export default function App() {
     laborPaletteColorFieldOptions.find((option) => option.value === selectedLaborPaletteColorField)
     ?? laborPaletteColorFieldOptions[0]
     ?? LABOR_PALETTE_FIELDS[1];
-  const laborChartFilterValueOptions = getFilterOptions(
+  const baseFilteredLaborRows = applyGlobalFilters(
     laborState.rows,
+    'labor',
+    activeGlobalFilters
+  );
+  const laborChartFilterValueOptions = getFilterOptions(
+    baseFilteredLaborRows,
     activeLaborChartFilterField.value
   );
   const activeLaborChartFilterValue = normalizeFilterValues(
@@ -5270,7 +5516,7 @@ export default function App() {
     laborChartFilterValueOptions
   );
   const laborFilterApplies = ['line', 'bar'].includes(chartVariants.labor);
-  const filteredLaborRows = laborState.rows.filter((row) => {
+  const filteredLaborRows = baseFilteredLaborRows.filter((row) => {
     if (!laborFilterApplies) {
       return true;
     }
@@ -5290,13 +5536,13 @@ export default function App() {
     ? formatPercentValue(laborOverallDirectHours / laborOverallHours)
     : '--';
   const laborPaletteChartData = buildLaborPaletteChartData(
-    laborState.rows,
+    baseFilteredLaborRows,
     activeLaborPaletteGroupField.value,
     activeLaborPaletteColorField.value,
     selectedDateRange
   );
   const laborParetoChartData = buildLaborParetoChartData(
-    laborState.rows,
+    baseFilteredLaborRows,
     activeLaborChartFilterField.value,
     selectedDateRange
   );
@@ -5331,8 +5577,13 @@ export default function App() {
     laborHanaPaletteColorFieldOptions.find(
       (option) => option.value === selectedLaborHanaPaletteColorField
     ) ?? laborHanaPaletteColorFieldOptions[0] ?? LABOR_HANA_PALETTE_FIELDS[1];
-  const laborHanaChartFilterValueOptions = getFilterOptions(
+  const baseFilteredLaborHanaRows = applyGlobalFilters(
     laborHanaState.rows,
+    'laborHana',
+    activeGlobalFilters
+  );
+  const laborHanaChartFilterValueOptions = getFilterOptions(
+    baseFilteredLaborHanaRows,
     activeLaborHanaChartFilterField.value
   );
   const activeLaborHanaChartFilterValue = normalizeFilterValues(
@@ -5340,7 +5591,7 @@ export default function App() {
     laborHanaChartFilterValueOptions
   );
   const laborHanaFilterApplies = ['line', 'bar'].includes(chartVariants.laborHana);
-  const filteredLaborHanaRows = laborHanaState.rows.filter((row) => {
+  const filteredLaborHanaRows = baseFilteredLaborHanaRows.filter((row) => {
     if (!laborHanaFilterApplies) {
       return true;
     }
@@ -5372,13 +5623,13 @@ export default function App() {
   );
   const laborHanaGoalForecastSeriesSignature = laborHanaGoalForecastSeriesValues.join('|');
   const laborHanaPaletteChartData = buildLaborPaletteChartData(
-    laborHanaState.rows,
+    baseFilteredLaborHanaRows,
     activeLaborHanaPaletteGroupField.value,
     activeLaborHanaPaletteColorField.value,
     selectedDateRange
   );
   const laborHanaParetoChartData = buildLaborParetoChartData(
-    laborHanaState.rows,
+    baseFilteredLaborHanaRows,
     activeLaborHanaChartFilterField.value,
     selectedDateRange
   );
@@ -5767,6 +6018,8 @@ export default function App() {
       setSelectedCardGroup(presetState.selectedCardGroup);
     }
 
+    setGlobalFilters(normalizeGlobalFilters(presetState.globalFilters));
+
     setChartVariants(
       Object.fromEntries(
         Object.entries(DEFAULT_CHART_VARIANTS).map(([metricKey, defaultVariant]) => {
@@ -6084,6 +6337,7 @@ export default function App() {
       const state = buildDashboardPresetState({
         themeMode,
         selectedCardGroup,
+        globalFilters: activeGlobalFilters,
         chartVariants,
         controllableCostsViewMode,
         selectedControllableChartFilterField,
@@ -6190,7 +6444,7 @@ export default function App() {
         <section className="panel">
           <div className="page-layout">
             <div className="page-header">
-              <div className="page-actions">
+              <div className="dashboard-toolbar">
                 <div className="global-date-filter">
                   <div className="global-date-filter-control">
                     <div className="global-date-filter-main">
@@ -6258,24 +6512,79 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="card-chip-panel">
-                  {CARD_CHIP_OPTIONS.map((cardGroup) => (
-                    <button
-                      key={cardGroup.key}
-                      type="button"
-                      className={`card-chip${isChipActive(cardGroup.key) ? ' card-chip-active' : ''}`}
-                      aria-pressed={isChipActive(cardGroup.key)}
-                      onClick={() => {
-                        setSelectedCardGroup(cardGroup.key);
+                <div className="toolbar-navigation-row">
+                  <label className="mobile-group-selector">
+                    <span className="mobile-group-selector-label">Group</span>
+                    <select
+                      className="mobile-group-selector-input"
+                      value={selectedCardGroup}
+                      onChange={(event) => {
+                        setSelectedCardGroup(event.target.value);
                       }}
                     >
-                      <FontAwesomeIcon icon={cardGroup.icon} className="card-chip-icon" />
-                      <span className="card-chip-label">{cardGroup.label}</span>
-                    </button>
-                  ))}
+                      {CARD_CHIP_OPTIONS.map((cardGroup) => (
+                        <option key={cardGroup.key} value={cardGroup.key}>
+                          {cardGroup.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="card-chip-panel" role="navigation" aria-label="Metric groups">
+                    {CARD_CHIP_OPTIONS.map((cardGroup) => (
+                      <button
+                        key={cardGroup.key}
+                        type="button"
+                        className={`card-chip${isChipActive(cardGroup.key) ? ' card-chip-active' : ''}`}
+                        aria-pressed={isChipActive(cardGroup.key)}
+                        onClick={() => {
+                          setSelectedCardGroup(cardGroup.key);
+                        }}
+                      >
+                        <FontAwesomeIcon icon={cardGroup.icon} className="card-chip-icon" />
+                        <span className="card-chip-label">{cardGroup.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className={`global-filter-toggle${isGlobalFiltersOpen ? ' global-filter-toggle-active' : ''}`}
+                    aria-expanded={isGlobalFiltersOpen}
+                    aria-controls="global-filter-tray"
+                    onClick={() => {
+                      setIsGlobalFiltersOpen((currentValue) => !currentValue);
+                      setIsUtilityPanelOpen(false);
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faFilter} className="toolbar-button-icon" />
+                    <span>Global Filters</span>
+                    {activeGlobalFilterCount > 0 && (
+                      <span className="global-filter-count" aria-label={`${activeGlobalFilterCount} active filters`}>
+                        {activeGlobalFilterCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`toolbar-more-button${isUtilityPanelOpen ? ' toolbar-more-button-active' : ''}`}
+                    aria-expanded={isUtilityPanelOpen}
+                    aria-controls="dashboard-utility-controls"
+                    onClick={() => {
+                      setIsUtilityPanelOpen((currentValue) => !currentValue);
+                      setIsGlobalFiltersOpen(false);
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faEllipsis} className="toolbar-button-icon" />
+                    <span>More</span>
+                  </button>
                 </div>
 
-                <div className="display-controls" aria-label="Display controls">
+                <div
+                  id="dashboard-utility-controls"
+                  className={`display-controls${isUtilityPanelOpen ? ' display-controls-open' : ''}`}
+                  aria-label="Display controls"
+                >
                   <div className="chart-mode-controls" aria-label="Chart type">
                     <button
                       type="button"
@@ -6348,6 +6657,91 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {isGlobalFiltersOpen && (
+              <>
+                <button
+                  type="button"
+                  className="global-filter-backdrop"
+                  aria-label="Close global filters"
+                  onClick={() => {
+                    setIsGlobalFiltersOpen(false);
+                  }}
+                />
+                <section id="global-filter-tray" className="global-filter-tray" aria-label="Global filters">
+                  <div className="global-filter-tray-heading">
+                    <div>
+                      <p className="global-filter-tray-eyebrow">Dashboard-wide</p>
+                      <h2 className="global-filter-tray-title">Global Filters</h2>
+                    </div>
+                    <div className="global-filter-tray-actions">
+                      <button
+                        type="button"
+                        className="global-filter-clear-button"
+                        disabled={activeGlobalFilterCount === 0}
+                        onClick={() => {
+                          setGlobalFilters(createEmptyGlobalFilters());
+                        }}
+                      >
+                        Reset all
+                      </button>
+                      <button
+                        type="button"
+                        className="global-filter-close-button"
+                        onClick={() => {
+                          setIsGlobalFiltersOpen(false);
+                        }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="global-filter-fields">
+                    {GLOBAL_FILTER_DIMENSIONS.map((dimension) => (
+                      <GlobalFilterField
+                        key={dimension.key}
+                        dimension={dimension}
+                        options={globalFilterOptions[dimension.key]}
+                        value={activeGlobalFilters[dimension.key]}
+                        onChange={(nextValues) => {
+                          setGlobalFilters((currentFilters) => ({
+                            ...currentFilters,
+                            [dimension.key]: nextValues
+                          }));
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="global-filter-summary" aria-live="polite">
+                    {activeGlobalFilterSummaries.length === 0 ? (
+                      <p className="global-filter-empty-summary">No global filters applied.</p>
+                    ) : (
+                      <div className="global-filter-active-chips" aria-label="Active global filters">
+                        {activeGlobalFilterSummaries.map((dimension) => (
+                          <button
+                            key={dimension.key}
+                            type="button"
+                            className="global-filter-active-chip"
+                            aria-label={`Clear ${dimension.label} filter`}
+                            onClick={() => {
+                              setGlobalFilters((currentFilters) => ({
+                                ...currentFilters,
+                                [dimension.key]: []
+                              }));
+                            }}
+                          >
+                            <span>{dimension.summary}</span>
+                            <span aria-hidden="true">x</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
 
             {isPresetToolbarOpen && (
               <div className="preset-toolbar">
@@ -8148,6 +8542,66 @@ const inlineChartFilterAutocompleteStyles = {
   },
   '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
     borderColor: 'var(--text-primary)'
+  },
+  '& .MuiAutocomplete-endAdornment': {
+    right: 5,
+    top: '50%',
+    transform: 'translateY(-50%)'
+  },
+  '& .MuiAutocomplete-clearIndicator, & .MuiAutocomplete-popupIndicator': {
+    p: 0.25,
+    color: 'var(--input-text)'
+  },
+  '& .MuiSvgIcon-root': {
+    fontSize: '0.95rem'
+  }
+};
+
+const globalFilterAutocompleteStyles = {
+  width: '100%',
+  minWidth: 0,
+  '& .MuiOutlinedInput-root': {
+    minHeight: 38,
+    height: 38,
+    flexWrap: 'nowrap',
+    borderRadius: '10px',
+    padding: '0 50px 0 10px !important',
+    fontSize: '0.76rem',
+    color: 'var(--input-text)',
+    backgroundColor: 'var(--input-bg)'
+  },
+  '& .MuiAutocomplete-input': {
+    minWidth: '20px !important',
+    padding: '0 !important',
+    fontSize: '0.76rem',
+    fontWeight: 600,
+    color: 'var(--input-text)'
+  },
+  '& .MuiAutocomplete-input::placeholder': {
+    color: 'var(--input-text)',
+    opacity: 0.72
+  },
+  '& .global-filter-value-summary': {
+    minWidth: 0,
+    maxWidth: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flexShrink: 1,
+    fontWeight: 600,
+    color: 'var(--input-text)'
+  },
+  '& .MuiOutlinedInput-root.Mui-focused .global-filter-value-summary': {
+    display: 'none'
+  },
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--input-border)'
+  },
+  '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--text-primary)'
+  },
+  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'var(--selected-bg)'
   },
   '& .MuiAutocomplete-endAdornment': {
     right: 5,

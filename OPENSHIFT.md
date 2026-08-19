@@ -69,12 +69,12 @@ OAuth2 Proxy then forwards authenticated requests to Express on `127.0.0.1:8080`
 Do not expose the Express container port directly: the backend trusts identity headers injected
 by OAuth2 Proxy, so all browser traffic must enter through the proxy-facing Service port.
 
-The proxy uses the Entra email claim as its primary user identifier and forwards the standard
-`X-Forwarded-User`, `X-Forwarded-Preferred-Username`, and `X-Forwarded-Email` headers. It also
-enables the equivalent `X-Auth-Request-*` response headers for compatibility with an external-auth
-proxy layout. The backend normalizes the first available identity, removes the email domain when
-present, and attempts roster lookup against both `RosterExtractFarm.NetworkID` and
-`RosterExtractFarm.MyID`.
+The proxy forwards its delegated Microsoft Graph access token to Express without exposing it to the
+browser. Express uses that token only for the Azure US Government Graph `/me` endpoint, requesting
+`id`, `displayName`, `mail`, `userPrincipalName`, `employeeId`, and
+`onPremisesSamAccountName`. Roster lookup tries the on-premises SAM account name, employee ID, and
+forwarded identity fallbacks in order; each candidate is checked against both
+`RosterExtractFarm.NetworkID` and `RosterExtractFarm.MyID`.
 
 The three Entra registration identifiers have different jobs:
 
@@ -124,10 +124,10 @@ Add this as a **Web** redirect URI, replacing the hostname with the actual OpenS
 https://your-qmiscorecard-route.example.com/oauth2/callback
 ```
 
-The ID token should include `name` and `email`; `preferred_username`, `oid`, `tid`, and
-`employeeid` are useful but optional for this application. The backend derives the network ID from
-the email before querying the roster. No implicit grant or hybrid flow is needed because OAuth2
-Proxy uses the authorization-code flow with PKCE.
+Delegated Microsoft Graph `User.Read` consent is required. No implicit grant or hybrid flow is
+needed because OAuth2 Proxy uses the authorization-code flow with PKCE. The backend does not use
+client credentials or application permissions for Graph; `/me` always represents the signed-in
+user.
 
 ### 2. Create the runtime secret
 
@@ -178,10 +178,12 @@ oc patch service/SERVICE_NAME \
   --patch-file openshift/qmiscorecard-service-patch.yaml
 ```
 
-The existing Route should continue pointing at that Service. After rollout, `/headers` should
-show at least `x_forwarded_user` and `x_forwarded_email`. Depending on the Entra token, it may also
-show `x_forwarded_preferred_username`. If the proxy is configured as external auth instead of the
-direct upstream used here, the equivalent `x_auth_request_*` headers are accepted by the backend.
+The existing Route should continue pointing at that Service. OAuth2 Proxy must have
+`OAUTH2_PROXY_PASS_ACCESS_TOKEN=true`; both supplied proxy manifests set it. After rollout,
+`/headers` should report `Forwarded Access Token Present: Yes` and `Graph /me Succeeded: Yes`, then
+show which Graph value and roster column produced the final NetworkID and MyID. The token itself is
+always redacted. If the proxy is configured as external auth instead of the direct upstream used
+here, the equivalent `x_auth_request_*` headers are accepted by the backend.
 
 Confirm the public Route actually enters OAuth2 Proxy:
 
@@ -193,8 +195,9 @@ oc logs deployment/DEPLOYMENT_NAME --all-containers=true --prefix=true --tail=20
 ```
 
 The first command must print `oauth2-proxy`. Through the public Route, `/oauth2/userinfo` should
-return the authenticated session email and `/headers` should report at least one populated identity
-field. If the app loads without an Entra redirect while no proxy session cookie exists, the Route or
+return the authenticated session email. `/headers` should report that an access token is present,
+whether Graph `/me` succeeded, the selected non-secret Graph profile fields, and the final roster
+match. If the app loads without an Entra redirect while no proxy session cookie exists, the Route or
 Service is still bypassing OAuth2 Proxy.
 
 The sidecar emits standard, authentication, and request logs with an `X-Request-Id` correlation ID.
@@ -202,14 +205,16 @@ When current-user or preset resolution runs, the app also writes an `Identity tr
 entry. Check these fields first:
 
 - Open `/api/health` and confirm `authDiagnostics.version` is
-  `entra-debug-2026-08-18.1`. If it is absent, the Deployment is still running an older image.
+  `entra-graph-2026-08-19.1`. If it is absent, the Deployment is still running an older image.
 - Search the app-container logs for `[entra-debug]`. Those records are one-line JSON so OpenShift
   cannot hide their fields in a collapsed multiline object.
 
 - `socket.remoteAddress` should be `127.0.0.1` or `::ffff:127.0.0.1` for the sidecar architecture.
   Any router or pod-network address means the request reached Express without using the sidecar.
-- `identity.populatedIdentityFields` should contain `x_forwarded_user`, `x_forwarded_email`, or an
-  equivalent `x_auth_request_*` field.
+- `sessionTransport.accessTokenPresent` and `sessionTransport.forwardedAccessTokenPresent` should
+  both be `true`. Their values are never logged.
+- `graph.succeeded` on `/api/headers` should be `true`; if not, inspect only its status and
+  sanitized error message.
 - `sessionTransport.oauth2ProxyCookiePresent` shows whether the expected proxy session cookie
   reached the upstream without logging its value.
 - `configuration` confirms that the Entra identifiers and fallback mode were loaded without printing

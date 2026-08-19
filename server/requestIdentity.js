@@ -1,5 +1,16 @@
 export const HARDCODED_NETWORK_ID = 'N35589';
-export const IDENTITY_DIAGNOSTICS_VERSION = 'entra-debug-2026-08-18.1';
+export const IDENTITY_DIAGNOSTICS_VERSION = 'entra-graph-2026-08-19.1';
+export const MICROSOFT_GRAPH_ME_URL =
+  'https://graph.microsoft.us/v1.0/me?$select=id,displayName,mail,userPrincipalName,employeeId,onPremisesSamAccountName';
+
+const MICROSOFT_GRAPH_PROFILE_PROPERTIES = [
+  'id',
+  'displayName',
+  'mail',
+  'userPrincipalName',
+  'employeeId',
+  'onPremisesSamAccountName'
+];
 
 const AUTH_CANDIDATE_FIELDS = [
   ['x_forwarded_employeeid', 'X-Forwarded-EmployeeId'],
@@ -106,7 +117,15 @@ function buildHardcodedFallbackIdentity(fallbackNetworkId = HARDCODED_NETWORK_ID
     name: '',
     preferred_username: '',
     entra_user_object_id: '',
-    entra_tenant_id: ''
+    entra_tenant_id: '',
+    displayName: '',
+    userPrincipalName: '',
+    employeeId: '',
+    onPremisesSamAccountName: '',
+    identifier_candidates: [{
+      source: 'hardcoded-fallback',
+      value: fallbackNetworkId
+    }]
   };
 }
 
@@ -215,8 +234,13 @@ export function getRequestIdentityDiagnostics(request) {
       cookieHeaderPresent: cookieNames.length > 0,
       cookieNames,
       oauth2ProxyCookiePresent: cookieNames.includes('__Host-qmiscorecard'),
+      accessTokenPresent: Boolean(getBearerToken(request)),
       authorizationHeaderPresent: Boolean(getAuthorizationScheme(request)),
       authorizationScheme: getAuthorizationScheme(request) || null,
+      forwardedAccessTokenPresent: Boolean(
+        normalizeText(getHeaderValue(request, 'X-Forwarded-Access-Token'))
+        || normalizeText(getHeaderValue(request, 'X-Auth-Request-Access-Token'))
+      ),
       forwardedForPresent: Boolean(authCandidates.x_forwarded_for),
       realIpHeaderPresent: Boolean(getHeaderValue(request, 'X-Real-Ip')),
       requestIdHeader: normalizeText(getHeaderValue(request, 'X-Request-Id'))
@@ -265,8 +289,10 @@ export function getRequestIdentityLogSummary(request) {
     normalizedEmployeeIdentifier: diagnostics.identity.normalizedEmployeeIdentifier,
     cookieNames: diagnostics.sessionTransport.cookieNames,
     oauth2ProxyCookiePresent: diagnostics.sessionTransport.oauth2ProxyCookiePresent,
+    accessTokenPresent: diagnostics.sessionTransport.accessTokenPresent,
     authorizationHeaderPresent: diagnostics.sessionTransport.authorizationHeaderPresent,
     authorizationScheme: diagnostics.sessionTransport.authorizationScheme,
+    forwardedAccessTokenPresent: diagnostics.sessionTransport.forwardedAccessTokenPresent,
     forwardedForPresent: diagnostics.sessionTransport.forwardedForPresent,
     requestIdHeader: diagnostics.sessionTransport.requestIdHeader,
     entraApplicationIdConfigured: diagnostics.configuration.entraApplicationIdConfigured,
@@ -300,7 +326,10 @@ function assertExpectedEntraRegistration(authCandidates) {
     && actualTenantId
     && config.directoryId.toLowerCase() !== actualTenantId
   ) {
-    throw new Error('OAuth2 Proxy supplied an Entra tenant that does not match ENTRA_DIRECTORY_ID.');
+    throw createGraphIdentityError(
+      'OAuth2 Proxy supplied an Entra tenant that does not match ENTRA_DIRECTORY_ID.',
+      401
+    );
   }
 
   if (
@@ -308,36 +337,172 @@ function assertExpectedEntraRegistration(authCandidates) {
     && actualApplicationId
     && config.applicationId.toLowerCase() !== actualApplicationId
   ) {
-    throw new Error('OAuth2 Proxy supplied an audience that does not match ENTRA_APPLICATION_ID.');
+    throw createGraphIdentityError(
+      'OAuth2 Proxy supplied an audience that does not match ENTRA_APPLICATION_ID.',
+      401
+    );
   }
 }
 
-function getHeaderBackedIdentity(authCandidates = {}) {
-  const employeeId = normalizePotentialNetworkId(getLikelyAuthUser(authCandidates));
+function sanitizeGraphErrorMessage(payload, statusCode, bearerToken = '') {
+  const graphMessage = payload?.error?.message;
+  const fallbackMessage = `Microsoft Graph request failed with status ${statusCode}.`;
+  const normalizedMessage = String(graphMessage || fallbackMessage)
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const redactedMessage = bearerToken
+    ? normalizedMessage.split(bearerToken).join('[redacted]')
+    : normalizedMessage;
 
-  if (!employeeId) {
-    return null;
+  return redactedMessage.slice(0, 500) || fallbackMessage;
+}
+
+function createGraphIdentityError(message, statusCode, accessTokenPresent = true) {
+  const error = new Error(message);
+
+  error.statusCode = statusCode;
+  error.graphDiagnostics = {
+    accessTokenPresent,
+    succeeded: false,
+    statusCode,
+    errorMessage: message
+  };
+
+  return error;
+}
+
+function normalizeGraphProfile(payload = {}) {
+  return Object.fromEntries(
+    MICROSOFT_GRAPH_PROFILE_PROPERTIES.map((propertyName) => [
+      propertyName,
+      normalizeText(payload?.[propertyName])
+    ])
+  );
+}
+
+export async function getMicrosoftGraphProfile(request, { fetchImpl = fetch } = {}) {
+  const bearerToken = getBearerToken(request);
+
+  if (!bearerToken) {
+    throw createGraphIdentityError(
+      'No delegated Microsoft Graph access token was forwarded by OAuth2 Proxy.',
+      401,
+      false
+    );
   }
 
-  assertExpectedEntraRegistration(authCandidates);
+  let graphResponse;
+
+  try {
+    graphResponse = await fetchImpl(MICROSOFT_GRAPH_ME_URL, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        Authorization: `Bearer ${bearerToken}`
+      }
+    });
+  } catch (error) {
+    const message = error?.name === 'TimeoutError'
+      ? 'Microsoft Graph /me request timed out.'
+      : 'Unable to reach Microsoft Graph /me.';
+
+    throw createGraphIdentityError(message, 502);
+  }
+
+  let graphPayload = null;
+
+  try {
+    graphPayload = await graphResponse.json();
+  } catch {
+    graphPayload = null;
+  }
+
+  if (!graphResponse.ok) {
+    throw createGraphIdentityError(
+      sanitizeGraphErrorMessage(graphPayload, graphResponse.status, bearerToken),
+      graphResponse.status
+    );
+  }
 
   return {
-    source: 'entra-oauth2-proxy',
-    employee_id: employeeId,
-    network_id: employeeId,
-    email: normalizeText(
-      authCandidates.x_forwarded_email
-      || authCandidates.x_auth_request_email
-    ),
-    name: normalizeText(authCandidates.x_forwarded_name),
-    preferred_username: normalizeText(
-      authCandidates.x_forwarded_preferred_username
-      || authCandidates.x_forwarded_user
-      || authCandidates.x_auth_request_preferred_username
-      || authCandidates.x_auth_request_user
-    ),
-    entra_user_object_id: normalizeText(authCandidates.x_entra_user_object_id),
-    entra_tenant_id: normalizeText(authCandidates.x_entra_tenant_id)
+    profile: normalizeGraphProfile(graphPayload),
+    diagnostics: {
+      accessTokenPresent: true,
+      succeeded: true,
+      statusCode: graphResponse.status,
+      errorMessage: ''
+    }
+  };
+}
+
+export function buildRosterIdentifierCandidates(graphProfile = {}, authCandidates = {}) {
+  const candidates = [];
+  const seenValues = new Set();
+
+  const addCandidate = (source, rawValue) => {
+    const value = normalizePotentialNetworkId(rawValue);
+    const normalizedValue = normalizeText(value).toLowerCase();
+
+    if (!normalizedValue || seenValues.has(normalizedValue)) {
+      return;
+    }
+
+    seenValues.add(normalizedValue);
+    candidates.push({ source, value });
+  };
+
+  addCandidate('onPremisesSamAccountName', graphProfile.onPremisesSamAccountName);
+  addCandidate('employeeId', graphProfile.employeeId);
+
+  const forwardedIdentityFields = [
+    ['x_forwarded_employeeid', 'x_forwarded_employeeid'],
+    ['x_forwarded_user', 'x_forwarded_user'],
+    ['x_forwarded_preferred_username', 'x_forwarded_preferred_username'],
+    ['x_forwarded_email', 'x_forwarded_email'],
+    ['x_auth_request_user', 'x_auth_request_user'],
+    ['x_auth_request_preferred_username', 'x_auth_request_preferred_username'],
+    ['x_auth_request_email', 'x_auth_request_email']
+  ];
+
+  forwardedIdentityFields.forEach(([source, key]) => {
+    addCandidate(source, authCandidates[key]);
+  });
+
+  addCandidate('userPrincipalName', graphProfile.userPrincipalName);
+  addCandidate('mail', graphProfile.mail);
+
+  return candidates;
+}
+
+function buildGraphBackedIdentity(graphProfile, authCandidates, graphDiagnostics) {
+  const identifierCandidates = buildRosterIdentifierCandidates(
+    graphProfile,
+    authCandidates
+  );
+  const primaryIdentifier = identifierCandidates[0]?.value ?? '';
+  const email = normalizeText(
+    graphProfile.mail
+    || authCandidates.x_forwarded_email
+    || authCandidates.x_auth_request_email
+  );
+  const userPrincipalName = normalizeText(graphProfile.userPrincipalName);
+
+  return {
+    source: 'entra-graph',
+    employee_id: primaryIdentifier,
+    network_id: primaryIdentifier,
+    email,
+    name: normalizeText(graphProfile.displayName || authCandidates.x_forwarded_name),
+    preferred_username: userPrincipalName || normalizeText(getLikelyAuthUser(authCandidates)),
+    entra_user_object_id: normalizeText(graphProfile.id),
+    entra_tenant_id: normalizeText(authCandidates.x_entra_tenant_id),
+    displayName: normalizeText(graphProfile.displayName),
+    userPrincipalName,
+    employeeId: normalizeText(graphProfile.employeeId),
+    onPremisesSamAccountName: normalizeText(graphProfile.onPremisesSamAccountName),
+    graph_status_code: graphDiagnostics?.statusCode ?? null,
+    identifier_candidates: identifierCandidates
   };
 }
 
@@ -349,18 +514,36 @@ export async function resolveRequestIdentity(
   request,
   fallbackNetworkId = HARDCODED_NETWORK_ID
 ) {
-  const headerIdentity = getHeaderBackedIdentity(getAuthCandidateHeaders(request));
+  const authCandidates = getAuthCandidateHeaders(request);
+  const bearerToken = getBearerToken(request);
 
-  if (headerIdentity?.employee_id) {
-    return headerIdentity;
+  if (bearerToken) {
+    assertExpectedEntraRegistration(authCandidates);
+
+    const { profile, diagnostics } = await getMicrosoftGraphProfile(request);
+    const graphIdentity = buildGraphBackedIdentity(profile, authCandidates, diagnostics);
+
+    if (graphIdentity.identifier_candidates.length > 0) {
+      return graphIdentity;
+    }
+
+    const error = createGraphIdentityError(
+      'Microsoft Graph /me succeeded but returned no usable roster identifier candidates.',
+      422
+    );
+
+    error.resolvedIdentity = graphIdentity;
+    throw error;
   }
 
   if (shouldAllowHardcodedIdentityFallback()) {
     return buildHardcodedFallbackIdentity(fallbackNetworkId);
   }
 
-  const error = new Error(
-    'No Microsoft Entra identity was forwarded by OAuth2 Proxy, and hardcoded fallback is disabled.'
+  const error = createGraphIdentityError(
+    'No delegated Microsoft Graph access token was forwarded by OAuth2 Proxy, and hardcoded fallback is disabled.',
+    401,
+    false
   );
 
   error.identityDiagnostics = getRequestIdentityLogSummary(request);
@@ -371,5 +554,11 @@ export function getRequestNetworkId(
   request,
   fallbackNetworkId = HARDCODED_NETWORK_ID
 ) {
-  return getDerivedNetworkIdFromRequest(request) || fallbackNetworkId;
+  const derivedNetworkId = getDerivedNetworkIdFromRequest(request);
+
+  if (derivedNetworkId) {
+    return derivedNetworkId;
+  }
+
+  return shouldAllowHardcodedIdentityFallback() ? fallbackNetworkId : null;
 }

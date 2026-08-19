@@ -32,8 +32,8 @@ import {
 import { closeDatabaseConnection } from './sqlConnection.js';
 import {
   IDENTITY_DIAGNOSTICS_VERSION,
-  getBearerToken,
   getEntraApplicationConfig,
+  getMicrosoftGraphProfile,
   getRequestIdentityLogSummary
 } from './requestIdentity.js';
 import {
@@ -48,19 +48,17 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
-const ENTRA_IDENTITY_DEBUG_GRAPH_URL =
-  'https://graph.microsoft.us/v1.0/me?$select=id,displayName,mail,userPrincipalName,employeeId,onPremisesSamAccountName';
-const ENTRA_IDENTITY_DEBUG_PROPERTIES = [
-  'id',
-  'displayName',
-  'mail',
-  'userPrincipalName',
-  'employeeId',
-  'onPremisesSamAccountName'
-];
 const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
 const LABOR_HANA_DATASET_ENABLED = false;
 let requestCounter = 0;
+
+function getResponseErrorStatus(error, fallbackStatus = 500) {
+  const statusCode = Number(error?.statusCode);
+
+  return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599
+    ? statusCode
+    : fallbackStatus;
+}
 
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
 if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
@@ -92,6 +90,7 @@ app.use((request, response, next) => {
   if (
     request.path === '/api/current-user'
     || request.path === '/api/entra-identity-debug'
+    || request.path === '/api/headers'
     || request.path.startsWith('/api/dashboard-presets')
   ) {
     logDebugJson(
@@ -156,82 +155,30 @@ app.get('/api/health', (_request, response) => {
   });
 });
 
-function sanitizeGraphErrorMessage(payload, statusCode, bearerToken = '') {
-  const graphMessage = payload?.error?.message;
-  const fallbackMessage = `Microsoft Graph request failed with status ${statusCode}.`;
-  const normalizedMessage = String(graphMessage || fallbackMessage)
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const redactedMessage = bearerToken
-    ? normalizedMessage.split(bearerToken).join('[redacted]')
-    : normalizedMessage;
-
-  return redactedMessage.slice(0, 500) || fallbackMessage;
-}
-
 // Temporary diagnostic endpoint for identifying the roster-compatible Entra claim.
 app.get('/api/entra-identity-debug', async (request, response) => {
   const stopTimer = createTimer();
-  const bearerToken = getBearerToken(request);
-
-  if (!bearerToken) {
-    response.status(401).json({
-      message: 'No OAuth2 access token was forwarded to the backend.'
-    });
-    return;
-  }
 
   try {
-    const graphResponse = await fetch(ENTRA_IDENTITY_DEBUG_GRAPH_URL, {
-      redirect: 'error',
-      headers: {
-        Authorization: `Bearer ${bearerToken}`
-      }
-    });
-    let graphPayload = null;
+    const { profile } = await getMicrosoftGraphProfile(request);
 
-    try {
-      graphPayload = await graphResponse.json();
-    } catch {
-      graphPayload = null;
-    }
-
-    if (!graphResponse.ok) {
-      const message = sanitizeGraphErrorMessage(
-        graphPayload,
-        graphResponse.status,
-        bearerToken
-      );
-
-      logDebug('entra-identity-debug', `Graph request failed for API request #${request.requestId ?? 'n/a'}.`, {
-        statusCode: graphResponse.status,
-        duration: formatDuration(stopTimer())
-      });
-      response.status(graphResponse.status).json({ message });
-      return;
-    }
-
-    const selectedProperties = Object.fromEntries(
-      ENTRA_IDENTITY_DEBUG_PROPERTIES.map((propertyName) => [
-        propertyName,
-        graphPayload?.[propertyName] ?? null
-      ])
-    );
-
-    response.json(selectedProperties);
+    response.json(profile);
     logDebug('entra-identity-debug', `Graph identity resolved for API request #${request.requestId ?? 'n/a'}.`, {
       duration: formatDuration(stopTimer())
     });
-  } catch {
-    logError(
-      'entra-identity-debug',
-      `Graph request failed for API request #${request.requestId ?? 'n/a'}.`,
-      new Error('Unable to reach Microsoft Graph.'),
-      { duration: formatDuration(stopTimer()) }
-    );
-    response.status(502).json({
-      message: 'Unable to reach Microsoft Graph.'
+  } catch (error) {
+    const statusCode = Number.isInteger(error.statusCode)
+      && error.statusCode >= 400
+      && error.statusCode <= 599
+      ? error.statusCode
+      : 502;
+
+    logError('entra-identity-debug', `Graph request failed for API request #${request.requestId ?? 'n/a'}.`, error, {
+      statusCode,
+      duration: formatDuration(stopTimer())
+    });
+    response.status(statusCode).json({
+      message: error.message
     });
   }
 });
@@ -258,7 +205,7 @@ app.get('/api/current-user', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(500).json({
+    response.status(getResponseErrorStatus(error)).json({
       message: 'Unable to resolve the current user.',
       error: error.message,
       requestId: request.requestId ?? null,
@@ -292,7 +239,7 @@ app.get('/api/dashboard-presets', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(500).json({
+    response.status(getResponseErrorStatus(error)).json({
       message: 'Unable to load dashboard presets.',
       error: error.message,
       requestId: request.requestId ?? null,
@@ -332,7 +279,7 @@ app.put('/api/dashboard-presets/:slot', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(500).json({
+    response.status(getResponseErrorStatus(error)).json({
       message: 'Unable to save dashboard preset.',
       error: error.message,
       requestId: request.requestId ?? null,
@@ -341,18 +288,25 @@ app.put('/api/dashboard-presets/:slot', async (request, response) => {
   }
 });
 
-app.get(['/headers', '/api/headers'], (request, response) => {
-  const payload = buildHeadersDebugPayload(request);
-  const wantsJson = request.path.startsWith('/api/')
-    || String(request.query.format || '').toLowerCase() === 'json'
-    || String(request.get('accept') || '').includes('application/json');
+app.get(['/headers', '/api/headers'], async (request, response) => {
+  try {
+    const payload = await buildHeadersDebugPayload(request);
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
 
-  if (wantsJson) {
-    response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
-    return;
+    if (wantsJson) {
+      response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+      return;
+    }
+
+    response.type('text/html').send(renderHeadersDebugPage(payload));
+  } catch (error) {
+    logError('headers', 'Unable to build header diagnostics.', error);
+    response.status(500).json({
+      message: 'Unable to build header diagnostics.'
+    });
   }
-
-  response.type('text/html').send(renderHeadersDebugPage(payload));
 });
 
 app.get('/api/otd', async (request, response) => {

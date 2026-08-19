@@ -47,11 +47,14 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
-const LABOR_HANA_DATASET_ENABLED = true;
+const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
+const LABOR_HANA_DATASET_ENABLED = false;
 let requestCounter = 0;
 
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
-registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
+if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
+  registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
+}
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
 if (LABOR_HANA_DATASET_ENABLED) {
@@ -280,15 +283,17 @@ app.get('/api/controllable-costs', async (request, response) => {
   );
 });
 
-app.get('/api/controllable-costs-hana', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'controllable-costs-hana',
-    () => getCachedSqlDataset('controllable-costs-hana'),
-    'Unable to read HANA controllable costs data.'
-  );
-});
+if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
+  app.get('/api/controllable-costs-hana', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'controllable-costs-hana',
+      () => getCachedSqlDataset('controllable-costs-hana'),
+      'Unable to read HANA controllable costs data.'
+    );
+  });
+}
 
 app.get('/api/sif-incidents', async (request, response) => {
   await sendDatasetResponse(

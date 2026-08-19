@@ -307,7 +307,8 @@ const LABOR_HANA_PALETTE_FIELDS = LABOR_HANA_CHART_FILTER_FIELDS.map((option) =>
 const LABOR_HANA_PARETO_FILTER_FIELDS = [LABOR_HANA_CHART_FILTER_FIELDS[2]];
 
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
-const LABOR_HANA_CARD_ENABLED = true;
+const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = false;
+const LABOR_HANA_CARD_ENABLED = false;
 
 const CARD_CHIP_OPTIONS = [
   {
@@ -316,7 +317,7 @@ const CARD_CHIP_OPTIONS = [
     icon: faAsterisk,
     cardKeys: [
       'controllableCosts',
-      'controllableCostsHana',
+      ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
       'sif',
       'potentialSif',
       'nmfr',
@@ -331,7 +332,7 @@ const CARD_CHIP_OPTIONS = [
     icon: faCalculator,
     cardKeys: [
       'controllableCosts',
-      'controllableCostsHana',
+      ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
       'labor',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
@@ -3821,7 +3822,7 @@ export default function App() {
   });
   const [controllableCostsHanaState, setControllableCostsHanaState] = useState({
     rows: [],
-    loading: true,
+    loading: CONTROLLABLE_COSTS_HANA_CARD_ENABLED,
     error: '',
     source: ''
   });
@@ -4377,7 +4378,9 @@ export default function App() {
     logClientDebug('dashboard', 'Starting dashboard data load.');
 
     loadControllableCostsData();
-    loadControllableCostsHanaData();
+    if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED) {
+      loadControllableCostsHanaData();
+    }
     loadSifData();
     loadPotentialSifData();
     loadNmfrData();
@@ -5671,13 +5674,14 @@ export default function App() {
   );
   const visibleCards = {
     controllableCosts: activeCardKeys.has('controllableCosts'),
-    controllableCostsHana: activeCardKeys.has('controllableCostsHana'),
+    controllableCostsHana:
+      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsHana'),
     sif: activeCardKeys.has('sif'),
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
     otd: activeCardKeys.has('otd'),
     labor: activeCardKeys.has('labor'),
-    laborHana: activeCardKeys.has('laborHana')
+    laborHana: LABOR_HANA_CARD_ENABLED && activeCardKeys.has('laborHana')
   };
   const hasVisibleCards = activeCardKeys.size > 0;
   const nextThemeLabel = themeMode === 'light' ? 'Dark' : 'Light';

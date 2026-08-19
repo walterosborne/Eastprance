@@ -281,7 +281,7 @@ a.branding-banner-main:hover {
 .dashboard-toolbar {
   --toolbar-control-height: 40px;
   display: grid;
-  grid-template-columns: minmax(304px, 326px) minmax(520px, 1fr) auto;
+  grid-template-columns: minmax(380px, 400px) minmax(500px, 1fr) auto;
   gap: 0.65rem;
   align-items: stretch;
   width: 100%;
@@ -299,28 +299,28 @@ a.branding-banner-main:hover {
 }
 
 .global-date-filter {
-  width: min(100%, 326px);
-  max-width: 326px;
+  width: min(100%, 400px);
+  max-width: 400px;
   justify-self: start;
 }
 
 .global-date-filter-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px;
-  align-items: stretch;
-  gap: 0.4rem;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.18rem;
   width: 100%;
   min-width: 0;
-  min-height: 56px;
-  padding: 0.38rem 0.45rem 0.38rem 0.65rem;
+  min-height: 64px;
+  padding: 0.38rem 0.45rem 0.34rem 0.65rem;
   border: 1px solid var(--input-border);
   border-radius: 12px;
   background: var(--input-bg);
 }
 
-.global-date-filter-main {
-  display: grid;
-  grid-template-rows: 14px minmax(0, 1fr);
+.global-date-filter-content {
+  display: flex;
+  align-items: center;
+  width: 100%;
   min-width: 0;
   min-height: 0;
 }
@@ -336,20 +336,25 @@ a.branding-banner-main:hover {
   text-transform: uppercase;
 }
 
-.global-date-filter-slider-wrap {
+.global-date-filter-slider-region {
   display: grid;
-  grid-template-rows: auto auto;
-  align-self: end;
-  width: calc(100% - 4px);
+  flex: 1 1 auto;
+  grid-template-rows: minmax(22px, auto) auto;
+  align-self: center;
   min-width: 0;
-  justify-self: center;
+  padding-right: 16px;
+}
+
+.global-date-filter-track {
+  min-width: 0;
+  padding-inline: 8px;
 }
 
 .global-date-filter-slider {
-  width: calc(100% - 20px);
+  display: block;
+  width: 100%;
   max-width: none;
-  justify-self: center;
-  margin: 1px auto 0;
+  margin: 1px 0 0;
 }
 
 .global-date-filter-boundary-labels {
@@ -357,10 +362,9 @@ a.branding-banner-main:hover {
   justify-content: space-between;
   align-items: flex-start;
   gap: 0.5rem;
-  width: calc(100% - 20px);
+  width: 100%;
   min-width: 0;
-  padding: 0;
-  justify-self: center;
+  padding-inline: 8px;
 }
 
 .global-date-filter-boundary-label {
@@ -378,13 +382,12 @@ a.branding-banner-main:hover {
 }
 
 .global-date-filter-actions {
-  display: grid;
-  grid-template-columns: 44px 52px;
+  display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
   gap: 4px;
-  width: 100px;
-  min-width: 100px;
+  width: auto;
+  min-width: max-content;
 }
 
 .global-date-filter-shortcut,
@@ -409,9 +412,15 @@ a.branding-banner-main:hover {
 }
 
 .global-date-filter-shortcut {
-  width: 100%;
-  min-width: 0;
+  flex: 0 0 auto;
+  width: 44px;
+  min-width: 44px;
   padding: 0.4rem 0.35rem;
+}
+
+.global-date-filter-shortcut:last-child {
+  width: 52px;
+  min-width: 52px;
 }
 
 .global-date-filter-shortcut:hover,
@@ -1581,7 +1590,7 @@ h1 {
 
 @media (max-width: 1280px) {
   .dashboard-toolbar {
-    grid-template-columns: minmax(304px, 326px) minmax(0, 1fr);
+    grid-template-columns: minmax(380px, 400px) minmax(0, 1fr);
   }
 
   .toolbar-navigation-row {
@@ -1596,6 +1605,45 @@ h1 {
 
   .global-filter-tray {
     grid-template-columns: minmax(140px, 0.55fr) minmax(480px, 2fr) minmax(180px, 0.9fr);
+  }
+}
+
+@media (max-width: 1520px) {
+  .toolbar-navigation-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 260px) auto;
+    justify-content: start;
+  }
+
+  .card-chip-panel {
+    display: none;
+  }
+
+  .mobile-group-selector {
+    display: block;
+    min-width: 0;
+    min-height: 52px;
+  }
+
+  .mobile-group-selector-label {
+    display: none;
+  }
+
+  .mobile-group-selector-input {
+    width: 100%;
+    min-width: 0;
+    height: 52px;
+    min-height: 52px;
+    padding: 0.35rem 1.8rem 0.35rem 0.7rem;
+    border: 1px solid var(--input-border);
+    border-radius: 10px;
+    background: var(--input-bg);
+    color: var(--input-text);
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -1829,37 +1877,6 @@ h1 {
     grid-template-columns: minmax(120px, 1fr) auto auto;
   }
 
-  .card-chip-panel {
-    display: none;
-  }
-
-  .mobile-group-selector {
-    display: block;
-    min-width: 0;
-    min-height: 52px;
-  }
-
-  .mobile-group-selector-label {
-    display: none;
-  }
-
-  .mobile-group-selector-input {
-    width: 100%;
-    min-width: 0;
-    height: 52px;
-    min-height: 52px;
-    padding: 0.35rem 1.8rem 0.35rem 0.7rem;
-    border: 1px solid var(--input-border);
-    border-radius: 10px;
-    background: var(--input-bg);
-    color: var(--input-text);
-    font: inherit;
-    font-size: 0.76rem;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .global-filter-toggle {
     justify-self: stretch;
   }
@@ -1935,17 +1952,6 @@ h1 {
 }
 
 @media (max-width: 400px) {
-  .global-date-filter-control {
-    gap: 0.25rem;
-    padding-left: 0.48rem;
-  }
-
-  .global-date-filter-shortcut {
-    min-width: 40px;
-    padding-inline: 0.38rem;
-    font-size: 0.7rem;
-  }
-
   .toolbar-navigation-row {
     grid-template-columns: minmax(104px, 1fr) auto auto;
   }

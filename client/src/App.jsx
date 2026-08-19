@@ -686,7 +686,6 @@ const chartTypeToggleButtonSx = {
 
 const dateSliderSx = {
   color: 'var(--selected-bg)',
-  px: 1.1,
   py: 0.75,
   '& .MuiSlider-rail': {
     backgroundColor: 'var(--border)',
@@ -6447,68 +6446,70 @@ export default function App() {
               <div className="dashboard-toolbar">
                 <div className="global-date-filter">
                   <div className="global-date-filter-control">
-                    <div className="global-date-filter-main">
-                      <p className="global-date-filter-label">Date range</p>
+                    <p className="global-date-filter-label">Date range</p>
+                    <div className="global-date-filter-content">
                       {availableTimelineStamps.length > 0 ? (
-                        <div className="global-date-filter-slider-wrap">
-                          <Slider
-                            className="global-date-filter-slider"
-                            value={activeDateRangeIndices}
-                            min={0}
-                            max={maximumDateIndex}
-                            step={1}
-                            marks={dateSliderMarks}
-                            disableSwap
-                            valueLabelDisplay="auto"
-                            valueLabelFormat={formatDateSliderValue}
-                            getAriaValueText={formatDateSliderValue}
-                            onChange={(_event, nextValue) => {
-                              if (Array.isArray(nextValue)) {
-                                setSelectedDateRangeIndices(nextValue);
-                                setHasCustomizedDateRange(true);
-                              }
-                            }}
-                            sx={dateSliderSx}
-                          />
-                          <div className="global-date-filter-boundary-labels" aria-hidden="true">
-                            <span className="global-date-filter-boundary-label">
-                              {dateSliderStartLabel}
-                            </span>
-                            <span className="global-date-filter-boundary-label global-date-filter-boundary-label-end">
-                              {dateSliderEndLabel}
-                            </span>
+                        <>
+                          <div className="global-date-filter-slider-region">
+                            <div className="global-date-filter-track">
+                              <Slider
+                                className="global-date-filter-slider"
+                                value={activeDateRangeIndices}
+                                min={0}
+                                max={maximumDateIndex}
+                                step={1}
+                                marks={dateSliderMarks}
+                                disableSwap
+                                valueLabelDisplay="auto"
+                                valueLabelFormat={formatDateSliderValue}
+                                getAriaValueText={formatDateSliderValue}
+                                onChange={(_event, nextValue) => {
+                                  if (Array.isArray(nextValue)) {
+                                    setSelectedDateRangeIndices(nextValue);
+                                    setHasCustomizedDateRange(true);
+                                  }
+                                }}
+                                sx={dateSliderSx}
+                              />
+                            </div>
+                            <div className="global-date-filter-boundary-labels" aria-hidden="true">
+                              <span className="global-date-filter-boundary-label">
+                                {dateSliderStartLabel}
+                              </span>
+                              <span className="global-date-filter-boundary-label global-date-filter-boundary-label-end">
+                                {dateSliderEndLabel}
+                              </span>
+                            </div>
                           </div>
-                        </div>
+
+                          <div className="global-date-filter-actions">
+                            <button
+                              type="button"
+                              className={`global-date-filter-shortcut${isYtdRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
+                              onClick={() => {
+                                setSelectedDateRangeIndices(ytdRangeIndices);
+                                setHasCustomizedDateRange(true);
+                              }}
+                            >
+                              YTD
+                            </button>
+                            <button
+                              type="button"
+                              className={`global-date-filter-shortcut${isAllDateRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
+                              onClick={() => {
+                                setPendingPresetDateRange(null);
+                                setSelectedDateRangeIndices([0, maximumDateIndex]);
+                                setHasCustomizedDateRange(false);
+                              }}
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        </>
                       ) : (
                         <p className="global-date-filter-loading">Loading date range...</p>
                       )}
                     </div>
-
-                    {availableTimelineStamps.length > 0 && (
-                      <div className="global-date-filter-actions">
-                        <button
-                          type="button"
-                          className={`global-date-filter-shortcut${isYtdRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
-                          onClick={() => {
-                            setSelectedDateRangeIndices(ytdRangeIndices);
-                            setHasCustomizedDateRange(true);
-                          }}
-                        >
-                          YTD
-                        </button>
-                        <button
-                          type="button"
-                          className={`global-date-filter-shortcut${isAllDateRangeActive ? ' global-date-filter-shortcut-active' : ''}`}
-                          onClick={() => {
-                            setPendingPresetDateRange(null);
-                            setSelectedDateRangeIndices([0, maximumDateIndex]);
-                            setHasCustomizedDateRange(false);
-                          }}
-                        >
-                          Reset
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
 

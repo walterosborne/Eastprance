@@ -122,6 +122,22 @@ export function getHeaderValue(request, name) {
   return request.get(name) ?? request.headers?.[String(name).toLowerCase()] ?? null;
 }
 
+export function getBearerToken(request) {
+  const authorization = normalizeText(getHeaderValue(request, 'Authorization'));
+  const bearerMatch = authorization.match(/^Bearer\s+(.+)$/i);
+
+  if (bearerMatch?.[1]) {
+    return bearerMatch[1].trim();
+  }
+
+  const forwardedToken = normalizeText(
+    getHeaderValue(request, 'X-Forwarded-Access-Token')
+    || getHeaderValue(request, 'X-Auth-Request-Access-Token')
+  );
+
+  return forwardedToken.replace(/^Bearer\s+/i, '').trim();
+}
+
 export function normalizePotentialNetworkId(value) {
   if (value === undefined || value === null) {
     return null;

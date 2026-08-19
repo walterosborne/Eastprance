@@ -294,6 +294,7 @@ a.branding-banner-main:hover {
 
 .global-date-filter,
 .toolbar-navigation-row,
+.toolbar-utility-zone,
 .display-controls {
   min-width: 0;
 }
@@ -385,9 +386,11 @@ a.branding-banner-main:hover {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  align-self: center;
   gap: 4px;
   width: auto;
   min-width: max-content;
+  transform: translateY(2px);
 }
 
 .global-date-filter-shortcut,
@@ -441,7 +444,6 @@ a.branding-banner-main:hover {
 .card-chip:focus-visible,
 .chart-mode-button:focus-visible,
 .theme-toggle:focus-visible,
-.global-filter-active-chip:focus-visible,
 .mobile-group-selector-input:focus-visible {
   outline: 2px solid var(--selected-bg);
   outline-offset: 2px;
@@ -477,8 +479,9 @@ a.branding-banner-main:hover {
 
 .toolbar-navigation-row {
   display: flex;
-  align-items: stretch;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
 }
 
 .mobile-group-selector {
@@ -487,8 +490,9 @@ a.branding-banner-main:hover {
 
 .card-chip-panel {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   align-items: center;
+  justify-content: center;
   gap: 0.15rem;
   min-width: 0;
   min-height: 56px;
@@ -584,6 +588,13 @@ a.branding-banner-main:hover {
   display: none;
 }
 
+.toolbar-utility-zone {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .display-controls {
   display: inline-flex;
   align-items: center;
@@ -608,7 +619,7 @@ a.branding-banner-main:hover {
   position: relative;
   z-index: 11;
   display: grid;
-  grid-template-columns: minmax(150px, 0.55fr) minmax(540px, 2fr) minmax(200px, 1fr);
+  grid-template-columns: minmax(150px, 0.35fr) minmax(0, 1fr);
   gap: 0.8rem;
   align-items: center;
   width: 100%;
@@ -633,8 +644,7 @@ a.branding-banner-main:hover {
 }
 
 .global-filter-tray-eyebrow,
-.global-filter-tray-title,
-.global-filter-empty-summary {
+.global-filter-tray-title {
   margin: 0;
 }
 
@@ -689,52 +699,6 @@ a.branding-banner-main:hover {
   font-size: 0.66rem;
   font-weight: 700;
   line-height: 1;
-}
-
-.global-filter-summary {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  min-height: 40px;
-  padding-left: 0.7rem;
-  border-left: 1px solid var(--border);
-}
-
-.global-filter-empty-summary {
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  line-height: 1.25;
-}
-
-.global-filter-active-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-.global-filter-active-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.42rem;
-  max-width: 100%;
-  min-height: 28px;
-  padding: 0.28rem 0.5rem;
-  overflow: hidden;
-  border: 1px solid var(--input-border);
-  border-radius: 999px;
-  background: var(--input-bg);
-  color: var(--input-text);
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.global-filter-active-chip span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .preset-toolbar {
@@ -1598,21 +1562,20 @@ h1 {
     grid-row: 2;
   }
 
-  .display-controls {
+  .toolbar-utility-zone {
     grid-column: 2;
     grid-row: 1;
   }
 
   .global-filter-tray {
-    grid-template-columns: minmax(140px, 0.55fr) minmax(480px, 2fr) minmax(180px, 0.9fr);
+    grid-template-columns: minmax(140px, 0.35fr) minmax(0, 1fr);
   }
 }
 
 @media (max-width: 1520px) {
   .toolbar-navigation-row {
-    display: grid;
-    grid-template-columns: minmax(180px, 260px) auto;
-    justify-content: start;
+    display: flex;
+    justify-content: center;
   }
 
   .card-chip-panel {
@@ -1621,7 +1584,9 @@ h1 {
 
   .mobile-group-selector {
     display: block;
+    width: min(100%, 260px);
     min-width: 0;
+    max-width: 260px;
     min-height: 52px;
   }
 
@@ -1647,6 +1612,12 @@ h1 {
   }
 }
 
+@media (min-width: 1281px) and (max-width: 1520px) {
+  .dashboard-toolbar {
+    grid-template-columns: minmax(380px, 400px) minmax(180px, 1fr) auto;
+  }
+}
+
 @media (max-width: 1050px) {
   .theme-toggle-label {
     display: none;
@@ -1658,14 +1629,6 @@ h1 {
 
   .global-filter-tray {
     grid-template-columns: 150px minmax(0, 1fr);
-  }
-
-  .global-filter-summary {
-    grid-column: 1 / -1;
-    min-height: 32px;
-    padding: 0.55rem 0 0;
-    border-top: 1px solid var(--border);
-    border-left: 0;
   }
 }
 
@@ -1706,14 +1669,14 @@ h1 {
   }
 
   .dashboard-toolbar {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0.45rem;
     padding: 0.42rem;
     border-radius: 14px;
   }
 
   .global-date-filter {
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 1;
   }
 
@@ -1721,8 +1684,8 @@ h1 {
     display: grid;
     grid-column: 1;
     grid-row: 2;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 0.4rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
   }
 
   .card-chip-panel {
@@ -1738,9 +1701,23 @@ h1 {
     display: inline-flex;
   }
 
+  .toolbar-utility-zone {
+    display: contents;
+  }
+
+  .global-filter-toggle {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .toolbar-more-button {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
   .display-controls {
     display: none;
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 3;
     justify-self: stretch;
   }
@@ -1834,14 +1811,6 @@ h1 {
     gap: 0.72rem;
   }
 
-  .global-filter-summary {
-    grid-column: auto;
-    min-height: 34px;
-    padding: 0.7rem 0 0;
-    border-top: 1px solid var(--border);
-    border-left: 0;
-  }
-
   .preset-toolbar-main {
     grid-template-columns: 1fr;
   }
@@ -1873,10 +1842,6 @@ h1 {
 }
 
 @media (max-width: 520px) {
-  .toolbar-navigation-row {
-    grid-template-columns: minmax(120px, 1fr) auto auto;
-  }
-
   .global-filter-toggle {
     justify-self: stretch;
   }
@@ -1952,10 +1917,6 @@ h1 {
 }
 
 @media (max-width: 400px) {
-  .toolbar-navigation-row {
-    grid-template-columns: minmax(104px, 1fr) auto auto;
-  }
-
   .global-filter-toggle {
     justify-self: stretch;
   }

@@ -26,6 +26,7 @@ import {
 } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
+import ReactSelect from 'react-select';
 import {
   BarPlot,
   ChartsContainer,
@@ -3928,56 +3929,40 @@ function resolvePresetDateRangeIndices(availableTimelineStamps, presetState) {
 }
 
 function GlobalFilterField({ dimension, options, value, onChange }) {
+  const selectOptions = options.map((option) => ({
+    value: option,
+    label: option
+  }));
+  const selectedOptions = value.map((selectedValue) => ({
+    value: selectedValue,
+    label: selectedValue
+  }));
+
   return (
     <div className="global-filter-field">
       <label className="global-filter-field-label" htmlFor={`global-filter-${dimension.key}`}>
         {dimension.label}
       </label>
-      <Autocomplete
-        multiple
-        disableCloseOnSelect
-        options={options}
-        value={value}
-        onChange={(_event, nextValues) => {
-          onChange(nextValues);
+      <ReactSelect
+        inputId={`global-filter-${dimension.key}`}
+        instanceId={`global-filter-${dimension.key}`}
+        className="global-filter-select"
+        classNamePrefix="global-filter-select"
+        isMulti
+        isSearchable
+        isClearable
+        closeMenuOnSelect={false}
+        options={selectOptions}
+        value={selectedOptions}
+        placeholder={dimension.allLabel}
+        noOptionsMessage={() => 'No matches'}
+        onChange={(nextOptions) => {
+          onChange((nextOptions ?? []).map((option) => option.value));
         }}
-        renderValue={(selectedValues) => (
-          <span className="global-filter-value-summary">
-            {selectedValues.length === 1
-              ? selectedValues[0]
-              : `${selectedValues.length} selected`}
-          </span>
-        )}
-        renderOption={(optionProps, option, { selected }) => {
-          const { key, ...remainingOptionProps } = optionProps;
-
-          return (
-            <li key={key} {...remainingOptionProps}>
-              <Checkbox
-                checked={selected}
-                size="small"
-                disableRipple
-                sx={autocompleteOptionCheckboxSx}
-              />
-              {option}
-            </li>
-          );
-        }}
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            id={`global-filter-${dimension.key}`}
-            placeholder={value.length === 0 ? dimension.allLabel : 'Search...'}
-            inputProps={{
-              ...params.inputProps,
-              'aria-label': `Filter dashboard by ${dimension.label}`
-            }}
-          />
-        )}
-        slotProps={{
-          paper: selectMenuProps.PaperProps
-        }}
-        sx={globalFilterAutocompleteStyles}
+        styles={globalFilterSelectStyles}
+        menuPortalTarget={typeof document === 'undefined' ? null : document.body}
+        menuPosition="fixed"
+        aria-label={`Filter dashboard by ${dimension.label}`}
       />
     </div>
   );
@@ -4786,20 +4771,6 @@ export default function App() {
     (count, selectedValues) => count + selectedValues.length,
     0
   );
-  const activeGlobalFilterSummaries = GLOBAL_FILTER_DIMENSIONS.flatMap((dimension) => {
-    const selectedValues = activeGlobalFilters[dimension.key];
-
-    if (selectedValues.length === 0) {
-      return [];
-    }
-
-    return [{
-      ...dimension,
-      summary: selectedValues.length === 1
-        ? `${dimension.label}: ${selectedValues[0]}`
-        : `${dimension.label}: ${selectedValues.length} selected`
-    }];
-  });
 
   useEffect(() => {
     if (!pendingPresetDateRange || availableTimelineStamps.length === 0) {
@@ -6546,7 +6517,9 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                </div>
 
+                <div className="toolbar-utility-zone">
                   <button
                     type="button"
                     className={`global-filter-toggle${isGlobalFiltersOpen ? ' global-filter-toggle-active' : ''}`}
@@ -6582,14 +6555,13 @@ export default function App() {
                     <FontAwesomeIcon icon={faEllipsis} className="toolbar-button-icon" />
                     <span className="toolbar-more-label">More</span>
                   </button>
-                </div>
 
-                <div
-                  id="dashboard-utility-controls"
-                  className={`display-controls${isUtilityPanelOpen ? ' display-controls-open' : ''}`}
-                  aria-label="Display controls"
-                >
-                  <div className="chart-mode-controls" aria-label="Chart type">
+                  <div
+                    id="dashboard-utility-controls"
+                    className={`display-controls${isUtilityPanelOpen ? ' display-controls-open' : ''}`}
+                    aria-label="Display controls"
+                  >
+                    <div className="chart-mode-controls" aria-label="Chart type">
                     <button
                       type="button"
                       className={`chart-mode-button${allChartsLine ? ' chart-mode-button-active' : ''}`}
@@ -6634,30 +6606,31 @@ export default function App() {
                     >
                       <ParetoChartToggleIcon />
                     </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={`preset-toolbar-toggle-button${isPresetToolbarOpen ? ' preset-toolbar-toggle-button-active' : ''}`}
+                      aria-expanded={isPresetToolbarOpen}
+                      onClick={() => {
+                        setIsPresetToolbarOpen((currentValue) => !currentValue);
+                      }}
+                    >
+                      {isPresetToolbarOpen ? 'Hide presets' : 'View/set presets'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="theme-toggle"
+                      aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
+                      onClick={() => {
+                        setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
+                      }}
+                    >
+                      <FontAwesomeIcon icon={nextThemeIcon} className="theme-toggle-icon" />
+                      <span className="theme-toggle-label">{nextThemeLabel}</span>
+                    </button>
                   </div>
-
-                  <button
-                    type="button"
-                    className={`preset-toolbar-toggle-button${isPresetToolbarOpen ? ' preset-toolbar-toggle-button-active' : ''}`}
-                    aria-expanded={isPresetToolbarOpen}
-                    onClick={() => {
-                      setIsPresetToolbarOpen((currentValue) => !currentValue);
-                    }}
-                  >
-                    {isPresetToolbarOpen ? 'Hide presets' : 'View/set presets'}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="theme-toggle"
-                    aria-label={`Switch to ${nextThemeLabel.toLowerCase()} mode`}
-                    onClick={() => {
-                      setThemeMode((currentMode) => (currentMode === 'light' ? 'dark' : 'light'));
-                    }}
-                  >
-                    <FontAwesomeIcon icon={nextThemeIcon} className="theme-toggle-icon" />
-                    <span className="theme-toggle-label">{nextThemeLabel}</span>
-                  </button>
                 </div>
               </div>
             </div>
@@ -6724,32 +6697,6 @@ export default function App() {
                           }}
                         />
                       ))}
-                    </div>
-
-                    <div className="global-filter-summary" aria-live="polite">
-                      {activeGlobalFilterSummaries.length === 0 ? (
-                        <p className="global-filter-empty-summary">No global filters applied.</p>
-                      ) : (
-                        <div className="global-filter-active-chips" aria-label="Active global filters">
-                          {activeGlobalFilterSummaries.map((dimension) => (
-                            <button
-                              key={dimension.key}
-                              type="button"
-                              className="global-filter-active-chip"
-                              aria-label={`Clear ${dimension.label} filter`}
-                              onClick={() => {
-                                setGlobalFilters((currentFilters) => ({
-                                  ...currentFilters,
-                                  [dimension.key]: []
-                                }));
-                              }}
-                            >
-                              <span>{dimension.summary}</span>
-                              <span aria-hidden="true">x</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </section>
@@ -8570,62 +8517,113 @@ const inlineChartFilterAutocompleteStyles = {
   }
 };
 
-const globalFilterAutocompleteStyles = {
-  width: '100%',
-  minWidth: 0,
-  '& .MuiOutlinedInput-root': {
-    minHeight: 38,
-    height: 38,
-    flexWrap: 'nowrap',
-    borderRadius: '10px',
-    padding: '0 50px 0 10px !important',
-    fontSize: '0.76rem',
-    color: 'var(--input-text)',
-    backgroundColor: 'var(--input-bg)'
-  },
-  '& .MuiAutocomplete-input': {
-    minWidth: '20px !important',
-    padding: '0 !important',
+const globalFilterSelectStyles = {
+  control: (baseStyles, state) => ({
+    ...baseStyles,
+    minHeight: 40,
+    borderColor: state.isFocused ? 'var(--selected-bg)' : 'var(--input-border)',
+    borderRadius: 10,
+    backgroundColor: 'var(--input-bg)',
+    boxShadow: 'none',
     fontSize: '0.76rem',
     fontWeight: 600,
-    color: 'var(--input-text)'
-  },
-  '& .MuiAutocomplete-input::placeholder': {
+    ':hover': {
+      borderColor: 'var(--selected-bg)'
+    }
+  }),
+  valueContainer: (baseStyles) => ({
+    ...baseStyles,
+    gap: 3,
+    padding: '3px 6px'
+  }),
+  input: (baseStyles) => ({
+    ...baseStyles,
     color: 'var(--input-text)',
-    opacity: 0.72
-  },
-  '& .global-filter-value-summary': {
-    minWidth: 0,
+    margin: 0
+  }),
+  placeholder: (baseStyles) => ({
+    ...baseStyles,
+    color: 'var(--text-secondary)',
+    opacity: 0.8
+  }),
+  multiValue: (baseStyles) => ({
+    ...baseStyles,
     maxWidth: '100%',
+    margin: 0,
+    border: '1px solid var(--input-border)',
+    borderRadius: 999,
+    backgroundColor: 'var(--surface-muted)'
+  }),
+  multiValueLabel: (baseStyles) => ({
+    ...baseStyles,
     overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    flexShrink: 1,
-    fontWeight: 600,
-    color: 'var(--input-text)'
-  },
-  '& .MuiOutlinedInput-root.Mui-focused .global-filter-value-summary': {
-    display: 'none'
-  },
-  '& .MuiOutlinedInput-notchedOutline': {
-    borderColor: 'var(--input-border)'
-  },
-  '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
-    borderColor: 'var(--text-primary)'
-  },
-  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
-    borderColor: 'var(--selected-bg)'
-  },
-  '& .MuiAutocomplete-endAdornment': {
-    right: 5,
-    top: '50%',
-    transform: 'translateY(-50%)'
-  },
-  '& .MuiAutocomplete-clearIndicator, & .MuiAutocomplete-popupIndicator': {
-    p: 0.25,
-    color: 'var(--input-text)'
-  },
-  '& .MuiSvgIcon-root': {
-    fontSize: '0.95rem'
-  }
+    padding: '3px 4px 3px 7px',
+    color: 'var(--input-text)',
+    textOverflow: 'ellipsis'
+  }),
+  multiValueRemove: (baseStyles) => ({
+    ...baseStyles,
+    borderRadius: 999,
+    color: 'var(--text-secondary)',
+    ':hover': {
+      backgroundColor: 'var(--surface-hover, var(--surface-soft))',
+      color: 'var(--text-primary)'
+    }
+  }),
+  clearIndicator: (baseStyles) => ({
+    ...baseStyles,
+    padding: 5,
+    color: 'var(--text-secondary)',
+    ':hover': {
+      color: 'var(--text-primary)'
+    }
+  }),
+  dropdownIndicator: (baseStyles) => ({
+    ...baseStyles,
+    padding: 5,
+    color: 'var(--text-secondary)',
+    ':hover': {
+      color: 'var(--text-primary)'
+    }
+  }),
+  indicatorSeparator: (baseStyles) => ({
+    ...baseStyles,
+    backgroundColor: 'var(--input-border)'
+  }),
+  menuPortal: (baseStyles) => ({
+    ...baseStyles,
+    zIndex: 100
+  }),
+  menu: (baseStyles) => ({
+    ...baseStyles,
+    overflow: 'hidden',
+    border: '1px solid var(--input-border)',
+    borderRadius: 10,
+    backgroundColor: 'var(--input-bg)',
+    boxShadow: '0 14px 32px var(--popover-shadow)'
+  }),
+  menuList: (baseStyles) => ({
+    ...baseStyles,
+    padding: 4,
+    backgroundColor: 'var(--input-bg)'
+  }),
+  option: (baseStyles, state) => ({
+    ...baseStyles,
+    borderRadius: 7,
+    backgroundColor: state.isSelected
+      ? 'var(--selected-bg)'
+      : state.isFocused
+        ? 'var(--surface-hover, var(--surface-soft))'
+        : 'var(--input-bg)',
+    color: state.isSelected ? 'var(--selected-text)' : 'var(--input-text)',
+    fontSize: '0.76rem',
+    ':active': {
+      backgroundColor: state.isSelected ? 'var(--selected-bg)' : 'var(--surface-soft)'
+    }
+  }),
+  noOptionsMessage: (baseStyles) => ({
+    ...baseStyles,
+    color: 'var(--text-secondary)',
+    fontSize: '0.76rem'
+  })
 };

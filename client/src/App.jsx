@@ -6557,7 +6557,10 @@ export default function App() {
                     }}
                   >
                     <FontAwesomeIcon icon={faFilter} className="toolbar-button-icon" />
-                    <span>Global Filters</span>
+                    <span className="global-filter-toggle-label">
+                      <span className="global-filter-toggle-label-wide">Global </span>
+                      Filters
+                    </span>
                     {activeGlobalFilterCount > 0 && (
                       <span className="global-filter-count" aria-label={`${activeGlobalFilterCount} active filters`}>
                         {activeGlobalFilterCount}
@@ -6576,7 +6579,7 @@ export default function App() {
                     }}
                   >
                     <FontAwesomeIcon icon={faEllipsis} className="toolbar-button-icon" />
-                    <span>More</span>
+                    <span className="toolbar-more-label">More</span>
                   </button>
                 </div>
 
@@ -6668,11 +6671,18 @@ export default function App() {
                     setIsGlobalFiltersOpen(false);
                   }}
                 />
-                <section id="global-filter-tray" className="global-filter-tray" aria-label="Global filters">
+                <section
+                  id="global-filter-tray"
+                  className="global-filter-tray"
+                  role="dialog"
+                  aria-labelledby="global-filter-tray-title"
+                >
                   <div className="global-filter-tray-heading">
                     <div>
                       <p className="global-filter-tray-eyebrow">Dashboard-wide</p>
-                      <h2 className="global-filter-tray-title">Global Filters</h2>
+                      <h2 id="global-filter-tray-title" className="global-filter-tray-title">
+                        Global Filters
+                      </h2>
                     </div>
                     <div className="global-filter-tray-actions">
                       <button
@@ -6697,47 +6707,49 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="global-filter-fields">
-                    {GLOBAL_FILTER_DIMENSIONS.map((dimension) => (
-                      <GlobalFilterField
-                        key={dimension.key}
-                        dimension={dimension}
-                        options={globalFilterOptions[dimension.key]}
-                        value={activeGlobalFilters[dimension.key]}
-                        onChange={(nextValues) => {
-                          setGlobalFilters((currentFilters) => ({
-                            ...currentFilters,
-                            [dimension.key]: nextValues
-                          }));
-                        }}
-                      />
-                    ))}
-                  </div>
+                  <div className="global-filter-sheet-body">
+                    <div className="global-filter-fields">
+                      {GLOBAL_FILTER_DIMENSIONS.map((dimension) => (
+                        <GlobalFilterField
+                          key={dimension.key}
+                          dimension={dimension}
+                          options={globalFilterOptions[dimension.key]}
+                          value={activeGlobalFilters[dimension.key]}
+                          onChange={(nextValues) => {
+                            setGlobalFilters((currentFilters) => ({
+                              ...currentFilters,
+                              [dimension.key]: nextValues
+                            }));
+                          }}
+                        />
+                      ))}
+                    </div>
 
-                  <div className="global-filter-summary" aria-live="polite">
-                    {activeGlobalFilterSummaries.length === 0 ? (
-                      <p className="global-filter-empty-summary">No global filters applied.</p>
-                    ) : (
-                      <div className="global-filter-active-chips" aria-label="Active global filters">
-                        {activeGlobalFilterSummaries.map((dimension) => (
-                          <button
-                            key={dimension.key}
-                            type="button"
-                            className="global-filter-active-chip"
-                            aria-label={`Clear ${dimension.label} filter`}
-                            onClick={() => {
-                              setGlobalFilters((currentFilters) => ({
-                                ...currentFilters,
-                                [dimension.key]: []
-                              }));
-                            }}
-                          >
-                            <span>{dimension.summary}</span>
-                            <span aria-hidden="true">x</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <div className="global-filter-summary" aria-live="polite">
+                      {activeGlobalFilterSummaries.length === 0 ? (
+                        <p className="global-filter-empty-summary">No global filters applied.</p>
+                      ) : (
+                        <div className="global-filter-active-chips" aria-label="Active global filters">
+                          {activeGlobalFilterSummaries.map((dimension) => (
+                            <button
+                              key={dimension.key}
+                              type="button"
+                              className="global-filter-active-chip"
+                              aria-label={`Clear ${dimension.label} filter`}
+                              onClick={() => {
+                                setGlobalFilters((currentFilters) => ({
+                                  ...currentFilters,
+                                  [dimension.key]: []
+                                }));
+                              }}
+                            >
+                              <span>{dimension.summary}</span>
+                              <span aria-hidden="true">x</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </section>
               </>

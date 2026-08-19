@@ -298,9 +298,15 @@ a.branding-banner-main:hover {
   min-width: 0;
 }
 
+.global-date-filter {
+  width: min(100%, 326px);
+  max-width: 326px;
+  justify-self: start;
+}
+
 .global-date-filter-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 100px;
   align-items: stretch;
   gap: 0.4rem;
   width: 100%;
@@ -334,12 +340,13 @@ a.branding-banner-main:hover {
   display: grid;
   grid-template-rows: auto auto;
   align-self: end;
-  width: 100%;
+  width: calc(100% - 4px);
   min-width: 0;
+  justify-self: center;
 }
 
 .global-date-filter-slider {
-  width: calc(100% - 18px);
+  width: calc(100% - 20px);
   max-width: none;
   justify-self: center;
   margin: 1px auto 0;
@@ -350,9 +357,10 @@ a.branding-banner-main:hover {
   justify-content: space-between;
   align-items: flex-start;
   gap: 0.5rem;
-  width: 100%;
+  width: calc(100% - 20px);
   min-width: 0;
-  padding: 0 3px;
+  padding: 0;
+  justify-self: center;
 }
 
 .global-date-filter-boundary-label {
@@ -370,10 +378,13 @@ a.branding-banner-main:hover {
 }
 
 .global-date-filter-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 44px 52px;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
+  gap: 4px;
+  width: 100px;
+  min-width: 100px;
 }
 
 .global-date-filter-shortcut,
@@ -398,8 +409,9 @@ a.branding-banner-main:hover {
 }
 
 .global-date-filter-shortcut {
-  min-width: 44px;
-  padding: 0.4rem 0.52rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.4rem 0.35rem;
 }
 
 .global-date-filter-shortcut:hover,
@@ -471,12 +483,14 @@ a.branding-banner-main:hover {
   gap: 0.15rem;
   min-width: 0;
   min-height: 56px;
-  padding: 0.25rem;
+  padding: 0 0.1rem;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  border: 1px solid var(--input-border);
-  border-radius: 12px;
-  background: var(--input-bg);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  scroll-padding-inline: 0.1rem;
+  scroll-snap-type: inline proximity;
   scrollbar-width: none;
 }
 
@@ -503,6 +517,7 @@ a.branding-banner-main:hover {
   text-align: center;
   white-space: nowrap;
   cursor: pointer;
+  scroll-snap-align: start;
   transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
 }
 
@@ -593,6 +608,10 @@ a.branding-banner-main:hover {
   border-radius: 14px;
   background: var(--surface-soft);
   box-shadow: 0 12px 28px var(--shadow);
+}
+
+.global-filter-sheet-body {
+  display: contents;
 }
 
 .global-filter-tray-heading {
@@ -1560,7 +1579,7 @@ h1 {
   }
 }
 
-@media (max-width: 1350px) {
+@media (max-width: 1280px) {
   .dashboard-toolbar {
     grid-template-columns: minmax(304px, 326px) minmax(0, 1fr);
   }
@@ -1693,35 +1712,86 @@ h1 {
     height: 100%;
     padding: 0;
     border: 0;
-    background: rgba(5, 10, 18, 0.5);
+    background: rgba(5, 10, 18, 0.42);
+    backdrop-filter: blur(1.5px);
   }
 
   .global-filter-tray {
     position: fixed;
-    right: 2.5vw;
-    bottom: 0.75rem;
-    left: 2.5vw;
+    right: 0;
+    bottom: 0;
+    left: 0;
     z-index: 41;
-    grid-template-columns: 1fr;
-    max-height: min(72vh, 470px);
-    padding: 0.8rem;
-    overflow-y: auto;
-    border-radius: 16px;
-    box-shadow: 0 18px 44px var(--popover-shadow);
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-height: min(78vh, 620px);
+    max-height: min(78dvh, 620px);
+    padding: 0;
+    overflow: hidden;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 18px 18px 0 0;
+    background: var(--surface);
+    box-shadow: 0 -18px 48px var(--popover-shadow);
     animation: filter-sheet-reveal 180ms ease-out;
   }
 
   .global-filter-tray-heading {
+    flex: 0 0 auto;
     flex-direction: row;
     align-items: center;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .global-filter-tray-eyebrow {
+    display: none;
+  }
+
+  .global-filter-tray-title {
+    margin-top: 0;
+    font-size: 1rem;
+  }
+
+  .global-filter-tray-actions {
+    margin-left: auto;
+  }
+
+  .global-filter-clear-button {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .global-filter-close-button {
+    border-color: var(--selected-bg);
+    background: var(--selected-bg);
+    color: var(--selected-text);
+  }
+
+  .global-filter-sheet-body {
+    display: grid;
+    gap: 0.85rem;
+    min-height: 0;
+    padding: 0.9rem 1rem calc(1rem + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .global-filter-fields {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    gap: 0.72rem;
   }
 
   .global-filter-summary {
     grid-column: auto;
+    min-height: 34px;
+    padding: 0.7rem 0 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 
   .preset-toolbar-main {
@@ -1756,7 +1826,7 @@ h1 {
 
 @media (max-width: 520px) {
   .toolbar-navigation-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(120px, 1fr) auto auto;
   }
 
   .card-chip-panel {
@@ -1764,38 +1834,30 @@ h1 {
   }
 
   .mobile-group-selector {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 0.55rem;
-    min-height: 48px;
-    padding: 0.32rem 0.42rem 0.32rem 0.7rem;
-    border: 1px solid var(--input-border);
-    border-radius: 11px;
-    background: var(--input-bg);
+    display: block;
+    min-width: 0;
+    min-height: 52px;
   }
 
   .mobile-group-selector-label {
-    color: var(--text-secondary);
-    font-size: 0.65rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    display: none;
   }
 
   .mobile-group-selector-input {
     width: 100%;
     min-width: 0;
-    min-height: 36px;
-    padding: 0.35rem 1.8rem 0.35rem 0.65rem;
+    height: 52px;
+    min-height: 52px;
+    padding: 0.35rem 1.8rem 0.35rem 0.7rem;
     border: 1px solid var(--input-border);
-    border-radius: 9px;
-    background: var(--surface-muted);
+    border-radius: 10px;
+    background: var(--input-bg);
     color: var(--input-text);
     font: inherit;
     font-size: 0.76rem;
     font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .global-filter-toggle {
@@ -1885,11 +1947,7 @@ h1 {
   }
 
   .toolbar-navigation-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .card-chip-panel {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(104px, 1fr) auto auto;
   }
 
   .global-filter-toggle {
@@ -1897,7 +1955,18 @@ h1 {
   }
 
   .toolbar-more-button {
-    min-width: 74px;
+    min-width: 48px;
+    width: 48px;
+    padding-inline: 0.4rem;
+  }
+
+  .toolbar-more-label,
+  .global-filter-toggle-label-wide {
+    display: none;
+  }
+
+  .global-filter-toggle {
+    padding-inline: 0.6rem;
   }
 
   .display-controls-open {

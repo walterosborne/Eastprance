@@ -2,6 +2,7 @@ import { DEFAULT_GOAL_LABEL } from './metricGoals.js';
 
 const NMFR_ARIMA_MIN_OBSERVATIONS = 10;
 const NMFR_GOAL_CHALLENGE_RATIO = 0.03;
+const AVERAGE_FALLBACK_CHALLENGE_RATIO = 0.03;
 const OTD_ARIMA_MIN_OBSERVATIONS = 10;
 const OTD_GOAL_CHALLENGE_RATIO = 0.03;
 const OTD_RECENT_BASELINE_MONTHS = 6;
@@ -46,6 +47,38 @@ function getMedian(values) {
     : sortedValues[middleIndex];
 }
 
+function buildAverageFallbackGoalLine(
+  numericSeries,
+  {
+    roundValue,
+    maxValue = Number.POSITIVE_INFINITY
+  }
+) {
+  if (numericSeries.length === 0) {
+    return null;
+  }
+
+  const averageValue = numericSeries.reduce((sum, value) => sum + value, 0)
+    / numericSeries.length;
+  const boundedAverageValue = Math.max(0, averageValue);
+  const goalValue = Math.min(
+    maxValue,
+    boundedAverageValue * (1 + AVERAGE_FALLBACK_CHALLENGE_RATIO)
+  );
+
+  return {
+    label: DEFAULT_GOAL_LABEL,
+    value: roundValue(goalValue),
+    expectedValue: roundValue(boundedAverageValue),
+    averageValue: roundValue(boundedAverageValue),
+    goalValue: roundValue(goalValue),
+    challengePercent: Number((AVERAGE_FALLBACK_CHALLENGE_RATIO * 100).toFixed(2)),
+    observationCount: numericSeries.length,
+    status: 'average_fallback',
+    method: 'average'
+  };
+}
+
 async function loadArimaConstructor() {
   if (!arimaConstructorPromise) {
     arimaConstructorPromise = import('arima/async')
@@ -61,7 +94,9 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
   const numericSeries = normalizeSeries(seriesValues);
 
   if (numericSeries.length < NMFR_ARIMA_MIN_OBSERVATIONS) {
-    return null;
+    return buildAverageFallbackGoalLine(numericSeries, {
+      roundValue: roundRate
+    });
   }
 
   const ARIMA = await loadArimaConstructor();
@@ -85,7 +120,9 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
       value: goalValue,
       expectedValue,
       goalValue,
-      challengePercent
+      challengePercent,
+      status: 'ready',
+      method: 'arima'
     };
   } finally {
     model?.destroy?.();
@@ -98,7 +135,10 @@ export async function forecastOtdGoalLineFromSeries(seriesValues) {
   );
 
   if (numericSeries.length < OTD_ARIMA_MIN_OBSERVATIONS) {
-    return null;
+    return buildAverageFallbackGoalLine(numericSeries, {
+      roundValue: roundShare,
+      maxValue: 1
+    });
   }
 
   const ARIMA = await loadArimaConstructor();
@@ -139,7 +179,9 @@ export async function forecastOtdGoalLineFromSeries(seriesValues) {
       challengePercent,
       rawExpectedValue: roundShare(boundedPrediction),
       recentBaselineValue: roundShare(recentBaselineValue),
-      usedRecentBaseline
+      usedRecentBaseline,
+      status: 'ready',
+      method: 'arima'
     };
   } finally {
     model?.destroy?.();
@@ -150,7 +192,10 @@ export async function forecastLaborHanaGoalLineFromSeries(seriesValues) {
   const numericSeries = normalizeSeries(seriesValues);
 
   if (numericSeries.length < LABOR_HANA_ARIMA_MIN_OBSERVATIONS) {
-    return null;
+    return buildAverageFallbackGoalLine(numericSeries, {
+      roundValue: roundShare,
+      maxValue: 1
+    });
   }
 
   const ARIMA = await loadArimaConstructor();
@@ -176,7 +221,9 @@ export async function forecastLaborHanaGoalLineFromSeries(seriesValues) {
       value: goalValue,
       expectedValue,
       goalValue,
-      challengePercent
+      challengePercent,
+      status: 'ready',
+      method: 'arima'
     };
   } finally {
     model?.destroy?.();

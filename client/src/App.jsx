@@ -50,6 +50,7 @@ import {
   OTD_ARIMA_MIN_OBSERVATIONS
 } from './arimaGoalLines';
 import {
+  buildLaborHanaMetricInfo,
   buildNmfrMetricInfo,
   buildOtdMetricInfo,
   DEFAULT_METRIC_INFO,
@@ -5273,7 +5274,7 @@ export default function App() {
       return undefined;
     }
 
-    if (nmfrGoalForecastSeriesValues.length < NMFR_ARIMA_MIN_OBSERVATIONS) {
+    if (nmfrGoalForecastSeriesValues.length === 0) {
       setNmfrArimaGoalLine(null);
       setNmfrArimaGoalStatus('insufficient_data');
       setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
@@ -5298,12 +5299,13 @@ export default function App() {
           return;
         }
 
-        logClientDebug('nmfr-goal', 'Updated ARIMA goal line from monthly NMFR forecast.', {
+        logClientDebug('nmfr-goal', 'Updated goal line from monthly NMFR data.', {
           observationCount: nmfrGoalForecastSeriesValues.length,
+          method: goalLine.method,
           goalLine
         });
         setNmfrArimaGoalLine(goalLine);
-        setNmfrArimaGoalStatus('ready');
+        setNmfrArimaGoalStatus(goalLine.status ?? 'ready');
         setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
       })
       .catch((error) => {
@@ -5439,7 +5441,7 @@ export default function App() {
       return undefined;
     }
 
-    if (otdGoalForecastSeriesValues.length < OTD_ARIMA_MIN_OBSERVATIONS) {
+    if (otdGoalForecastSeriesValues.length === 0) {
       setOtdArimaGoalLine(null);
       setOtdArimaGoalStatus('insufficient_data');
       setOtdArimaObservationCount(otdGoalForecastSeriesValues.length);
@@ -5464,13 +5466,14 @@ export default function App() {
           return;
         }
 
-        logClientDebug('otd-goal', 'Updated ARIMA goal line from monthly percent delivered.', {
+        logClientDebug('otd-goal', 'Updated goal line from monthly percent delivered.', {
           observationCount: otdGoalForecastSeriesValues.length,
           monthlyPercentDelivered: otdGoalForecastSeriesValues,
+          method: goalLine.method,
           goalLine
         });
         setOtdArimaGoalLine(goalLine);
-        setOtdArimaGoalStatus('ready');
+        setOtdArimaGoalStatus(goalLine.status ?? 'ready');
         setOtdArimaObservationCount(otdGoalForecastSeriesValues.length);
       })
       .catch((error) => {
@@ -5709,7 +5712,7 @@ export default function App() {
       return undefined;
     }
 
-    if (laborHanaGoalForecastSeriesValues.length < LABOR_HANA_ARIMA_MIN_OBSERVATIONS) {
+    if (laborHanaGoalForecastSeriesValues.length === 0) {
       setLaborHanaArimaGoalLine(null);
       setLaborHanaArimaGoalStatus('insufficient_data');
       return undefined;
@@ -5732,12 +5735,13 @@ export default function App() {
           return;
         }
 
-        logClientDebug('labor-hana-goal', 'Updated ARIMA goal line from monthly direct share.', {
+        logClientDebug('labor-hana-goal', 'Updated goal line from monthly direct share.', {
           observationCount: laborHanaGoalForecastSeriesValues.length,
+          method: goalLine.method,
           goalLine
         });
         setLaborHanaArimaGoalLine(goalLine);
-        setLaborHanaArimaGoalStatus('ready');
+        setLaborHanaArimaGoalStatus(goalLine.status ?? 'ready');
       })
       .catch((error) => {
         if (isCancelled) {
@@ -5974,6 +5978,12 @@ export default function App() {
     laborHanaBaseGoalLine,
     formatPercentValue
   );
+  const laborHanaMetricInfo = buildLaborHanaMetricInfo(METRIC_INFO.laborHana, {
+    ...laborHanaArimaGoalLine,
+    status: laborHanaArimaGoalStatus,
+    observationCount: laborHanaGoalForecastSeriesValues.length,
+    requiredObservations: LABOR_HANA_ARIMA_MIN_OBSERVATIONS
+  });
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
       .cardKeys
@@ -8251,7 +8261,7 @@ export default function App() {
               <article className="analytics-card" style={{ order: 4 }}>
                 <CardHeader
                   title="Labor Utilization HANA"
-                  info={METRIC_INFO.laborHana}
+                  info={laborHanaMetricInfo}
                   tooltipLegend={laborHanaTooltipLegend}
                 />
 

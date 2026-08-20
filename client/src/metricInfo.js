@@ -40,6 +40,38 @@ function formatMetricInfoShare(value) {
     : 'Unavailable';
 }
 
+function parseMetricInfoInlineText(value) {
+  const text = String(value ?? '');
+  const parts = [];
+  const boldPattern = /\*\*(.+?)\*\*/g;
+  let previousEnd = 0;
+  let match;
+
+  while ((match = boldPattern.exec(text)) !== null) {
+    if (match.index > previousEnd) {
+      parts.push({
+        text: text.slice(previousEnd, match.index),
+        bold: false
+      });
+    }
+
+    parts.push({
+      text: match[1],
+      bold: true
+    });
+    previousEnd = boldPattern.lastIndex;
+  }
+
+  if (previousEnd < text.length) {
+    parts.push({
+      text: text.slice(previousEnd),
+      bold: false
+    });
+  }
+
+  return parts.length > 0 ? parts : [{ text, bold: false }];
+}
+
 function createMetricInfoTextPart(text, options = {}) {
   return {
     text,
@@ -154,5 +186,6 @@ export {
   METRIC_INFO,
   appendMetricInfo,
   buildNmfrMetricInfo,
-  buildOtdMetricInfo
+  buildOtdMetricInfo,
+  parseMetricInfoInlineText
 };

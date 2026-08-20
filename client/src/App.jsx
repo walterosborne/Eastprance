@@ -53,7 +53,8 @@ import {
   buildNmfrMetricInfo,
   buildOtdMetricInfo,
   DEFAULT_METRIC_INFO,
-  METRIC_INFO
+  METRIC_INFO,
+  parseMetricInfoInlineText
 } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
@@ -3271,41 +3272,44 @@ function renderMetricInfoContent(info) {
   }
 
   function renderMetricInfoText(entry) {
+    const renderInlineText = (
+      text,
+      { bold = false, underline = false, keyPrefix = 'inline' } = {}
+    ) => parseMetricInfoInlineText(text).map((part, index) => {
+      let content = part.text;
+
+      if (underline) {
+        content = <span className="metric-info-underline">{content}</span>;
+      }
+
+      if (bold || part.bold) {
+        content = <strong className="metric-info-strong">{content}</strong>;
+      }
+
+      return <span key={`${keyPrefix}-${index}`}>{content}</span>;
+    });
+
     if (entry.parts?.length) {
       return (
         <>
-          {entry.parts.map((part, index) => {
-            let content = part.text;
-
-            if (part.underline) {
-              content = <span className="metric-info-underline">{content}</span>;
-            }
-
-            if (part.bold) {
-              content = <strong className="metric-info-strong">{content}</strong>;
-            }
-
-            return (
-              <span key={`${part.text}-${part.bold}-${part.underline}-${index}`}>
-                {content}
-              </span>
-            );
-          })}
+          {entry.parts.map((part, index) => (
+            <span key={`${part.text}-${part.bold}-${part.underline}-${index}`}>
+              {renderInlineText(part.text, {
+                bold: part.bold,
+                underline: part.underline,
+                keyPrefix: `part-${index}`
+              })}
+            </span>
+          ))}
         </>
       );
     }
 
-    let content = entry.text;
-
-    if (entry.underline) {
-      content = <span className="metric-info-underline">{content}</span>;
-    }
-
-    if (entry.bold) {
-      content = <strong className="metric-info-strong">{content}</strong>;
-    }
-
-    return content;
+    return renderInlineText(entry.text, {
+      bold: entry.bold,
+      underline: entry.underline,
+      keyPrefix: 'entry'
+    });
   }
 
   const normalizedEntries = Array.isArray(info)

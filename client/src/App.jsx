@@ -42,14 +42,16 @@ import {
 } from '@mui/x-charts';
 import { toast } from 'react-toastify';
 import {
+  CALCULATED_GOAL_MIN_OBSERVATIONS,
+  forecastControllableCostsGoalLineFromSeries,
   forecastLaborHanaGoalLineFromSeries,
+  forecastLaborGoalLineFromSeries,
   forecastNmfrGoalLineFromSeries,
   forecastOtdGoalLineFromSeries,
-  LABOR_HANA_ARIMA_MIN_OBSERVATIONS,
-  NMFR_ARIMA_MIN_OBSERVATIONS,
-  OTD_ARIMA_MIN_OBSERVATIONS
 } from './arimaGoalLines';
 import {
+  buildControllableCostsMetricInfo,
+  buildLaborMetricInfo,
   buildLaborHanaMetricInfo,
   buildNmfrMetricInfo,
   buildOtdMetricInfo,
@@ -4060,6 +4062,94 @@ function GlobalFilterField({ dimension, options, value, onChange }) {
   );
 }
 
+function useCalculatedMetricGoalLine({
+  metricKey,
+  timeline,
+  seriesValues,
+  loading,
+  error,
+  calculateGoalLine
+}) {
+  const numericSeries = seriesValues
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  const seriesSignature = JSON.stringify(numericSeries);
+  const [calculation, setCalculation] = useState({
+    goalLine: null,
+    status: 'idle',
+    observationCount: 0
+  });
+
+  useEffect(() => {
+    if (loading || error) {
+      setCalculation({ goalLine: null, status: 'idle', observationCount: 0 });
+      return undefined;
+    }
+
+    const currentSeries = JSON.parse(seriesSignature);
+
+    if (currentSeries.length === 0) {
+      setCalculation({
+        goalLine: null,
+        status: 'insufficient_data',
+        observationCount: 0
+      });
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    calculateGoalLine(currentSeries)
+      .then((goalLine) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const observationCount = currentSeries.length;
+
+        if (!goalLine) {
+          logClientDebug(`${metricKey}-goal`, 'Calculated goal line is unavailable.', {
+            timeline,
+            observationCount
+          });
+          setCalculation({ goalLine: null, status: 'unavailable', observationCount });
+          return;
+        }
+
+        logClientDebug(`${metricKey}-goal`, 'Updated goal from selected metric timeline.', {
+          timeline,
+          observationCount,
+          method: goalLine.method,
+          goalLine
+        });
+        setCalculation({
+          goalLine,
+          status: goalLine.status ?? 'ready',
+          observationCount
+        });
+      })
+      .catch((calculationError) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const observationCount = currentSeries.length;
+        logClientDebug(`${metricKey}-goal`, 'Failed to calculate metric goal line.', {
+          timeline,
+          observationCount,
+          error: calculationError?.message ?? String(calculationError)
+        });
+        setCalculation({ goalLine: null, status: 'unavailable', observationCount });
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [calculateGoalLine, error, loading, metricKey, seriesSignature, timeline]);
+
+  return calculation;
+}
+
 export default function App() {
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === 'undefined') {
@@ -4116,14 +4206,6 @@ export default function App() {
     error: '',
     source: ''
   });
-  const [nmfrArimaGoalLine, setNmfrArimaGoalLine] = useState(null);
-  const [nmfrArimaGoalStatus, setNmfrArimaGoalStatus] = useState('idle');
-  const [nmfrArimaObservationCount, setNmfrArimaObservationCount] = useState(0);
-  const [otdArimaGoalLine, setOtdArimaGoalLine] = useState(null);
-  const [otdArimaGoalStatus, setOtdArimaGoalStatus] = useState('idle');
-  const [otdArimaObservationCount, setOtdArimaObservationCount] = useState(0);
-  const [laborHanaArimaGoalLine, setLaborHanaArimaGoalLine] = useState(null);
-  const [laborHanaArimaGoalStatus, setLaborHanaArimaGoalStatus] = useState('idle');
   const [selectedControllableChartFilterField, setSelectedControllableChartFilterField] = useState(
     CONTROLLABLE_CHART_FILTER_FIELDS[0].value
   );
@@ -4935,6 +5017,14 @@ export default function App() {
     controllableCostsViewMode,
     selectedDateRange
   );
+  const controllableCostsGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'controllable-costs',
+    timeline: controllableCostsViewMode,
+    seriesValues: controllableCostsChartData.total,
+    loading: controllableCostsState.loading,
+    error: controllableCostsState.error,
+    calculateGoalLine: forecastControllableCostsGoalLineFromSeries
+  });
   const controllableCostsSummaryValue = formatOverviewCurrency(
     sumNumericValues(controllableCostsChartData.total)
   );
@@ -5020,6 +5110,14 @@ export default function App() {
     controllableCostsHanaViewMode,
     selectedDateRange
   );
+  const controllableCostsHanaGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'controllable-costs-hana',
+    timeline: controllableCostsHanaViewMode,
+    seriesValues: controllableCostsHanaChartData.total,
+    loading: controllableCostsHanaState.loading,
+    error: controllableCostsHanaState.error,
+    calculateGoalLine: forecastControllableCostsGoalLineFromSeries
+  });
   const controllableCostsHanaSummaryValue = formatOverviewCurrency(
     sumNumericValues(controllableCostsHanaChartData.total)
   );
@@ -5240,7 +5338,14 @@ export default function App() {
   );
   const nmfrGoalForecastSeries = nmfrChartData;
   const nmfrGoalForecastSeriesValues = nmfrGoalForecastSeries.map((bucket) => bucket.total);
-  const nmfrGoalForecastSeriesSignature = `${nmfrViewMode}:${nmfrGoalForecastSeriesValues.join('|')}`;
+  const nmfrGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'nmfr',
+    timeline: nmfrViewMode,
+    seriesValues: nmfrGoalForecastSeriesValues,
+    loading: nmfrState.loading,
+    error: nmfrState.error,
+    calculateGoalLine: forecastNmfrGoalLineFromSeries
+  });
   const nmfrForecastPeriodLabel = getNextTimelinePeriodLabelAfterStamp(
     getLatestIncidentStamp(filteredNmfrRows, selectedDateRange),
     nmfrViewMode
@@ -5265,72 +5370,6 @@ export default function App() {
   );
   const nmfrOverallValue = calculateNmfrValueFromRows(nmfrSummaryRows);
   const nmfrSummaryValue = nmfrOverallValue == null ? '--' : formatNumber(nmfrOverallValue);
-
-  useEffect(() => {
-    if (nmfrState.loading || nmfrState.error) {
-      setNmfrArimaGoalLine(null);
-      setNmfrArimaGoalStatus('idle');
-      setNmfrArimaObservationCount(0);
-      return undefined;
-    }
-
-    if (nmfrGoalForecastSeriesValues.length === 0) {
-      setNmfrArimaGoalLine(null);
-      setNmfrArimaGoalStatus('insufficient_data');
-      setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
-      return undefined;
-    }
-
-    let isCancelled = false;
-
-    forecastNmfrGoalLineFromSeries(nmfrGoalForecastSeriesValues)
-      .then((goalLine) => {
-        if (isCancelled) {
-          return;
-        }
-
-        if (!goalLine) {
-          logClientDebug('nmfr-goal', 'ARIMA goal line unavailable; using static fallback.', {
-            observationCount: nmfrGoalForecastSeriesValues.length
-          });
-          setNmfrArimaGoalLine(null);
-          setNmfrArimaGoalStatus('unavailable');
-          setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
-          return;
-        }
-
-        logClientDebug('nmfr-goal', 'Updated goal line from selected NMFR timeline.', {
-          timeline: nmfrViewMode,
-          observationCount: nmfrGoalForecastSeriesValues.length,
-          method: goalLine.method,
-          goalLine
-        });
-        setNmfrArimaGoalLine(goalLine);
-        setNmfrArimaGoalStatus(goalLine.status ?? 'ready');
-        setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
-      })
-      .catch((error) => {
-        if (isCancelled) {
-          return;
-        }
-
-        logClientDebug('nmfr-goal', 'Failed to compute ARIMA goal line; using static fallback.', {
-          observationCount: nmfrGoalForecastSeriesValues.length,
-          error: error?.message ?? String(error)
-        });
-        setNmfrArimaGoalLine(null);
-        setNmfrArimaGoalStatus('unavailable');
-        setNmfrArimaObservationCount(nmfrGoalForecastSeriesValues.length);
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    nmfrGoalForecastSeriesSignature,
-    nmfrState.error,
-    nmfrState.loading
-  ]);
 
   const activeOtdChartFilterField =
     OTD_CHART_FILTER_FIELDS.find((option) => option.value === selectedOtdChartFilterField) ??
@@ -5416,7 +5455,14 @@ export default function App() {
       index <= otdLastDeliveredIndex &&
       otdGoalForecastData.contract[index] > 0
   );
-  const otdGoalForecastSeriesSignature = `${otdViewMode}:${otdGoalForecastSeriesValues.join('|')}`;
+  const otdGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'otd',
+    timeline: otdViewMode,
+    seriesValues: otdGoalForecastSeriesValues,
+    loading: otdState.loading,
+    error: otdState.error,
+    calculateGoalLine: forecastOtdGoalLineFromSeries
+  });
   const otdForecastPeriodLabel = getNextTimelinePeriodLabelAfterStamp(
     otdGoalForecastData.bucketEndStamps[otdLastDeliveredIndex],
     otdViewMode
@@ -5436,90 +5482,20 @@ export default function App() {
   const isOtdPareto = chartVariants.otd === 'pareto';
   const isOtdBarChart = chartVariants.otd === 'bar';
 
-  useEffect(() => {
-    if (otdState.loading || otdState.error) {
-      setOtdArimaGoalLine(null);
-      setOtdArimaGoalStatus('idle');
-      setOtdArimaObservationCount(0);
-      return undefined;
-    }
-
-    if (otdGoalForecastSeriesValues.length === 0) {
-      setOtdArimaGoalLine(null);
-      setOtdArimaGoalStatus('insufficient_data');
-      setOtdArimaObservationCount(otdGoalForecastSeriesValues.length);
-      return undefined;
-    }
-
-    let isCancelled = false;
-
-    forecastOtdGoalLineFromSeries(otdGoalForecastSeriesValues)
-      .then((goalLine) => {
-        if (isCancelled) {
-          return;
-        }
-
-        if (!goalLine) {
-          logClientDebug('otd-goal', 'ARIMA goal line unavailable; using static fallback.', {
-            observationCount: otdGoalForecastSeriesValues.length
-          });
-          setOtdArimaGoalLine(null);
-          setOtdArimaGoalStatus('unavailable');
-          setOtdArimaObservationCount(otdGoalForecastSeriesValues.length);
-          return;
-        }
-
-        logClientDebug('otd-goal', 'Updated goal line from selected percent-delivered timeline.', {
-          timeline: otdViewMode,
-          observationCount: otdGoalForecastSeriesValues.length,
-          percentDelivered: otdGoalForecastSeriesValues,
-          method: goalLine.method,
-          goalLine
-        });
-        setOtdArimaGoalLine(goalLine);
-        setOtdArimaGoalStatus(goalLine.status ?? 'ready');
-        setOtdArimaObservationCount(otdGoalForecastSeriesValues.length);
-      })
-      .catch((error) => {
-        if (isCancelled) {
-          return;
-        }
-
-        logClientDebug('otd-goal', 'Failed to compute ARIMA goal line; using static fallback.', {
-          observationCount: otdGoalForecastSeriesValues.length,
-          error: error?.message ?? String(error)
-        });
-        setOtdArimaGoalLine(null);
-        setOtdArimaGoalStatus('unavailable');
-        setOtdArimaObservationCount(otdGoalForecastSeriesValues.length);
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    otdGoalForecastSeriesSignature,
-    otdState.error,
-    otdState.loading
-  ]);
-
-  const otdStaticGoalLine = getMetricGoalLine('otd', otdViewMode);
-  const otdBaseGoalLine = isOtdBarChart || isOtdPareto || isOtdPalette
+  const otdBaseGoalLine = isOtdPareto || isOtdPalette
     ? null
-    : otdArimaGoalStatus === 'insufficient_data'
-      ? null
-      : (otdArimaGoalLine ?? otdStaticGoalLine);
+    : otdGoalCalculation.goalLine;
   const otdGoalLine = labelGoalLineValue(
     otdBaseGoalLine,
     formatPercentValue
   );
   const otdMetricInfo = buildOtdMetricInfo(METRIC_INFO.otd, {
-    ...otdArimaGoalLine,
-    status: otdArimaGoalStatus,
+    ...otdGoalCalculation.goalLine,
+    status: otdGoalCalculation.status,
     forecastMonthLabel: otdForecastPeriodLabel,
     timelineLabel: OTD_VIEW_CONFIG[otdViewMode]?.label,
-    observationCount: otdArimaObservationCount,
-    requiredObservations: OTD_ARIMA_MIN_OBSERVATIONS
+    observationCount: otdGoalCalculation.observationCount,
+    requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS
   });
   const otdPercentChartYAxis = buildDynamicNumericYAxis(
     OTD_PERCENT_Y_AXIS,
@@ -5598,6 +5574,17 @@ export default function App() {
   const laborSummaryValue = laborOverallHours > 0
     ? formatPercentValue(laborOverallDirectHours / laborOverallHours)
     : '--';
+  const laborGoalForecastSeriesValues = laborChartData.directShare.filter(
+    (_value, index) => laborChartData.totals[index] > 0
+  );
+  const laborGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'labor',
+    timeline: laborViewMode,
+    seriesValues: laborGoalForecastSeriesValues,
+    loading: laborState.loading,
+    error: laborState.error,
+    calculateGoalLine: forecastLaborGoalLineFromSeries
+  });
   const laborPaletteChartData = buildLaborPaletteChartData(
     baseFilteredLaborRows,
     activeLaborPaletteGroupField.value,
@@ -5680,7 +5667,14 @@ export default function App() {
   const laborHanaGoalForecastSeriesValues = laborHanaGoalForecastData.directShare.filter(
     (_value, index) => laborHanaGoalForecastData.totals[index] > 0
   );
-  const laborHanaGoalForecastSeriesSignature = `${laborHanaViewMode}:${laborHanaGoalForecastSeriesValues.join('|')}`;
+  const laborHanaGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'labor-hana',
+    timeline: laborHanaViewMode,
+    seriesValues: laborHanaGoalForecastSeriesValues,
+    loading: laborHanaState.loading,
+    error: laborHanaState.error,
+    calculateGoalLine: forecastLaborHanaGoalLineFromSeries
+  });
   const laborHanaPaletteChartData = buildLaborPaletteChartData(
     baseFilteredLaborHanaRows,
     activeLaborHanaPaletteGroupField.value,
@@ -5706,66 +5700,6 @@ export default function App() {
     }
   ];
 
-  useEffect(() => {
-    if (laborHanaState.loading || laborHanaState.error) {
-      setLaborHanaArimaGoalLine(null);
-      setLaborHanaArimaGoalStatus('idle');
-      return undefined;
-    }
-
-    if (laborHanaGoalForecastSeriesValues.length === 0) {
-      setLaborHanaArimaGoalLine(null);
-      setLaborHanaArimaGoalStatus('insufficient_data');
-      return undefined;
-    }
-
-    let isCancelled = false;
-
-    forecastLaborHanaGoalLineFromSeries(laborHanaGoalForecastSeriesValues)
-      .then((goalLine) => {
-        if (isCancelled) {
-          return;
-        }
-
-        if (!goalLine) {
-          logClientDebug('labor-hana-goal', 'ARIMA goal line unavailable; using static fallback.', {
-            observationCount: laborHanaGoalForecastSeriesValues.length
-          });
-          setLaborHanaArimaGoalLine(null);
-          setLaborHanaArimaGoalStatus('unavailable');
-          return;
-        }
-
-        logClientDebug('labor-hana-goal', 'Updated goal line from selected direct-share timeline.', {
-          timeline: laborHanaViewMode,
-          observationCount: laborHanaGoalForecastSeriesValues.length,
-          method: goalLine.method,
-          goalLine
-        });
-        setLaborHanaArimaGoalLine(goalLine);
-        setLaborHanaArimaGoalStatus(goalLine.status ?? 'ready');
-      })
-      .catch((error) => {
-        if (isCancelled) {
-          return;
-        }
-
-        logClientDebug('labor-hana-goal', 'Failed to compute ARIMA goal line; using static fallback.', {
-          observationCount: laborHanaGoalForecastSeriesValues.length,
-          error: error?.message ?? String(error)
-        });
-        setLaborHanaArimaGoalLine(null);
-        setLaborHanaArimaGoalStatus('unavailable');
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    laborHanaGoalForecastSeriesSignature,
-    laborHanaState.error,
-    laborHanaState.loading
-  ]);
   const controllableCostsTooltipLegend = isControllableCostsPalette
     ? buildTooltipLegend(
       `Color by ${activeControllablePaletteColorField.label}`,
@@ -5879,13 +5813,20 @@ export default function App() {
       ]
       : [{ label: 'Direct labor share', color: 'var(--chart-line)' }];
   const controllableCostsGoalLine = labelGoalLineValue(
-    getMetricGoalLine(
-      'controllableCosts',
-      isControllableCostsPareto || isControllableCostsPalette
-        ? null
-        : controllableCostsViewMode
-    ),
+    isControllableCostsPareto || isControllableCostsPalette
+      ? null
+      : controllableCostsGoalCalculation.goalLine,
     formatCompactCurrency
+  );
+  const controllableCostsMetricInfo = buildControllableCostsMetricInfo(
+    METRIC_INFO.controllableCosts,
+    {
+      ...controllableCostsGoalCalculation.goalLine,
+      status: controllableCostsGoalCalculation.status,
+      observationCount: controllableCostsGoalCalculation.observationCount,
+      requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
+      timelineLabel: CONTROLLABLE_COSTS_VIEW_CONFIG[controllableCostsViewMode]?.label
+    }
   );
   const visibleControllableCostsGoalLine = clampGoalLineToVisibleSeries(
     controllableCostsGoalLine,
@@ -5900,13 +5841,20 @@ export default function App() {
     }
   );
   const controllableCostsHanaGoalLine = labelGoalLineValue(
-    getMetricGoalLine(
-      'controllableCostsHana',
-      isControllableCostsHanaPareto || isControllableCostsHanaPalette
-        ? null
-        : controllableCostsHanaViewMode
-    ),
+    isControllableCostsHanaPareto || isControllableCostsHanaPalette
+      ? null
+      : controllableCostsHanaGoalCalculation.goalLine,
     formatCompactCurrency
+  );
+  const controllableCostsHanaMetricInfo = buildControllableCostsMetricInfo(
+    METRIC_INFO.controllableCostsHana,
+    {
+      ...controllableCostsHanaGoalCalculation.goalLine,
+      status: controllableCostsHanaGoalCalculation.status,
+      observationCount: controllableCostsHanaGoalCalculation.observationCount,
+      requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
+      timelineLabel: CONTROLLABLE_COSTS_HANA_VIEW_CONFIG[controllableCostsHanaViewMode]?.label
+    }
   );
   const visibleControllableCostsHanaGoalLine = clampGoalLineToVisibleSeries(
     controllableCostsHanaGoalLine,
@@ -5934,22 +5882,17 @@ export default function App() {
     ),
     formatIncidentCount
   );
-  const nmfrGoalLine = getMetricGoalLine(
-    'nmfr',
-    isNmfrPareto || isNmfrPalette ? null : nmfrViewMode
-  );
   const nmfrMetricInfo = buildNmfrMetricInfo(METRIC_INFO.nmfr, {
-    ...nmfrArimaGoalLine,
-    status: nmfrArimaGoalStatus,
+    ...nmfrGoalCalculation.goalLine,
+    status: nmfrGoalCalculation.status,
     forecastMonthLabel: nmfrForecastPeriodLabel,
-    observationCount: nmfrArimaObservationCount,
-    requiredObservations: NMFR_ARIMA_MIN_OBSERVATIONS,
+    observationCount: nmfrGoalCalculation.observationCount,
+    requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
     timelineLabel: INCIDENT_VIEW_CONFIG[nmfrViewMode]?.label
   });
-  const nmfrBaseGoalLine =
-    nmfrArimaGoalStatus === 'insufficient_data'
-      ? null
-      : (nmfrArimaGoalLine ?? nmfrGoalLine);
+  const nmfrBaseGoalLine = isNmfrPareto || isNmfrPalette
+    ? null
+    : nmfrGoalCalculation.goalLine;
   const visibleNmfrGoalLine = clampGoalLineToVisibleSeries(
     nmfrBaseGoalLine,
     [nmfrChartData.map((bucket) => bucket.total)]
@@ -5965,27 +5908,28 @@ export default function App() {
     }
   );
   const laborGoalLine = labelGoalLineValue(
-    getMetricGoalLine(
-      'labor',
-      isLaborPareto || isLaborPalette ? null : laborViewMode
-    ),
+    isLaborPareto || isLaborPalette ? null : laborGoalCalculation.goalLine,
     formatPercentValue
   );
-  const laborHanaStaticGoalLine = getMetricGoalLine('laborHana', laborHanaViewMode);
+  const laborMetricInfo = buildLaborMetricInfo(METRIC_INFO.labor, {
+    ...laborGoalCalculation.goalLine,
+    status: laborGoalCalculation.status,
+    observationCount: laborGoalCalculation.observationCount,
+    requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
+    timelineLabel: LABOR_VIEW_CONFIG[laborViewMode]?.label
+  });
   const laborHanaBaseGoalLine = isLaborHanaPareto || isLaborHanaPalette
     ? null
-    : laborHanaArimaGoalStatus === 'insufficient_data'
-      ? null
-      : (laborHanaArimaGoalLine ?? laborHanaStaticGoalLine);
+    : laborHanaGoalCalculation.goalLine;
   const laborHanaGoalLine = labelGoalLineValue(
     laborHanaBaseGoalLine,
     formatPercentValue
   );
   const laborHanaMetricInfo = buildLaborHanaMetricInfo(METRIC_INFO.laborHana, {
-    ...laborHanaArimaGoalLine,
-    status: laborHanaArimaGoalStatus,
-    observationCount: laborHanaGoalForecastSeriesValues.length,
-    requiredObservations: LABOR_HANA_ARIMA_MIN_OBSERVATIONS,
+    ...laborHanaGoalCalculation.goalLine,
+    status: laborHanaGoalCalculation.status,
+    observationCount: laborHanaGoalCalculation.observationCount,
+    requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
     timelineLabel: LABOR_VIEW_CONFIG[laborHanaViewMode]?.label
   });
   const activeCardKeys = new Set(
@@ -6888,7 +6832,7 @@ export default function App() {
               <article className="analytics-card" style={{ order: 1 }}>
                 <CardHeader
                   title="Controllable Costs"
-                  info={METRIC_INFO.controllableCosts}
+                  info={controllableCostsMetricInfo}
                   tooltipLegend={controllableCostsTooltipLegend}
                 />
 
@@ -7096,7 +7040,7 @@ export default function App() {
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
                   title="Controllable Costs HANA"
-                  info={METRIC_INFO.controllableCostsHana}
+                  info={controllableCostsHanaMetricInfo}
                   tooltipLegend={controllableCostsHanaTooltipLegend}
                 />
 
@@ -8075,7 +8019,7 @@ export default function App() {
               <article className="analytics-card" style={{ order: 3 }}>
                 <CardHeader
                   title="Direct Labor Utilization"
-                  info={METRIC_INFO.labor}
+                  info={laborMetricInfo}
                   tooltipLegend={laborTooltipLegend}
                 />
 

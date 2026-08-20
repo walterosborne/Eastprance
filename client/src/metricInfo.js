@@ -40,6 +40,13 @@ function formatMetricInfoShare(value) {
     : 'Unavailable';
 }
 
+function formatMetricInfoCurrency(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? `$${metricInfoNumberFormatter.format(numericValue)}`
+    : 'Unavailable';
+}
+
 function parseMetricInfoInlineText(value) {
   const text = String(value ?? '');
   const parts = [];
@@ -112,7 +119,20 @@ function buildArimaMetricInfo(
     ? `Based on ${forecastDescription}, the expected value for ${forecastMonthLabel} is `
     : `Based on ${forecastDescription}, the expected value for the next selected period is `;
 
-  const methodExplanation = status === 'average_fallback'
+  const methodExplanation = status === 'insufficient_data'
+    ? {
+      bullet: true,
+      parts: [
+        createMetricInfoTextPart('Calculated goals use ARIMA for '),
+        createMetricInfoTextPart(`${formatMetricInfoNumber(requiredObservations)} or more`, {
+          bold: true
+        }),
+        createMetricInfoTextPart(' valid timeline points, or average plus '),
+        createMetricInfoTextPart('3%', { bold: true }),
+        createMetricInfoTextPart(' for 1–9 points.')
+      ]
+    }
+    : status === 'average_fallback'
     ? {
       bullet: true,
       parts: [
@@ -136,22 +156,16 @@ function buildArimaMetricInfo(
       ? {
         bullet: true,
         parts: [
-          createMetricInfoTextPart('A goal line is not displayed because ARIMA requires '),
+          createMetricInfoTextPart('A goal line is not displayed because the '),
+          createMetricInfoTextPart(selectedTimelineDescription),
+          createMetricInfoTextPart(' has '),
           createMetricInfoTextPart(
-            Number.isFinite(requiredObservations)
-              ? `${formatMetricInfoNumber(requiredObservations)} datapoints`
-              : 'more datapoints',
+            Number.isFinite(observationCount)
+              ? `${formatMetricInfoNumber(observationCount)} valid datapoints`
+              : 'no valid datapoints',
             { bold: true }
           ),
-          Number.isFinite(observationCount)
-            ? createMetricInfoTextPart(' and the current filtered range has ')
-            : createMetricInfoTextPart('.'),
-          ...(Number.isFinite(observationCount)
-            ? [
-              createMetricInfoTextPart(formatMetricInfoNumber(observationCount), { bold: true }),
-              createMetricInfoTextPart('.')
-            ]
-            : [])
+          createMetricInfoTextPart('; at least one is required.')
         ]
       }
       : status === 'average_fallback'
@@ -221,10 +235,26 @@ function buildLaborHanaMetricInfo(baseInfo, goalLineDetails = null) {
   });
 }
 
+function buildControllableCostsMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next total-cost value, then lowers that forecast slightly to create a realistic stretch target.',
+    valueFormatter: formatMetricInfoCurrency
+  });
+}
+
+function buildLaborMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next direct-labor-share value, then raises that forecast slightly to create a realistic stretch target.',
+    valueFormatter: formatMetricInfoShare
+  });
+}
+
 export {
   DEFAULT_METRIC_INFO,
   METRIC_INFO,
   appendMetricInfo,
+  buildControllableCostsMetricInfo,
+  buildLaborMetricInfo,
   buildLaborHanaMetricInfo,
   buildNmfrMetricInfo,
   buildOtdMetricInfo,

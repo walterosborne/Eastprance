@@ -98,6 +98,9 @@ spec:
             - name: OAUTH2_PROXY_PASS_ACCESS_TOKEN
               value: "true"
 
+            - name: OAUTH2_PROXY_COOKIE_REFRESH
+              value: "50m"
+
             - name: OAUTH2_PROXY_REVERSE_PROXY
               value: "true"
 

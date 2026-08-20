@@ -1,5 +1,6 @@
 export const HARDCODED_NETWORK_ID = 'N35589';
-export const IDENTITY_DIAGNOSTICS_VERSION = 'entra-graph-2026-08-19.1';
+export const IDENTITY_DIAGNOSTICS_VERSION = 'entra-graph-2026-08-20.1';
+export const AUTHENTICATION_EXPIRED_ERROR = 'authentication_expired';
 export const MICROSOFT_GRAPH_ME_URL =
   'https://graph.microsoft.us/v1.0/me?$select=id,displayName,mail,userPrincipalName,employeeId,onPremisesSamAccountName';
 
@@ -372,6 +373,18 @@ function createGraphIdentityError(message, statusCode, accessTokenPresent = true
   return error;
 }
 
+function createExpiredGraphAuthenticationError() {
+  const error = createGraphIdentityError(
+    'Microsoft Graph authentication expired.',
+    401
+  );
+
+  error.code = AUTHENTICATION_EXPIRED_ERROR;
+  error.reauthenticate = true;
+
+  return error;
+}
+
 function normalizeGraphProfile(payload = {}) {
   return Object.fromEntries(
     MICROSOFT_GRAPH_PROFILE_PROPERTIES.map((propertyName) => [
@@ -419,6 +432,10 @@ export async function getMicrosoftGraphProfile(request, { fetchImpl = fetch } = 
   }
 
   if (!graphResponse.ok) {
+    if (graphResponse.status === 401) {
+      throw createExpiredGraphAuthenticationError();
+    }
+
     throw createGraphIdentityError(
       sanitizeGraphErrorMessage(graphPayload, graphResponse.status, bearerToken),
       graphResponse.status

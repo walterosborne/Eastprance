@@ -31,6 +31,7 @@ import {
 } from './sifRepository.js';
 import { closeDatabaseConnection } from './sqlConnection.js';
 import {
+  AUTHENTICATION_EXPIRED_ERROR,
   IDENTITY_DIAGNOSTICS_VERSION,
   getEntraApplicationConfig,
   getMicrosoftGraphProfile,
@@ -58,6 +59,21 @@ function getResponseErrorStatus(error, fallbackStatus = 500) {
   return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599
     ? statusCode
     : fallbackStatus;
+}
+
+function sendAuthenticationAwareError(response, error, fallbackPayload, fallbackStatus = 500) {
+  if (
+    error?.code === AUTHENTICATION_EXPIRED_ERROR
+    && error?.reauthenticate === true
+  ) {
+    response.status(401).json({
+      error: AUTHENTICATION_EXPIRED_ERROR,
+      reauthenticate: true
+    });
+    return;
+  }
+
+  response.status(getResponseErrorStatus(error, fallbackStatus)).json(fallbackPayload);
 }
 
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
@@ -177,9 +193,12 @@ app.get('/api/entra-identity-debug', async (request, response) => {
       statusCode,
       duration: formatDuration(stopTimer())
     });
-    response.status(statusCode).json({
-      message: error.message
-    });
+    sendAuthenticationAwareError(
+      response,
+      error,
+      { message: error.message },
+      statusCode
+    );
   }
 });
 
@@ -205,7 +224,7 @@ app.get('/api/current-user', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(getResponseErrorStatus(error)).json({
+    sendAuthenticationAwareError(response, error, {
       message: 'Unable to resolve the current user.',
       error: error.message,
       requestId: request.requestId ?? null,
@@ -239,7 +258,7 @@ app.get('/api/dashboard-presets', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(getResponseErrorStatus(error)).json({
+    sendAuthenticationAwareError(response, error, {
       message: 'Unable to load dashboard presets.',
       error: error.message,
       requestId: request.requestId ?? null,
@@ -279,7 +298,7 @@ app.put('/api/dashboard-presets/:slot', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(getResponseErrorStatus(error)).json({
+    sendAuthenticationAwareError(response, error, {
       message: 'Unable to save dashboard preset.',
       error: error.message,
       requestId: request.requestId ?? null,

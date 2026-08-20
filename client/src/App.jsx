@@ -63,6 +63,9 @@ const PALETTE_MAX_GROUPS = 20;
 const MAX_TOOLTIP_ITEMS = 20;
 const MAX_TOOLTIP_LABEL_LENGTH = 20;
 const PALETTE_INFO_TOAST_SESSION_KEY = 'westmarch-palette-info-toast-shown';
+const AUTHENTICATION_EXPIRED_ERROR = 'authentication_expired';
+const AUTHENTICATION_RETRY_SESSION_KEY = 'qmi-authentication-reauthentication-attempted';
+const AUTHENTICATION_RETRY_QUERY_PARAMETER = 'qmi_reauthentication_attempted';
 const NG_TOAST_BLUE = '#0057b8';
 const PALETTE_INFO_TOAST_OPTIONS = {
   autoClose: 10000,
@@ -3733,6 +3736,80 @@ async function fetchJson(scope, url) {
   return payload;
 }
 
+let authenticationRedirectStarted = false;
+
+function getAuthenticationRetryAttempted() {
+  if (authenticationRedirectStarted) {
+    return true;
+  }
+
+  const retryMarkedInUrl = new URL(window.location.href)
+    .searchParams
+    .get(AUTHENTICATION_RETRY_QUERY_PARAMETER) === 'true';
+
+  if (retryMarkedInUrl) {
+    return true;
+  }
+
+  try {
+    return window.sessionStorage.getItem(AUTHENTICATION_RETRY_SESSION_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function markAuthenticationRetryAttempted() {
+  authenticationRedirectStarted = true;
+
+  try {
+    window.sessionStorage.setItem(AUTHENTICATION_RETRY_SESSION_KEY, 'true');
+  } catch {
+    // The in-memory guard still prevents duplicate redirects before navigation.
+  }
+}
+
+function clearAuthenticationRetryAttempt() {
+  authenticationRedirectStarted = false;
+
+  try {
+    window.sessionStorage.removeItem(AUTHENTICATION_RETRY_SESSION_KEY);
+  } catch {
+    // Storage can be unavailable in restricted browser modes.
+  }
+
+  const currentUrl = new URL(window.location.href);
+
+  if (currentUrl.searchParams.has(AUTHENTICATION_RETRY_QUERY_PARAMETER)) {
+    currentUrl.searchParams.delete(AUTHENTICATION_RETRY_QUERY_PARAMETER);
+    window.history.replaceState(window.history.state, '', currentUrl.toString());
+  }
+}
+
+function handleExpiredAuthenticationResponse(response, payload) {
+  const authenticationExpired = response.status === 401
+    && payload?.error === AUTHENTICATION_EXPIRED_ERROR
+    && payload?.reauthenticate === true;
+
+  if (!authenticationExpired) {
+    return;
+  }
+
+  if (!getAuthenticationRetryAttempted()) {
+    markAuthenticationRetryAttempted();
+    const returnDestination = new URL(window.location.href);
+
+    returnDestination.searchParams.set(AUTHENTICATION_RETRY_QUERY_PARAMETER, 'true');
+    const authenticationUrl = `/oauth2/start?rd=${encodeURIComponent(returnDestination.toString())}`;
+
+    window.location.assign(authenticationUrl);
+    throw new Error('Authentication expired. Reconnecting securely...');
+  }
+
+  throw new Error(
+    'Authentication could not be renewed automatically. Reload the page to try again.'
+  );
+}
+
 async function fetchApiJson(scope, url, options = {}) {
   const startTime = performance.now();
 
@@ -3758,6 +3835,8 @@ async function fetchApiJson(scope, url, options = {}) {
     duration: formatDebugDuration(performance.now() - startTime)
   });
 
+  handleExpiredAuthenticationResponse(response, payload);
+
   if (!response.ok) {
     throw new Error(
       payload?.error
@@ -3765,6 +3844,8 @@ async function fetchApiJson(scope, url, options = {}) {
       || `Request failed with status ${response.status}`
     );
   }
+
+  clearAuthenticationRetryAttempt();
 
   return payload;
 }

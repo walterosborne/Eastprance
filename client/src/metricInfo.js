@@ -104,9 +104,13 @@ function buildArimaMetricInfo(
   const forecastMonthLabel = String(goalLineDetails?.forecastMonthLabel ?? '').trim();
   const observationCount = Number(goalLineDetails?.observationCount);
   const requiredObservations = Number(goalLineDetails?.requiredObservations);
+  const timelineLabel = String(goalLineDetails?.timelineLabel ?? '').trim().toLowerCase();
+  const selectedTimelineDescription = timelineLabel
+    ? `selected ${timelineLabel} timeline`
+    : 'current filtered timeline';
   const expectedValuePrefix = forecastMonthLabel
     ? `Based on ${forecastDescription}, the expected value for ${forecastMonthLabel} is `
-    : `Based on ${forecastDescription}, the expected value for the next month after the latest filtered month is `;
+    : `Based on ${forecastDescription}, the expected value for the next selected period is `;
 
   const methodExplanation = status === 'average_fallback'
     ? {
@@ -114,7 +118,7 @@ function buildArimaMetricInfo(
       parts: [
         createMetricInfoTextPart('ARIMA requires '),
         createMetricInfoTextPart(formatMetricInfoNumber(requiredObservations), { bold: true }),
-        createMetricInfoTextPart(' datapoints. The current filtered range has '),
+        createMetricInfoTextPart(` datapoints. The ${selectedTimelineDescription} has `),
         createMetricInfoTextPart(formatMetricInfoNumber(observationCount), { bold: true }),
         createMetricInfoTextPart(', so the goal uses the average plus '),
         createMetricInfoTextPart(formatMetricInfoPercent(challengePercent), { bold: true }),

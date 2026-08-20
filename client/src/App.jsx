@@ -1210,7 +1210,7 @@ function isStampWithinDateRange(stamp, selectedDateRange) {
   return stamp >= selectedDateRange.startStamp && stamp <= selectedDateRange.endStamp;
 }
 
-function getNextIncidentForecastMonthLabel(rows, selectedDateRange) {
+function getLatestIncidentStamp(rows, selectedDateRange) {
   const monthStamps = rows
     .map((row) => getIncidentRowStamp(row))
     .filter((stamp) => stamp != null && isStampWithinDateRange(stamp, selectedDateRange));
@@ -1219,24 +1219,30 @@ function getNextIncidentForecastMonthLabel(rows, selectedDateRange) {
     return null;
   }
 
-  const latestStamp = Math.max(...monthStamps);
-  const latestDate = new Date(latestStamp);
-  const nextMonthStamp = Date.UTC(
-    latestDate.getUTCFullYear(),
-    latestDate.getUTCMonth() + 1,
-    1
-  );
-
-  return formatMonthStamp(nextMonthStamp);
+  return Math.max(...monthStamps);
 }
 
-function getNextMonthLabelAfterStamp(stamp) {
+function getNextTimelinePeriodLabelAfterStamp(stamp, viewMode) {
   if (!Number.isFinite(stamp)) {
     return null;
   }
 
   const date = new Date(stamp);
-  return formatMonthStamp(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+  const year = date.getUTCFullYear();
+  const monthIndex = date.getUTCMonth();
+
+  if (viewMode === 'yearly') {
+    return String(year + 1);
+  }
+
+  if (viewMode === 'quarterly') {
+    const nextQuarterStart = new Date(Date.UTC(year, Math.floor(monthIndex / 3) * 3 + 3, 1));
+    const nextQuarter = Math.floor(nextQuarterStart.getUTCMonth() / 3) + 1;
+
+    return `Q${nextQuarter} ${nextQuarterStart.getUTCFullYear()}`;
+  }
+
+  return formatMonthStamp(Date.UTC(year, monthIndex + 1, 1));
 }
 
 function getAvailableTimelineStamps({
@@ -5232,18 +5238,12 @@ export default function App() {
     nmfrViewMode,
     selectedDateRange
   );
-  const nmfrGoalForecastSeries = buildNmfrChartData(
-    filteredNmfrRows,
-    NMFR_KPI_ID,
-    INCIDENT_ORG_UNIT_NAME,
-    'monthly',
-    selectedDateRange
-  );
+  const nmfrGoalForecastSeries = nmfrChartData;
   const nmfrGoalForecastSeriesValues = nmfrGoalForecastSeries.map((bucket) => bucket.total);
-  const nmfrGoalForecastSeriesSignature = nmfrGoalForecastSeriesValues.join('|');
-  const nmfrForecastMonthLabel = getNextIncidentForecastMonthLabel(
-    filteredNmfrRows,
-    selectedDateRange
+  const nmfrGoalForecastSeriesSignature = `${nmfrViewMode}:${nmfrGoalForecastSeriesValues.join('|')}`;
+  const nmfrForecastPeriodLabel = getNextTimelinePeriodLabelAfterStamp(
+    getLatestIncidentStamp(filteredNmfrRows, selectedDateRange),
+    nmfrViewMode
   );
   const nmfrParetoChartData = buildSafetyParetoChartData(
     baseFilteredNmfrRows,
@@ -5299,7 +5299,8 @@ export default function App() {
           return;
         }
 
-        logClientDebug('nmfr-goal', 'Updated goal line from monthly NMFR data.', {
+        logClientDebug('nmfr-goal', 'Updated goal line from selected NMFR timeline.', {
+          timeline: nmfrViewMode,
           observationCount: nmfrGoalForecastSeriesValues.length,
           method: goalLine.method,
           goalLine
@@ -5372,13 +5373,14 @@ export default function App() {
     );
   });
   const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
-  const otdGoalForecastData = buildOtdChartData(
+  const otdMonthlySummaryData = buildOtdChartData(
     filteredOtdRows,
     'monthly',
     selectedDateRange
   );
+  const otdGoalForecastData = otdChartData;
   const currentOtdMonthStamp = getMonthStartStamp(new Date());
-  const completedOtdMonthIndices = otdGoalForecastData.bucketEndStamps.reduce(
+  const completedOtdMonthIndices = otdMonthlySummaryData.bucketEndStamps.reduce(
     (indices, bucketStamp, index) => {
       if (bucketStamp < currentOtdMonthStamp) {
         indices.push(index);
@@ -5389,11 +5391,11 @@ export default function App() {
     []
   );
   const otdOverallContract = completedOtdMonthIndices.reduce(
-    (sum, index) => sum + Number(otdGoalForecastData.contract[index] ?? 0),
+    (sum, index) => sum + Number(otdMonthlySummaryData.contract[index] ?? 0),
     0
   );
   const otdOverallDelivered = completedOtdMonthIndices.reduce(
-    (sum, index) => sum + Number(otdGoalForecastData.delivered[index] ?? 0),
+    (sum, index) => sum + Number(otdMonthlySummaryData.delivered[index] ?? 0),
     0
   );
   const otdSummaryValue = otdOverallContract > 0
@@ -5414,9 +5416,10 @@ export default function App() {
       index <= otdLastDeliveredIndex &&
       otdGoalForecastData.contract[index] > 0
   );
-  const otdGoalForecastSeriesSignature = otdGoalForecastSeriesValues.join('|');
-  const otdForecastMonthLabel = getNextMonthLabelAfterStamp(
-    otdGoalForecastData.bucketEndStamps[otdLastDeliveredIndex]
+  const otdGoalForecastSeriesSignature = `${otdViewMode}:${otdGoalForecastSeriesValues.join('|')}`;
+  const otdForecastPeriodLabel = getNextTimelinePeriodLabelAfterStamp(
+    otdGoalForecastData.bucketEndStamps[otdLastDeliveredIndex],
+    otdViewMode
   );
   const otdPaletteChartData = buildOtdPaletteChartData(
     baseFilteredOtdRows,
@@ -5466,9 +5469,10 @@ export default function App() {
           return;
         }
 
-        logClientDebug('otd-goal', 'Updated goal line from monthly percent delivered.', {
+        logClientDebug('otd-goal', 'Updated goal line from selected percent-delivered timeline.', {
+          timeline: otdViewMode,
           observationCount: otdGoalForecastSeriesValues.length,
-          monthlyPercentDelivered: otdGoalForecastSeriesValues,
+          percentDelivered: otdGoalForecastSeriesValues,
           method: goalLine.method,
           goalLine
         });
@@ -5512,7 +5516,8 @@ export default function App() {
   const otdMetricInfo = buildOtdMetricInfo(METRIC_INFO.otd, {
     ...otdArimaGoalLine,
     status: otdArimaGoalStatus,
-    forecastMonthLabel: otdForecastMonthLabel,
+    forecastMonthLabel: otdForecastPeriodLabel,
+    timelineLabel: OTD_VIEW_CONFIG[otdViewMode]?.label,
     observationCount: otdArimaObservationCount,
     requiredObservations: OTD_ARIMA_MIN_OBSERVATIONS
   });
@@ -5671,15 +5676,11 @@ export default function App() {
   const laborHanaSummaryValue = laborHanaOverallHours > 0
     ? formatPercentValue(laborHanaOverallDirectHours / laborHanaOverallHours)
     : '--';
-  const laborHanaGoalForecastData = buildLaborUtilizationChartData(
-    filteredLaborHanaRows,
-    'monthly',
-    selectedDateRange
-  );
+  const laborHanaGoalForecastData = laborHanaChartData;
   const laborHanaGoalForecastSeriesValues = laborHanaGoalForecastData.directShare.filter(
     (_value, index) => laborHanaGoalForecastData.totals[index] > 0
   );
-  const laborHanaGoalForecastSeriesSignature = laborHanaGoalForecastSeriesValues.join('|');
+  const laborHanaGoalForecastSeriesSignature = `${laborHanaViewMode}:${laborHanaGoalForecastSeriesValues.join('|')}`;
   const laborHanaPaletteChartData = buildLaborPaletteChartData(
     baseFilteredLaborHanaRows,
     activeLaborHanaPaletteGroupField.value,
@@ -5735,7 +5736,8 @@ export default function App() {
           return;
         }
 
-        logClientDebug('labor-hana-goal', 'Updated goal line from monthly direct share.', {
+        logClientDebug('labor-hana-goal', 'Updated goal line from selected direct-share timeline.', {
+          timeline: laborHanaViewMode,
           observationCount: laborHanaGoalForecastSeriesValues.length,
           method: goalLine.method,
           goalLine
@@ -5939,9 +5941,10 @@ export default function App() {
   const nmfrMetricInfo = buildNmfrMetricInfo(METRIC_INFO.nmfr, {
     ...nmfrArimaGoalLine,
     status: nmfrArimaGoalStatus,
-    forecastMonthLabel: nmfrForecastMonthLabel,
+    forecastMonthLabel: nmfrForecastPeriodLabel,
     observationCount: nmfrArimaObservationCount,
-    requiredObservations: NMFR_ARIMA_MIN_OBSERVATIONS
+    requiredObservations: NMFR_ARIMA_MIN_OBSERVATIONS,
+    timelineLabel: INCIDENT_VIEW_CONFIG[nmfrViewMode]?.label
   });
   const nmfrBaseGoalLine =
     nmfrArimaGoalStatus === 'insufficient_data'
@@ -5982,7 +5985,8 @@ export default function App() {
     ...laborHanaArimaGoalLine,
     status: laborHanaArimaGoalStatus,
     observationCount: laborHanaGoalForecastSeriesValues.length,
-    requiredObservations: LABOR_HANA_ARIMA_MIN_OBSERVATIONS
+    requiredObservations: LABOR_HANA_ARIMA_MIN_OBSERVATIONS,
+    timelineLabel: LABOR_VIEW_CONFIG[laborHanaViewMode]?.label
   });
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])

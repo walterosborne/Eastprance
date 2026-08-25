@@ -331,13 +331,13 @@ const LABOR_NEW_CHART_FILTER_FIELDS = [
     value: 'facility',
     label: 'Facility',
     allLabel: 'All facilities'
-  },
-  {
-    value: 'labor_category',
-    label: 'Labor Category',
-    allLabel: 'All labor categories'
   }
 ];
+const LABOR_NEW_PALETTE_FIELDS = LABOR_NEW_CHART_FILTER_FIELDS.map((option) => ({
+  value: option.value,
+  label: option.label
+}));
+const LABOR_NEW_PARETO_FILTER_FIELDS = [LABOR_NEW_CHART_FILTER_FIELDS[2]];
 
 const GLOBAL_FILTER_DIMENSIONS = [
   {
@@ -463,7 +463,7 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
   nmfr: ['line', 'bar', 'palette', 'pareto'],
   otd: ['line', 'bar', 'palette', 'pareto'],
   labor: ['line', 'bar', 'palette', 'pareto'],
-  laborNew: ['line', 'bar'],
+  laborNew: ['line', 'bar', 'palette', 'pareto'],
   laborHana: ['line', 'bar', 'palette', 'pareto']
 };
 const PRESET_SLOT_OPTIONS = [1, 2, 3];
@@ -805,10 +805,6 @@ function formatHours(value) {
   return `${wholeNumberFormatter.format(Math.round(Number(value ?? 0)))} hours`;
 }
 
-function formatEnteredHours(value) {
-  return `${numberFormatter.format(Number(value ?? 0))} hours`;
-}
-
 function formatUnits(value) {
   return `${formatNumber(value)} units`;
 }
@@ -856,10 +852,6 @@ function formatIncidentCount(value) {
   return Number.isInteger(numericValue)
     ? wholeNumberFormatter.format(numericValue)
     : numberFormatter.format(numericValue);
-}
-
-function formatCompactHours(value) {
-  return `${formatCompactWholeNumber(value)} hours`;
 }
 
 function formatCompactHoursAxis(value) {
@@ -2154,65 +2146,200 @@ function getLaborCategoryGroup(laborCategory) {
   return 'other';
 }
 
+function getLaborUtilizationNewCategoryGroup(laborCategory) {
+  const normalizedValue = String(laborCategory ?? '').trim().toLowerCase();
+
+  if (normalizedValue.includes('indirect')) {
+    return 'indirect';
+  }
+
+  if (normalizedValue.includes('direct')) {
+    return 'direct';
+  }
+
+  return 'other';
+}
+
 function buildLaborUtilizationNewChartData(rows, viewMode, selectedDateRange) {
-  const buckets = new Map();
+  const monthlyTotalsByYear = new Map();
+  let directRowCount = 0;
+  let indirectRowCount = 0;
+  let otherRowCount = 0;
 
   rows.forEach((row) => {
     const enteredHours = Number(row.entered_hours);
-    const monthStamp = getLaborNewRowStamp(row);
-    const laborCategoryGroup = getLaborCategoryGroup(row.labor_category);
+    const year = Number(row.year);
+    const month = Number(row.month);
+    const laborCategoryGroup = getLaborUtilizationNewCategoryGroup(row.labor_category);
 
     if (
       !Number.isFinite(enteredHours)
-      || monthStamp == null
-      || !isStampWithinDateRange(monthStamp, selectedDateRange)
-      || !['direct', 'indirect'].includes(laborCategoryGroup)
+      || !Number.isInteger(year)
+      || !Number.isInteger(month)
+      || month < 1
+      || month > 12
     ) {
       return;
     }
 
-    const monthDate = new Date(monthStamp);
-    const year = monthDate.getUTCFullYear();
-    const monthIndex = monthDate.getUTCMonth();
-    let bucketKey = String(monthStamp);
-    let label = formatMonthStamp(monthStamp);
-    let sortValue = monthStamp;
-
-    if (viewMode === 'quarterly') {
-      const quarter = Math.floor(monthIndex / 3) + 1;
-      bucketKey = `${year}-Q${quarter}`;
-      label = `Q${quarter} ${year}`;
-      sortValue = getFixedMonthStamp(year, (quarter - 1) * 3);
-    } else if (viewMode === 'yearly') {
-      bucketKey = String(year);
-      label = String(year);
-      sortValue = getFixedMonthStamp(year, 0);
+    if (laborCategoryGroup === 'direct') {
+      directRowCount += 1;
+    } else if (laborCategoryGroup === 'indirect') {
+      indirectRowCount += 1;
+    } else {
+      otherRowCount += 1;
+      return;
     }
 
-    const bucket = buckets.get(bucketKey) ?? {
-      label,
-      sortValue,
-      direct: 0,
-      indirect: 0
+    const yearTotals = monthlyTotalsByYear.get(year) ?? {
+      direct: LABOR_MONTH_COLUMNS.map(() => 0),
+      indirect: LABOR_MONTH_COLUMNS.map(() => 0)
     };
 
-    bucket[laborCategoryGroup] += enteredHours;
-    buckets.set(bucketKey, bucket);
+    yearTotals[laborCategoryGroup][month - 1] += enteredHours;
+    monthlyTotalsByYear.set(year, yearTotals);
   });
 
-  const sortedBuckets = Array.from(buckets.values()).sort(
-    (left, right) => left.sortValue - right.sortValue
+  const years = [...monthlyTotalsByYear.keys()].sort((left, right) => left - right);
+  const buckets = getLaborBuckets(viewMode, selectedDateRange, years);
+  const tooltipLookup = {};
+  const tooltipLabelLookup = Object.fromEntries(
+    buckets.map((bucket) => [bucket.label, bucket.tooltipLabel ?? bucket.label])
   );
-  const direct = sortedBuckets.map((bucket) => Number(bucket.direct.toFixed(2)));
-  const indirect = sortedBuckets.map((bucket) => Number(bucket.indirect.toFixed(2)));
+  const direct = buckets.map(({ label, year, monthIndices }) => {
+    const monthlyValues = monthlyTotalsByYear.get(year)?.direct ?? [];
+    const value = monthIndices.reduce(
+      (sum, monthIndex) => sum + (monthlyValues[monthIndex] ?? 0),
+      0
+    );
+    const normalizedValue = Number(value.toFixed(2));
+
+    tooltipLookup[label] = { direct: normalizedValue };
+    return normalizedValue;
+  });
+  const indirect = buckets.map(({ label, year, monthIndices }) => {
+    const monthlyValues = monthlyTotalsByYear.get(year)?.indirect ?? [];
+    const value = monthIndices.reduce(
+      (sum, monthIndex) => sum + (monthlyValues[monthIndex] ?? 0),
+      0
+    );
+    const normalizedValue = Number(value.toFixed(2));
+
+    tooltipLookup[label] = {
+      ...tooltipLookup[label],
+      indirect: normalizedValue
+    };
+    return normalizedValue;
+  });
+  const totals = buckets.map(({ label }, index) => {
+    const total = Number((direct[index] + indirect[index]).toFixed(2));
+
+    tooltipLookup[label] = {
+      ...tooltipLookup[label],
+      total
+    };
+    return total;
+  });
+  const directShare = buckets.map(({ label }, index) => {
+    const share = totals[index] > 0 ? direct[index] / totals[index] : 0;
+
+    tooltipLookup[label] = {
+      ...tooltipLookup[label],
+      directShare: share
+    };
+    return share;
+  });
 
   return {
-    labels: sortedBuckets.map((bucket) => bucket.label),
+    labels: buckets.map((bucket) => bucket.label),
+    tooltipLabelLookup,
+    tooltipLookup,
     direct,
     indirect,
-    totals: sortedBuckets.map((_bucket, index) =>
-      Number((direct[index] + indirect[index]).toFixed(2))
-    )
+    other: buckets.map(() => 0),
+    totals,
+    directShare,
+    directRowCount,
+    indirectRowCount,
+    otherRowCount
+  };
+}
+
+function buildLaborUtilizationNewParetoChartData(rows, fieldName, selectedDateRange) {
+  return buildParetoChartData(
+    rows
+      .filter((row) =>
+        getLaborUtilizationNewCategoryGroup(row.labor_category) === 'direct'
+        && isStampWithinDateRange(getLaborNewRowStamp(row), selectedDateRange)
+      )
+      .map((row) => ({
+        category: row[fieldName],
+        value: row.entered_hours
+      })),
+    PALETTE_MAX_GROUPS
+  );
+}
+
+function buildLaborUtilizationNewPaletteChartData(
+  rows,
+  groupFieldName,
+  colorFieldName,
+  selectedDateRange
+) {
+  const groups = new Map();
+  const colorTotals = new Map();
+
+  rows.forEach((row) => {
+    const directHours = Number(row.entered_hours);
+
+    if (
+      getLaborUtilizationNewCategoryGroup(row.labor_category) !== 'direct'
+      || !Number.isFinite(directHours)
+      || directHours <= 0
+      || !isStampWithinDateRange(getLaborNewRowStamp(row), selectedDateRange)
+    ) {
+      return;
+    }
+
+    const groupLabel = normalizeParetoCategoryLabel(row[groupFieldName]);
+    const colorLabel = normalizeParetoCategoryLabel(row[colorFieldName]);
+    const currentGroup = groups.get(groupLabel) ?? {
+      label: groupLabel,
+      total: 0,
+      breakdown: new Map()
+    };
+
+    currentGroup.total += directHours;
+    currentGroup.breakdown.set(
+      colorLabel,
+      (currentGroup.breakdown.get(colorLabel) ?? 0) + directHours
+    );
+    groups.set(groupLabel, currentGroup);
+    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + directHours);
+  });
+
+  const sortedGroups = Array.from(groups.values()).sort((left, right) => {
+    if (right.total !== left.total) {
+      return right.total - left.total;
+    }
+
+    return left.label.localeCompare(right.label);
+  });
+  const { visibleGroups, visibleColorLabels } = getVisiblePaletteGroupsAndColorLabels(
+    sortedGroups,
+    colorTotals
+  );
+
+  return {
+    labels: visibleGroups.map((group) => group.label),
+    series: visibleColorLabels.map((colorLabel, index) => ({
+      id: `labor-new-palette-${colorLabel}`,
+      label: colorLabel,
+      color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
+      data: visibleGroups.map((group) =>
+        Number((group.breakdown.get(colorLabel) ?? 0).toFixed(2))
+      )
+    }))
   };
 }
 
@@ -4021,6 +4148,11 @@ function buildDashboardPresetState({
   selectedLaborChartFilterValue,
   selectedLaborPaletteGroupField,
   selectedLaborPaletteColorField,
+  laborNewViewMode,
+  selectedLaborNewChartFilterField,
+  selectedLaborNewChartFilterValue,
+  selectedLaborNewPaletteGroupField,
+  selectedLaborNewPaletteColorField,
   laborHanaViewMode,
   selectedLaborHanaChartFilterField,
   selectedLaborHanaChartFilterValue,
@@ -4089,6 +4221,13 @@ function buildDashboardPresetState({
       filterValue: selectedLaborChartFilterValue,
       paletteGroupField: selectedLaborPaletteGroupField,
       paletteColorField: selectedLaborPaletteColorField
+    },
+    laborNew: {
+      viewMode: laborNewViewMode,
+      filterField: selectedLaborNewChartFilterField,
+      filterValue: selectedLaborNewChartFilterValue,
+      paletteGroupField: selectedLaborNewPaletteGroupField,
+      paletteColorField: selectedLaborNewPaletteColorField
     },
     laborHana: {
       viewMode: laborHanaViewMode,
@@ -4407,6 +4546,12 @@ export default function App() {
     LABOR_NEW_CHART_FILTER_FIELDS[0].value
   );
   const [selectedLaborNewChartFilterValue, setSelectedLaborNewChartFilterValue] = useState([]);
+  const [selectedLaborNewPaletteGroupField, setSelectedLaborNewPaletteGroupField] = useState(
+    LABOR_NEW_PALETTE_FIELDS[0].value
+  );
+  const [selectedLaborNewPaletteColorField, setSelectedLaborNewPaletteColorField] = useState(
+    LABOR_NEW_PALETTE_FIELDS[1].value
+  );
   const [laborNewViewMode, setLaborNewViewMode] = useState('monthly');
   const [selectedLaborHanaChartFilterField, setSelectedLaborHanaChartFilterField] = useState(
     LABOR_HANA_CHART_FILTER_FIELDS[0].value
@@ -5796,6 +5941,20 @@ export default function App() {
     LABOR_NEW_CHART_FILTER_FIELDS.find(
       (option) => option.value === selectedLaborNewChartFilterField
     ) ?? LABOR_NEW_CHART_FILTER_FIELDS[0];
+  const laborNewPaletteGroupFieldOptions = LABOR_NEW_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedLaborNewPaletteColorField
+  );
+  const activeLaborNewPaletteGroupField =
+    laborNewPaletteGroupFieldOptions.find(
+      (option) => option.value === selectedLaborNewPaletteGroupField
+    ) ?? laborNewPaletteGroupFieldOptions[0] ?? LABOR_NEW_PALETTE_FIELDS[0];
+  const laborNewPaletteColorFieldOptions = LABOR_NEW_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeLaborNewPaletteGroupField.value
+  );
+  const activeLaborNewPaletteColorField =
+    laborNewPaletteColorFieldOptions.find(
+      (option) => option.value === selectedLaborNewPaletteColorField
+    ) ?? laborNewPaletteColorFieldOptions[0] ?? LABOR_NEW_PALETTE_FIELDS[1];
   const baseFilteredLaborNewRows = applyGlobalFilters(
     laborNewState.rows,
     'laborNew',
@@ -5809,12 +5968,17 @@ export default function App() {
     selectedLaborNewChartFilterValue,
     laborNewChartFilterValueOptions
   );
-  const filteredLaborNewRows = baseFilteredLaborNewRows.filter((row) =>
-    rowMatchesFilterValues(
+  const laborNewFilterApplies = ['line', 'bar'].includes(chartVariants.laborNew);
+  const filteredLaborNewRows = baseFilteredLaborNewRows.filter((row) => {
+    if (!laborNewFilterApplies) {
+      return true;
+    }
+
+    return rowMatchesFilterValues(
       row[activeLaborNewChartFilterField.value],
       activeLaborNewChartFilterValue
-    )
-  );
+    );
+  });
   const visibleLaborNewRows = filteredLaborNewRows.filter((row) =>
     isStampWithinDateRange(getLaborNewRowStamp(row), selectedDateRange)
   );
@@ -5823,24 +5987,43 @@ export default function App() {
     laborNewViewMode,
     selectedDateRange
   );
-  const laborNewSummaryValue = formatCompactHours(
-    sumNumericValues(visibleLaborNewRows.map((row) => row.entered_hours))
+  const laborNewOverallHours = sumNumericValues(laborNewChartData.totals);
+  const laborNewOverallDirectHours = sumNumericValues(laborNewChartData.direct);
+  const laborNewSummaryValue = laborNewOverallHours > 0
+    ? formatPercentValue(laborNewOverallDirectHours / laborNewOverallHours)
+    : '--';
+  const laborNewGoalForecastSeriesValues = laborNewChartData.directShare.filter(
+    (_value, index) => laborNewChartData.totals[index] > 0
   );
+  const laborNewGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'labor-new',
+    timeline: laborNewViewMode,
+    seriesValues: laborNewGoalForecastSeriesValues,
+    loading: laborNewState.loading,
+    error: laborNewState.error,
+    calculateGoalLine: forecastLaborGoalLineFromSeries
+  });
+  const laborNewPaletteChartData = buildLaborUtilizationNewPaletteChartData(
+    baseFilteredLaborNewRows,
+    activeLaborNewPaletteGroupField.value,
+    activeLaborNewPaletteColorField.value,
+    selectedDateRange
+  );
+  const laborNewParetoChartData = buildLaborUtilizationNewParetoChartData(
+    baseFilteredLaborNewRows,
+    activeLaborNewChartFilterField.value,
+    selectedDateRange
+  );
+  const isLaborNewPalette = chartVariants.laborNew === 'palette';
+  const isLaborNewPareto = chartVariants.laborNew === 'pareto';
+  const isLaborNewBarChart = chartVariants.laborNew === 'bar';
   const laborNewChartSeries = [
     {
-      id: 'labor-new-direct',
-      data: laborNewChartData.direct,
-      label: 'Labor Direct',
+      id: 'directShareNew',
+      data: laborNewChartData.directShare,
+      label: 'Direct labor share',
       color: 'var(--chart-line)',
-      valueFormatter: formatEnteredHours,
-      showMark: false
-    },
-    {
-      id: 'labor-new-indirect',
-      data: laborNewChartData.indirect,
-      label: 'Labor Indirect',
-      color: 'var(--chart-secondary-line)',
-      valueFormatter: formatEnteredHours,
+      valueFormatter: formatPercentValue,
       showMark: false
     }
   ];
@@ -5965,6 +6148,12 @@ export default function App() {
   const laborTooltipLegend = isLaborPalette
     ? buildTooltipLegend(`Color by ${activeLaborPaletteColorField.label}`, laborPaletteChartData.series)
     : null;
+  const laborNewTooltipLegend = isLaborNewPalette
+    ? buildTooltipLegend(
+      `Color by ${activeLaborNewPaletteColorField.label}`,
+      laborNewPaletteChartData.series
+    )
+    : null;
   const laborHanaTooltipLegend = isLaborHanaPalette
     ? buildTooltipLegend(
       `Color by ${activeLaborHanaPaletteColorField.label}`,
@@ -6039,10 +6228,14 @@ export default function App() {
         paretoCumulativeLegendItem
       ]
       : [{ label: 'Direct labor share', color: 'var(--chart-line)' }];
-  const laborNewOverviewLegend = [
-    { label: 'Labor Direct', color: 'var(--chart-line)' },
-    { label: 'Labor Indirect', color: 'var(--chart-secondary-line)' }
-  ];
+  const laborNewOverviewLegend = isLaborNewPalette
+    ? []
+    : isLaborNewPareto
+      ? [
+        { label: 'Direct hours', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [{ label: 'Direct labor share', color: 'var(--chart-line)' }];
   const laborHanaOverviewLegend = isLaborHanaPalette
     ? []
     : isLaborHanaPareto
@@ -6157,6 +6350,17 @@ export default function App() {
     requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
     timelineLabel: LABOR_VIEW_CONFIG[laborViewMode]?.label
   });
+  const laborNewGoalLine = labelGoalLineValue(
+    isLaborNewPareto || isLaborNewPalette ? null : laborNewGoalCalculation.goalLine,
+    formatPercentValue
+  );
+  const laborNewMetricInfo = buildLaborMetricInfo(METRIC_INFO.laborNew, {
+    ...laborNewGoalCalculation.goalLine,
+    status: laborNewGoalCalculation.status,
+    observationCount: laborNewGoalCalculation.observationCount,
+    requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
+    timelineLabel: LABOR_VIEW_CONFIG[laborNewViewMode]?.label
+  });
   const laborHanaBaseGoalLine = isLaborHanaPareto || isLaborHanaPalette
     ? null
     : laborHanaGoalCalculation.goalLine;
@@ -6250,9 +6454,7 @@ export default function App() {
       nmfr: nextVariant,
       otd: nextVariant,
       labor: nextVariant,
-      laborNew: ['line', 'bar'].includes(nextVariant)
-        ? nextVariant
-        : chartVariants.laborNew,
+      laborNew: nextVariant,
       laborHana: nextVariant
     });
   };
@@ -6396,6 +6598,10 @@ export default function App() {
       setLaborViewMode(presetState.labor.viewMode);
     }
 
+    if (Object.hasOwn(LABOR_VIEW_CONFIG, presetState.laborNew?.viewMode)) {
+      setLaborNewViewMode(presetState.laborNew.viewMode);
+    }
+
     if (Object.hasOwn(LABOR_VIEW_CONFIG, presetState.laborHana?.viewMode)) {
       setLaborHanaViewMode(presetState.laborHana.viewMode);
     }
@@ -6508,6 +6714,34 @@ export default function App() {
       LABOR_PALETTE_FIELDS.some((option) => option.value === presetState.labor?.paletteColorField)
     ) {
       setSelectedLaborPaletteColorField(presetState.labor.paletteColorField);
+    }
+
+    if (
+      LABOR_NEW_CHART_FILTER_FIELDS.some(
+        (option) => option.value === presetState.laborNew?.filterField
+      )
+    ) {
+      setSelectedLaborNewChartFilterField(presetState.laborNew.filterField);
+    }
+
+    setSelectedLaborNewChartFilterValue(
+      coerceFilterValues(presetState.laborNew?.filterValue)
+    );
+
+    if (
+      LABOR_NEW_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.laborNew?.paletteGroupField
+      )
+    ) {
+      setSelectedLaborNewPaletteGroupField(presetState.laborNew.paletteGroupField);
+    }
+
+    if (
+      LABOR_NEW_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.laborNew?.paletteColorField
+      )
+    ) {
+      setSelectedLaborNewPaletteColorField(presetState.laborNew.paletteColorField);
     }
 
     if (
@@ -6630,6 +6864,11 @@ export default function App() {
         selectedLaborChartFilterValue,
         selectedLaborPaletteGroupField,
         selectedLaborPaletteColorField,
+        laborNewViewMode,
+        selectedLaborNewChartFilterField,
+        selectedLaborNewChartFilterValue,
+        selectedLaborNewPaletteGroupField,
+        selectedLaborNewPaletteColorField,
         laborHanaViewMode,
         selectedLaborHanaChartFilterField,
         selectedLaborHanaChartFilterValue,
@@ -8452,7 +8691,8 @@ export default function App() {
               <article className="analytics-card" style={{ order: 4 }}>
                 <CardHeader
                   title="Labor Utilization — New Data"
-                  info={METRIC_INFO.laborNew}
+                  info={laborNewMetricInfo}
+                  tooltipLegend={laborNewTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -8463,7 +8703,7 @@ export default function App() {
                           ? '--'
                           : laborNewSummaryValue
                       }
-                      label="Total Entered Hours"
+                      label="Direct Labor"
                       legendItems={laborNewOverviewLegend}
                       ariaLabel="New labor utilization dataset overview"
                     />
@@ -8480,11 +8720,17 @@ export default function App() {
 
                       {!laborNewState.loading
                         && !laborNewState.error
-                        && laborNewChartData.labels.length === 0 && (
+                        && (laborNewState.rows.length === 0
+                          || (isLaborNewPareto
+                            ? laborNewParetoChartData.labels.length === 0
+                            : isLaborNewPalette
+                              ? laborNewPaletteChartData.labels.length === 0
+                              : filteredLaborNewRows.length === 0
+                                || laborNewChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {laborNewState.rows.length === 0
                               ? 'No rows were loaded from the new labor workbook.'
-                              : filteredLaborNewRows.length === 0
+                              : filteredLaborNewRows.length === 0 && laborNewFilterApplies
                                 ? 'No new labor rows match the selected filters.'
                                 : visibleLaborNewRows.length === 0
                                   ? 'No new labor rows fall within the selected date range.'
@@ -8494,22 +8740,60 @@ export default function App() {
 
                       {!laborNewState.loading
                         && !laborNewState.error
-                        && laborNewChartData.labels.length > 0
+                        && (isLaborNewPareto
+                          ? laborNewParetoChartData.labels.length > 0
+                          : isLaborNewPalette
+                            ? laborNewPaletteChartData.labels.length > 0
+                            : laborNewChartData.labels.length > 0)
                         && laborNewChartWidth > 0 && (
-                          <MetricTrendChart
-                            variant={chartVariants.laborNew === 'bar' ? 'bar' : 'line'}
-                            width={laborNewChartWidth}
-                            height={CHART_HEIGHT}
-                            margin={LABOR_CHART_MARGIN}
-                            labels={laborNewChartData.labels}
-                            yAxis={LABOR_HOURS_Y_AXIS}
-                            series={laborNewChartSeries}
-                            tooltipProps={{
-                              sortSeriesItems: true,
-                              excludeZeroSeriesItems: true
-                            }}
-                            sx={sharedChartSx}
-                          />
+                          isLaborNewPareto ? (
+                            <ParetoMetricChart
+                              width={laborNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              labels={laborNewParetoChartData.labels}
+                              values={laborNewParetoChartData.values}
+                              cumulativeShares={laborNewParetoChartData.cumulativeShares}
+                              barLabel="Direct hours"
+                              barColor="var(--chart-line)"
+                              barAxis={LABOR_HOURS_Y_AXIS}
+                              barValueFormatter={formatHours}
+                              goalLine={laborNewGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isLaborNewPalette ? (
+                            <StackedCategoryBarChart
+                              width={laborNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              labels={laborNewPaletteChartData.labels}
+                              yAxis={LABOR_HOURS_Y_AXIS}
+                              series={laborNewPaletteChartData.series.map((seriesItem) => ({
+                                ...seriesItem,
+                                valueFormatter: formatHours
+                              }))}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={chartVariants.laborNew === 'bar' ? 'bar' : 'line'}
+                              width={laborNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              labels={laborNewChartData.labels}
+                              yAxis={LABOR_Y_AXIS}
+                              series={laborNewChartSeries}
+                              sx={sharedChartSx}
+                              tooltipComponent={
+                                isLaborNewBarChart ? LaborBarChartTooltip : LaborChartTooltip
+                              }
+                              tooltipTrigger={isLaborNewBarChart ? 'item' : 'axis'}
+                              tooltipProps={{
+                                chartData: laborNewChartData
+                              }}
+                              goalLine={laborNewGoalLine}
+                            />
+                          )
                         )}
                     </div>
 
@@ -8518,6 +8802,12 @@ export default function App() {
                         <ChartTypeToggle
                           value={chartVariants.laborNew}
                           onChange={(nextVariant) => {
+                            if (nextVariant === 'pareto') {
+                              setSelectedLaborNewChartFilterField(
+                                LABOR_NEW_PARETO_FILTER_FIELDS[0].value
+                              );
+                            }
+
                             setChartVariants((currentValue) => ({
                               ...currentValue,
                               laborNew: nextVariant
@@ -8525,9 +8815,12 @@ export default function App() {
                           }}
                           alwaysGridToggle
                           supportsFilter
+                          supportsPalette
+                          supportsPareto
                           filterToggleAriaLabel="Filter new labor utilization chart"
                           filterFieldValue={activeLaborNewChartFilterField.value}
                           filterFieldOptions={LABOR_NEW_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={LABOR_NEW_PARETO_FILTER_FIELDS}
                           filterFieldAriaLabel="Select new labor filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedLaborNewChartFilterField(nextField);
@@ -8538,6 +8831,37 @@ export default function App() {
                           filterValueAllLabel={activeLaborNewChartFilterField.allLabel}
                           filterValueAriaLabel="Select new labor filter values"
                           onFilterValueChange={setSelectedLaborNewChartFilterValue}
+                          paletteToggleAriaLabel="New labor grouped palette chart"
+                          paletteGroupFieldValue={activeLaborNewPaletteGroupField.value}
+                          paletteGroupFieldOptions={laborNewPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select new labor group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedLaborNewPaletteGroupField(nextField);
+
+                            if (nextField === activeLaborNewPaletteColorField.value) {
+                              const nextColorField =
+                                LABOR_NEW_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedLaborNewPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeLaborNewPaletteColorField.value}
+                          paletteColorFieldOptions={laborNewPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select new labor color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedLaborNewPaletteColorField(nextField);
+
+                            if (nextField === activeLaborNewPaletteGroupField.value) {
+                              const nextGroupField =
+                                LABOR_NEW_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedLaborNewPaletteGroupField(nextGroupField);
+                            }
+                          }}
                         />
                       </div>
                     </div>

@@ -316,6 +316,29 @@ const LABOR_HANA_PALETTE_FIELDS = LABOR_HANA_CHART_FILTER_FIELDS.map((option) =>
 }));
 const LABOR_HANA_PARETO_FILTER_FIELDS = [LABOR_HANA_CHART_FILTER_FIELDS[2]];
 
+const LABOR_NEW_CHART_FILTER_FIELDS = [
+  {
+    value: 'division',
+    label: 'Division',
+    allLabel: 'All divisions'
+  },
+  {
+    value: 'business_unit',
+    label: 'Business Unit',
+    allLabel: 'All business units'
+  },
+  {
+    value: 'facility',
+    label: 'Facility',
+    allLabel: 'All facilities'
+  },
+  {
+    value: 'labor_category',
+    label: 'Labor Category',
+    allLabel: 'All labor categories'
+  }
+];
+
 const GLOBAL_FILTER_DIMENSIONS = [
   {
     key: 'division',
@@ -362,6 +385,11 @@ const GLOBAL_FILTER_FIELD_MAP = {
   labor: {
     facility: 'forecasted_cc'
   },
+  laborNew: {
+    division: 'division',
+    businessUnit: 'business_unit',
+    facility: 'facility'
+  },
   laborHana: {
     division: 'division',
     businessUnit: 'business_unit',
@@ -386,6 +414,7 @@ const CARD_CHIP_OPTIONS = [
       'nmfr',
       'otd',
       'labor',
+      'laborNew',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
   },
@@ -397,6 +426,7 @@ const CARD_CHIP_OPTIONS = [
       'controllableCosts',
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
       'labor',
+      'laborNew',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
   },
@@ -422,6 +452,7 @@ const DEFAULT_CHART_VARIANTS = {
   nmfr: 'line',
   otd: 'line',
   labor: 'line',
+  laborNew: 'line',
   laborHana: 'line'
 };
 const CARD_VARIANT_OPTIONS_BY_METRIC = {
@@ -432,6 +463,7 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
   nmfr: ['line', 'bar', 'palette', 'pareto'],
   otd: ['line', 'bar', 'palette', 'pareto'],
   labor: ['line', 'bar', 'palette', 'pareto'],
+  laborNew: ['line', 'bar'],
   laborHana: ['line', 'bar', 'palette', 'pareto']
 };
 const PRESET_SLOT_OPTIONS = [1, 2, 3];
@@ -771,6 +803,10 @@ function formatCompactWholeNumber(value) {
 
 function formatHours(value) {
   return `${wholeNumberFormatter.format(Math.round(Number(value ?? 0)))} hours`;
+}
+
+function formatEnteredHours(value) {
+  return `${numberFormatter.format(Number(value ?? 0))} hours`;
 }
 
 function formatUnits(value) {
@@ -1200,6 +1236,17 @@ function getIncidentRowStamp(row) {
   return getMonthStartStamp(row.date);
 }
 
+function getLaborNewRowStamp(row) {
+  const year = Number(row?.year);
+  const month = Number(row?.month);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null;
+  }
+
+  return getFixedMonthStamp(year, month - 1);
+}
+
 function isStampWithinDateRange(stamp, selectedDateRange) {
   if (!selectedDateRange) {
     return true;
@@ -1255,6 +1302,7 @@ function getAvailableTimelineStamps({
   nmfrRows,
   otdRows = [],
   laborRows = [],
+  laborNewRows = [],
   laborHanaRows = []
 }) {
   const stampSet = new Set();
@@ -1299,6 +1347,14 @@ function getAvailableTimelineStamps({
         }
       });
     });
+  });
+
+  laborNewRows.forEach((row) => {
+    const stamp = getLaborNewRowStamp(row);
+
+    if (stamp != null && Number.isFinite(Number(row.entered_hours))) {
+      stampSet.add(stamp);
+    }
   });
 
   return Array.from(stampSet).sort((left, right) => left - right);
@@ -2096,6 +2152,68 @@ function getLaborCategoryGroup(laborCategory) {
   }
 
   return 'other';
+}
+
+function buildLaborUtilizationNewChartData(rows, viewMode, selectedDateRange) {
+  const buckets = new Map();
+
+  rows.forEach((row) => {
+    const enteredHours = Number(row.entered_hours);
+    const monthStamp = getLaborNewRowStamp(row);
+    const laborCategoryGroup = getLaborCategoryGroup(row.labor_category);
+
+    if (
+      !Number.isFinite(enteredHours)
+      || monthStamp == null
+      || !isStampWithinDateRange(monthStamp, selectedDateRange)
+      || !['direct', 'indirect'].includes(laborCategoryGroup)
+    ) {
+      return;
+    }
+
+    const monthDate = new Date(monthStamp);
+    const year = monthDate.getUTCFullYear();
+    const monthIndex = monthDate.getUTCMonth();
+    let bucketKey = String(monthStamp);
+    let label = formatMonthStamp(monthStamp);
+    let sortValue = monthStamp;
+
+    if (viewMode === 'quarterly') {
+      const quarter = Math.floor(monthIndex / 3) + 1;
+      bucketKey = `${year}-Q${quarter}`;
+      label = `Q${quarter} ${year}`;
+      sortValue = getFixedMonthStamp(year, (quarter - 1) * 3);
+    } else if (viewMode === 'yearly') {
+      bucketKey = String(year);
+      label = String(year);
+      sortValue = getFixedMonthStamp(year, 0);
+    }
+
+    const bucket = buckets.get(bucketKey) ?? {
+      label,
+      sortValue,
+      direct: 0,
+      indirect: 0
+    };
+
+    bucket[laborCategoryGroup] += enteredHours;
+    buckets.set(bucketKey, bucket);
+  });
+
+  const sortedBuckets = Array.from(buckets.values()).sort(
+    (left, right) => left.sortValue - right.sortValue
+  );
+  const direct = sortedBuckets.map((bucket) => Number(bucket.direct.toFixed(2)));
+  const indirect = sortedBuckets.map((bucket) => Number(bucket.indirect.toFixed(2)));
+
+  return {
+    labels: sortedBuckets.map((bucket) => bucket.label),
+    direct,
+    indirect,
+    totals: sortedBuckets.map((_bucket, index) =>
+      Number((direct[index] + indirect[index]).toFixed(2))
+    )
+  };
 }
 
 function getLaborRowYear(row) {
@@ -4200,6 +4318,12 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [laborNewState, setLaborNewState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
   const [laborHanaState, setLaborHanaState] = useState({
     rows: [],
     loading: LABOR_HANA_CARD_ENABLED,
@@ -4279,6 +4403,11 @@ export default function App() {
     LABOR_PALETTE_FIELDS[1].value
   );
   const [laborViewMode, setLaborViewMode] = useState('monthly');
+  const [selectedLaborNewChartFilterField, setSelectedLaborNewChartFilterField] = useState(
+    LABOR_NEW_CHART_FILTER_FIELDS[0].value
+  );
+  const [selectedLaborNewChartFilterValue, setSelectedLaborNewChartFilterValue] = useState([]);
+  const [laborNewViewMode, setLaborNewViewMode] = useState('monthly');
   const [selectedLaborHanaChartFilterField, setSelectedLaborHanaChartFilterField] = useState(
     LABOR_HANA_CHART_FILTER_FIELDS[0].value
   );
@@ -4332,6 +4461,7 @@ export default function App() {
   const { chartHostRef: nmfrChartHostRef, chartWidth: nmfrChartWidth } = useChartWidth();
   const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth();
   const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth();
+  const { chartHostRef: laborNewChartHostRef, chartWidth: laborNewChartWidth } = useChartWidth();
   const { chartHostRef: laborHanaChartHostRef, chartWidth: laborHanaChartWidth } = useChartWidth();
 
   useEffect(() => {
@@ -4667,6 +4797,56 @@ export default function App() {
       }
     }
 
+    async function loadLaborNewData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson('labor-new', '/api/labor-utilization-new');
+
+        if (!isMounted) {
+          logClientDebug('labor-new', 'Component unmounted before new labor state update.');
+          return;
+        }
+
+        setLaborNewState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: '',
+          source: getSourceLabel(payload.source)
+        });
+
+        logClientDebug('labor-new', 'New labor workbook state updated.', {
+          rowCount: payload.rowCount,
+          sourceRowCount: payload.sourceRowCount,
+          invalidRowCount: payload.invalidRowCount,
+          years: payload.years,
+          totalEnteredHours: payload.totalEnteredHours,
+          laborCategoryCounts: payload.laborCategoryCounts,
+          source: payload.source,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          logClientDebug('labor-new', 'Component unmounted after new labor load failure.', {
+            error: error.message
+          });
+          return;
+        }
+
+        setLaborNewState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load the new labor utilization workbook.',
+          source: ''
+        });
+
+        logClientDebug('labor-new', 'New labor workbook load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
     async function loadLaborHanaData() {
       const startTime = performance.now();
 
@@ -4725,6 +4905,7 @@ export default function App() {
     loadNmfrData();
     loadOtdData();
     loadLaborData();
+    loadLaborNewData();
     if (LABOR_HANA_CARD_ENABLED) {
       loadLaborHanaData();
     }
@@ -4843,6 +5024,7 @@ export default function App() {
     nmfrRows: nmfrState.rows,
     otdRows: otdState.rows,
     laborRows: laborState.rows,
+    laborNewRows: laborNewState.rows,
     laborHanaRows: laborHanaState.rows
   });
   const availableTimelineKey = availableTimelineStamps.join('|');
@@ -4932,6 +5114,7 @@ export default function App() {
     nmfr: nmfrState.rows,
     otd: otdState.rows,
     labor: laborState.rows,
+    laborNew: laborNewState.rows,
     laborHana: laborHanaState.rows
   };
   const globalFilterOptions = Object.fromEntries(
@@ -5609,6 +5792,58 @@ export default function App() {
       showMark: false
     }
   ];
+  const activeLaborNewChartFilterField =
+    LABOR_NEW_CHART_FILTER_FIELDS.find(
+      (option) => option.value === selectedLaborNewChartFilterField
+    ) ?? LABOR_NEW_CHART_FILTER_FIELDS[0];
+  const baseFilteredLaborNewRows = applyGlobalFilters(
+    laborNewState.rows,
+    'laborNew',
+    activeGlobalFilters
+  );
+  const laborNewChartFilterValueOptions = getFilterOptions(
+    baseFilteredLaborNewRows,
+    activeLaborNewChartFilterField.value
+  );
+  const activeLaborNewChartFilterValue = normalizeFilterValues(
+    selectedLaborNewChartFilterValue,
+    laborNewChartFilterValueOptions
+  );
+  const filteredLaborNewRows = baseFilteredLaborNewRows.filter((row) =>
+    rowMatchesFilterValues(
+      row[activeLaborNewChartFilterField.value],
+      activeLaborNewChartFilterValue
+    )
+  );
+  const visibleLaborNewRows = filteredLaborNewRows.filter((row) =>
+    isStampWithinDateRange(getLaborNewRowStamp(row), selectedDateRange)
+  );
+  const laborNewChartData = buildLaborUtilizationNewChartData(
+    filteredLaborNewRows,
+    laborNewViewMode,
+    selectedDateRange
+  );
+  const laborNewSummaryValue = formatCompactHours(
+    sumNumericValues(visibleLaborNewRows.map((row) => row.entered_hours))
+  );
+  const laborNewChartSeries = [
+    {
+      id: 'labor-new-direct',
+      data: laborNewChartData.direct,
+      label: 'Labor Direct',
+      color: 'var(--chart-line)',
+      valueFormatter: formatEnteredHours,
+      showMark: false
+    },
+    {
+      id: 'labor-new-indirect',
+      data: laborNewChartData.indirect,
+      label: 'Labor Indirect',
+      color: 'var(--chart-secondary-line)',
+      valueFormatter: formatEnteredHours,
+      showMark: false
+    }
+  ];
   const activeLaborHanaChartFilterField =
     LABOR_HANA_CHART_FILTER_FIELDS.find(
       (option) => option.value === selectedLaborHanaChartFilterField
@@ -5804,6 +6039,10 @@ export default function App() {
         paretoCumulativeLegendItem
       ]
       : [{ label: 'Direct labor share', color: 'var(--chart-line)' }];
+  const laborNewOverviewLegend = [
+    { label: 'Labor Direct', color: 'var(--chart-line)' },
+    { label: 'Labor Indirect', color: 'var(--chart-secondary-line)' }
+  ];
   const laborHanaOverviewLegend = isLaborHanaPalette
     ? []
     : isLaborHanaPareto
@@ -5945,6 +6184,7 @@ export default function App() {
     nmfr: activeCardKeys.has('nmfr'),
     otd: activeCardKeys.has('otd'),
     labor: activeCardKeys.has('labor'),
+    laborNew: activeCardKeys.has('laborNew'),
     laborHana: LABOR_HANA_CARD_ENABLED && activeCardKeys.has('laborHana')
   };
   const hasVisibleCards = activeCardKeys.size > 0;
@@ -6010,6 +6250,9 @@ export default function App() {
       nmfr: nextVariant,
       otd: nextVariant,
       labor: nextVariant,
+      laborNew: ['line', 'bar'].includes(nextVariant)
+        ? nextVariant
+        : chartVariants.laborNew,
       laborHana: nextVariant
     });
   };
@@ -8189,6 +8432,124 @@ export default function App() {
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
                             setLaborViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(LABOR_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {visibleCards.laborNew && (
+              <article className="analytics-card" style={{ order: 4 }}>
+                <CardHeader
+                  title="Labor Utilization — New Data"
+                  info={METRIC_INFO.laborNew}
+                />
+
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <MetricOverviewBand
+                      value={
+                        laborNewState.loading || laborNewState.error
+                          ? '--'
+                          : laborNewSummaryValue
+                      }
+                      label="Total Entered Hours"
+                      legendItems={laborNewOverviewLegend}
+                      ariaLabel="New labor utilization dataset overview"
+                    />
+                    <div ref={laborNewChartHostRef} className="chart-host">
+                      {laborNewState.loading && (
+                        <p className="chart-message">Loading new labor utilization workbook...</p>
+                      )}
+
+                      {!laborNewState.loading && laborNewState.error && (
+                        <p className="chart-message chart-message-error">
+                          {laborNewState.error}
+                        </p>
+                      )}
+
+                      {!laborNewState.loading
+                        && !laborNewState.error
+                        && laborNewChartData.labels.length === 0 && (
+                          <p className="chart-message">
+                            {laborNewState.rows.length === 0
+                              ? 'No rows were loaded from the new labor workbook.'
+                              : filteredLaborNewRows.length === 0
+                                ? 'No new labor rows match the selected filters.'
+                                : visibleLaborNewRows.length === 0
+                                  ? 'No new labor rows fall within the selected date range.'
+                                  : 'No Labor Direct or Labor Indirect rows are available to chart.'}
+                          </p>
+                        )}
+
+                      {!laborNewState.loading
+                        && !laborNewState.error
+                        && laborNewChartData.labels.length > 0
+                        && laborNewChartWidth > 0 && (
+                          <MetricTrendChart
+                            variant={chartVariants.laborNew === 'bar' ? 'bar' : 'line'}
+                            width={laborNewChartWidth}
+                            height={CHART_HEIGHT}
+                            margin={LABOR_CHART_MARGIN}
+                            labels={laborNewChartData.labels}
+                            yAxis={LABOR_HOURS_Y_AXIS}
+                            series={laborNewChartSeries}
+                            tooltipProps={{
+                              sortSeriesItems: true,
+                              excludeZeroSeriesItems: true
+                            }}
+                            sx={sharedChartSx}
+                          />
+                        )}
+                    </div>
+
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.laborNew}
+                          onChange={(nextVariant) => {
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              laborNew: nextVariant
+                            }));
+                          }}
+                          alwaysGridToggle
+                          supportsFilter
+                          filterToggleAriaLabel="Filter new labor utilization chart"
+                          filterFieldValue={activeLaborNewChartFilterField.value}
+                          filterFieldOptions={LABOR_NEW_CHART_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select new labor filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedLaborNewChartFilterField(nextField);
+                            setSelectedLaborNewChartFilterValue([]);
+                          }}
+                          filterValue={activeLaborNewChartFilterValue}
+                          filterValueOptions={laborNewChartFilterValueOptions}
+                          filterValueAllLabel={activeLaborNewChartFilterField.allLabel}
+                          filterValueAriaLabel="Select new labor filter values"
+                          onFilterValueChange={setSelectedLaborNewChartFilterValue}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <ToggleButtonGroup
+                        value={laborNewViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setLaborNewViewMode(nextMode);
                           }
                         }}
                         sx={timelineToggleGroupSx}

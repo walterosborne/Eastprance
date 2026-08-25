@@ -23,6 +23,7 @@ import {
 } from './dashboardPresetsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
+import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
 import { readOtdData } from './otdRepository.js';
 import {
   getSafetyMetricPayload,
@@ -398,6 +399,16 @@ app.get('/api/labor-utilization', async (request, response) => {
     'labor',
     () => getCachedSqlDataset('labor'),
     'Unable to read labor utilization data.'
+  );
+});
+
+app.get('/api/labor-utilization-new', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'labor-new',
+    readLaborUtilizationNewData,
+    'Unable to read the new labor utilization workbook.'
   );
 });
 

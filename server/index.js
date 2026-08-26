@@ -16,6 +16,7 @@ import {
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
+import { readControllableCostsNewData } from './controllableCostsNewRepository.js';
 import { readCurrentUser } from './currentUserRepository.js';
 import {
   readDashboardPresetsOverview,
@@ -346,6 +347,16 @@ app.get('/api/controllable-costs', async (request, response) => {
     'controllable-costs',
     () => getCachedSqlDataset('controllable-costs'),
     'Unable to read controllable costs data.'
+  );
+});
+
+app.get('/api/controllable-costs-new', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'controllable-costs-new',
+    readControllableCostsNewData,
+    'Unable to read the new controllable costs workbook.'
   );
 });
 

@@ -4,6 +4,7 @@
 // appear within a line, such as "This value is **important** today."
 const METRIC_INFO = {
   controllableCosts: 'Compares controllable and uncontrollable costs over time.',
+  controllableCostsNew: 'Charts the replacement SQL cost dataset for validation.',
   controllableCostsHana: 'Shows total HANA costs over time by organization.',
   sif: 'Counts significant injuries or fatalities over time.',
   potentialSif: 'Counts potential serious injury or fatality incidents.',

@@ -148,6 +148,7 @@ const CONTROLLABLE_COSTS_HANA_VIEW_CONFIG = {
   },
   ...CONTROLLABLE_COSTS_VIEW_CONFIG
 };
+const CONTROLLABLE_COSTS_NEW_VIEW_CONFIG = CONTROLLABLE_COSTS_HANA_VIEW_CONFIG;
 
 const CONTROLLABLE_CHART_FILTER_FIELDS = [
   {
@@ -176,6 +177,47 @@ const CONTROLLABLE_PALETTE_FIELDS = [
     label: 'Controllability'
   }
 ];
+
+const CONTROLLABLE_NEW_CHART_FILTER_FIELDS = [
+  {
+    value: 'division',
+    label: 'Division',
+    allLabel: 'All divisions'
+  },
+  {
+    value: 'business_unit',
+    label: 'Business Unit',
+    allLabel: 'All business units'
+  },
+  {
+    value: 'facility',
+    label: 'Facility',
+    allLabel: 'All facilities'
+  },
+  {
+    value: 'cost_category',
+    label: 'Cost category',
+    allLabel: 'All cost categories'
+  },
+  {
+    value: 'cost_element',
+    label: 'GL account / cost element',
+    allLabel: 'All GL accounts / cost elements'
+  },
+  {
+    value: 'cost_element_description',
+    label: 'Description',
+    allLabel: 'All descriptions'
+  }
+];
+const CONTROLLABLE_NEW_PALETTE_FIELDS = [
+  ...CONTROLLABLE_NEW_CHART_FILTER_FIELDS.map(({ value, label }) => ({ value, label })),
+  {
+    value: 'controllable',
+    label: 'Controllability'
+  }
+];
+const CONTROLLABLE_NEW_PARETO_FILTER_FIELDS = CONTROLLABLE_NEW_CHART_FILTER_FIELDS;
 
 const CONTROLLABLE_HANA_CHART_FILTER_FIELDS = [
   {
@@ -361,6 +403,11 @@ const GLOBAL_FILTER_FIELD_MAP = {
   controllableCosts: {
     facility: 'address'
   },
+  controllableCostsNew: {
+    division: 'division',
+    businessUnit: 'business_unit',
+    facility: 'facility'
+  },
   controllableCostsHana: {
     division: 'division',
     businessUnit: 'business_unit',
@@ -408,6 +455,7 @@ const CARD_CHIP_OPTIONS = [
     icon: faAsterisk,
     cardKeys: [
       'controllableCosts',
+      'controllableCostsNew',
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
       'sif',
       'potentialSif',
@@ -424,6 +472,7 @@ const CARD_CHIP_OPTIONS = [
     icon: faCalculator,
     cardKeys: [
       'controllableCosts',
+      'controllableCostsNew',
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
       'labor',
       'laborNew',
@@ -446,6 +495,7 @@ const CARD_CHIP_OPTIONS = [
 
 const DEFAULT_CHART_VARIANTS = {
   controllableCosts: 'line',
+  controllableCostsNew: 'line',
   controllableCostsHana: 'line',
   sif: 'line',
   potentialSif: 'line',
@@ -457,6 +507,7 @@ const DEFAULT_CHART_VARIANTS = {
 };
 const CARD_VARIANT_OPTIONS_BY_METRIC = {
   controllableCosts: ['line', 'bar', 'palette', 'pareto'],
+  controllableCostsNew: ['line', 'bar', 'palette', 'pareto'],
   controllableCostsHana: ['line', 'bar', 'palette', 'pareto'],
   sif: ['line', 'bar', 'palette', 'pareto'],
   potentialSif: ['line', 'bar', 'palette', 'pareto'],
@@ -1288,6 +1339,7 @@ function getNextTimelinePeriodLabelAfterStamp(stamp, viewMode) {
 
 function getAvailableTimelineStamps({
   controllableCostsRows,
+  controllableCostsNewRows = [],
   controllableCostsHanaRows = [],
   sifRows,
   potentialSifRows,
@@ -1299,7 +1351,7 @@ function getAvailableTimelineStamps({
 }) {
   const stampSet = new Set();
 
-  [controllableCostsRows, controllableCostsHanaRows].forEach((rows) => {
+  [controllableCostsRows, controllableCostsNewRows, controllableCostsHanaRows].forEach((rows) => {
     rows.forEach((row) => {
       const stamp = getControllableCostsRowStamp(row);
 
@@ -4118,6 +4170,11 @@ function buildDashboardPresetState({
   selectedControllableChartFilterValue,
   selectedControllablePaletteGroupField,
   selectedControllablePaletteColorField,
+  controllableCostsNewViewMode,
+  selectedControllableNewChartFilterField,
+  selectedControllableNewChartFilterValue,
+  selectedControllableNewPaletteGroupField,
+  selectedControllableNewPaletteColorField,
   controllableCostsHanaViewMode,
   selectedControllableHanaChartFilterField,
   selectedControllableHanaChartFilterValue,
@@ -4179,6 +4236,13 @@ function buildDashboardPresetState({
       filterValue: selectedControllableChartFilterValue,
       paletteGroupField: selectedControllablePaletteGroupField,
       paletteColorField: selectedControllablePaletteColorField
+    },
+    controllableCostsNew: {
+      viewMode: controllableCostsNewViewMode,
+      filterField: selectedControllableNewChartFilterField,
+      filterValue: selectedControllableNewChartFilterValue,
+      paletteGroupField: selectedControllableNewPaletteGroupField,
+      paletteColorField: selectedControllableNewPaletteColorField
     },
     controllableCostsHana: {
       viewMode: controllableCostsHanaViewMode,
@@ -4421,6 +4485,12 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [controllableCostsNewState, setControllableCostsNewState] = useState({
+    rows: [],
+    loading: true,
+    error: '',
+    source: ''
+  });
   const [controllableCostsHanaState, setControllableCostsHanaState] = useState({
     rows: [],
     loading: CONTROLLABLE_COSTS_HANA_CARD_ENABLED,
@@ -4479,6 +4549,15 @@ export default function App() {
   const [selectedControllablePaletteColorField, setSelectedControllablePaletteColorField] =
     useState(CONTROLLABLE_PALETTE_FIELDS[1].value);
   const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
+  const [selectedControllableNewChartFilterField, setSelectedControllableNewChartFilterField] =
+    useState(CONTROLLABLE_NEW_CHART_FILTER_FIELDS[0].value);
+  const [selectedControllableNewChartFilterValue, setSelectedControllableNewChartFilterValue] =
+    useState([]);
+  const [selectedControllableNewPaletteGroupField, setSelectedControllableNewPaletteGroupField] =
+    useState(CONTROLLABLE_NEW_PALETTE_FIELDS[0].value);
+  const [selectedControllableNewPaletteColorField, setSelectedControllableNewPaletteColorField] =
+    useState(CONTROLLABLE_NEW_PALETTE_FIELDS[1].value);
+  const [controllableCostsNewViewMode, setControllableCostsNewViewMode] = useState('monthly');
   const [selectedControllableHanaChartFilterField, setSelectedControllableHanaChartFilterField] =
     useState(CONTROLLABLE_HANA_CHART_FILTER_FIELDS[0].value);
   const [selectedControllableHanaChartFilterValue, setSelectedControllableHanaChartFilterValue] =
@@ -4597,6 +4676,10 @@ export default function App() {
     chartWidth: controllableCostsChartWidth
   } = useChartWidth();
   const {
+    chartHostRef: controllableCostsNewChartHostRef,
+    chartWidth: controllableCostsNewChartWidth
+  } = useChartWidth();
+  const {
     chartHostRef: controllableCostsHanaChartHostRef,
     chartWidth: controllableCostsHanaChartWidth
   } = useChartWidth();
@@ -4658,6 +4741,59 @@ export default function App() {
         });
 
         logClientDebug('controllable-costs', 'Controllable costs load failed.', {
+          error: error.message,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      }
+    }
+
+    async function loadControllableCostsNewData() {
+      const startTime = performance.now();
+
+      try {
+        const payload = await fetchJson(
+          'controllable-costs-new',
+          '/api/controllable-costs-new'
+        );
+
+        if (!isMounted) {
+          logClientDebug(
+            'controllable-costs-new',
+            'Component unmounted before new controllable costs state update.'
+          );
+          return;
+        }
+
+        setControllableCostsNewState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: '',
+          source: getSourceLabel(payload.source)
+        });
+
+        logClientDebug('controllable-costs-new', 'New controllable costs state updated.', {
+          rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+          source: payload.source,
+          sourceRowCount: payload.sourceRowCount,
+          years: payload.years,
+          totalCost: payload.totalCost,
+          controllableRowCount: payload.controllableRowCount,
+          uncontrollableRowCount: payload.uncontrollableRowCount,
+          totalDuration: formatDebugDuration(performance.now() - startTime)
+        });
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setControllableCostsNewState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load the new controllable costs workbook.',
+          source: ''
+        });
+
+        logClientDebug('controllable-costs-new', 'New controllable costs load failed.', {
           error: error.message,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
@@ -5042,6 +5178,7 @@ export default function App() {
     logClientDebug('dashboard', 'Starting dashboard data load.');
 
     loadControllableCostsData();
+    loadControllableCostsNewData();
     if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED) {
       loadControllableCostsHanaData();
     }
@@ -5163,6 +5300,7 @@ export default function App() {
 
   const availableTimelineStamps = getAvailableTimelineStamps({
     controllableCostsRows: controllableCostsState.rows,
+    controllableCostsNewRows: controllableCostsNewState.rows,
     controllableCostsHanaRows: controllableCostsHanaState.rows,
     sifRows: sifState.rows,
     potentialSifRows: potentialSifState.rows,
@@ -5253,6 +5391,7 @@ export default function App() {
       : '';
   const dashboardRowsByMetric = {
     controllableCosts: controllableCostsState.rows,
+    controllableCostsNew: controllableCostsNewState.rows,
     controllableCostsHana: controllableCostsHanaState.rows,
     sif: sifState.rows,
     potentialSif: potentialSifState.rows,
@@ -5378,6 +5517,94 @@ export default function App() {
     {
       includeZero: true,
       minFloor: controllableCostsPaletteHasNegativeValues ? null : 0
+    }
+  );
+  const activeControllableNewChartFilterField =
+    CONTROLLABLE_NEW_CHART_FILTER_FIELDS.find(
+      (option) => option.value === selectedControllableNewChartFilterField
+    ) ?? CONTROLLABLE_NEW_CHART_FILTER_FIELDS[0];
+  const controllableNewPaletteGroupFieldOptions = CONTROLLABLE_NEW_PALETTE_FIELDS.filter(
+    (option) => option.value !== selectedControllableNewPaletteColorField
+  );
+  const activeControllableNewPaletteGroupField =
+    controllableNewPaletteGroupFieldOptions.find(
+      (option) => option.value === selectedControllableNewPaletteGroupField
+    ) ?? controllableNewPaletteGroupFieldOptions[0] ?? CONTROLLABLE_NEW_PALETTE_FIELDS[0];
+  const controllableNewPaletteColorFieldOptions = CONTROLLABLE_NEW_PALETTE_FIELDS.filter(
+    (option) => option.value !== activeControllableNewPaletteGroupField.value
+  );
+  const activeControllableNewPaletteColorField =
+    controllableNewPaletteColorFieldOptions.find(
+      (option) => option.value === selectedControllableNewPaletteColorField
+    ) ?? controllableNewPaletteColorFieldOptions[0] ?? CONTROLLABLE_NEW_PALETTE_FIELDS[1];
+  const baseFilteredControllableCostsNewRows = applyGlobalFilters(
+    controllableCostsNewState.rows,
+    'controllableCostsNew',
+    activeGlobalFilters
+  );
+  const controllableNewChartFilterValueOptions = getFilterOptions(
+    baseFilteredControllableCostsNewRows,
+    activeControllableNewChartFilterField.value
+  );
+  const activeControllableNewChartFilterValue = normalizeFilterValues(
+    selectedControllableNewChartFilterValue,
+    controllableNewChartFilterValueOptions
+  );
+  const controllableNewFilterApplies = ['line', 'bar'].includes(
+    chartVariants.controllableCostsNew
+  );
+  const filteredControllableCostsNewRows = baseFilteredControllableCostsNewRows.filter((row) => {
+    if (!controllableNewFilterApplies) {
+      return true;
+    }
+
+    return rowMatchesFilterValues(
+      row[activeControllableNewChartFilterField.value],
+      activeControllableNewChartFilterValue
+    );
+  });
+  const globallyFilteredControllableCostsNewRows = filteredControllableCostsNewRows.filter((row) =>
+    isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
+  );
+  const controllableCostsNewChartData = buildControllableCostsChartData(
+    filteredControllableCostsNewRows,
+    controllableCostsNewViewMode,
+    selectedDateRange
+  );
+  const controllableCostsNewGoalCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'controllable-costs-new',
+    timeline: controllableCostsNewViewMode,
+    seriesValues: controllableCostsNewChartData.total,
+    loading: controllableCostsNewState.loading,
+    error: controllableCostsNewState.error,
+    calculateGoalLine: forecastControllableCostsGoalLineFromSeries
+  });
+  const controllableCostsNewSummaryValue = formatOverviewCurrency(
+    sumNumericValues(controllableCostsNewChartData.total)
+  );
+  const controllableCostsNewParetoChartData = buildControllableCostsParetoChartData(
+    baseFilteredControllableCostsNewRows,
+    activeControllableNewChartFilterField.value,
+    selectedDateRange
+  );
+  const controllableCostsNewPaletteChartData = buildControllableCostsPaletteChartData(
+    baseFilteredControllableCostsNewRows,
+    activeControllableNewPaletteGroupField.value,
+    activeControllableNewPaletteColorField.value,
+    selectedDateRange
+  );
+  const isControllableCostsNewPareto = chartVariants.controllableCostsNew === 'pareto';
+  const isControllableCostsNewPalette = chartVariants.controllableCostsNew === 'palette';
+  const controllableCostsNewPaletteHasNegativeValues =
+    controllableCostsNewPaletteChartData.series.some(
+      (seriesItem) => seriesItem.data.some((value) => Number(value) < 0)
+    );
+  const controllableCostsNewPaletteChartYAxis = buildStackedNumericYAxis(
+    CONTROLLABLE_COSTS_Y_AXIS,
+    controllableCostsNewPaletteChartData.series,
+    {
+      includeZero: true,
+      minFloor: controllableCostsNewPaletteHasNegativeValues ? null : 0
     }
   );
   const activeControllableHanaChartFilterField =
@@ -6124,6 +6351,12 @@ export default function App() {
       controllableCostsPaletteChartData.series
     )
     : null;
+  const controllableCostsNewTooltipLegend = isControllableCostsNewPalette
+    ? buildTooltipLegend(
+      `Color by ${activeControllableNewPaletteColorField.label}`,
+      controllableCostsNewPaletteChartData.series
+    )
+    : null;
   const controllableCostsHanaTooltipLegend = isControllableCostsHanaPalette
     ? buildTooltipLegend(
       `Color by ${activeControllableHanaPaletteColorField.label}`,
@@ -6167,6 +6400,17 @@ export default function App() {
   const controllableCostsOverviewLegend = isControllableCostsPalette
     ? []
     : isControllableCostsPareto
+      ? [
+        { label: 'Total cost', color: 'var(--chart-line)' },
+        paretoCumulativeLegendItem
+      ]
+      : [
+        { label: 'Controllable', color: 'var(--chart-line)' },
+        { label: 'Uncontrollable', color: 'var(--chart-accent-line)' }
+      ];
+  const controllableCostsNewOverviewLegend = isControllableCostsNewPalette
+    ? []
+    : isControllableCostsNewPareto
       ? [
         { label: 'Total cost', color: 'var(--chart-line)' },
         paretoCumulativeLegendItem
@@ -6270,6 +6514,34 @@ export default function App() {
     {
       includeZero: chartVariants.controllableCosts === 'bar',
       goalLine: visibleControllableCostsGoalLine
+    }
+  );
+  const controllableCostsNewGoalLine = labelGoalLineValue(
+    isControllableCostsNewPareto || isControllableCostsNewPalette
+      ? null
+      : controllableCostsNewGoalCalculation.goalLine,
+    formatCompactCurrency
+  );
+  const controllableCostsNewMetricInfo = buildControllableCostsMetricInfo(
+    METRIC_INFO.controllableCostsNew,
+    {
+      ...controllableCostsNewGoalCalculation.goalLine,
+      status: controllableCostsNewGoalCalculation.status,
+      observationCount: controllableCostsNewGoalCalculation.observationCount,
+      requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
+      timelineLabel: CONTROLLABLE_COSTS_NEW_VIEW_CONFIG[controllableCostsNewViewMode]?.label
+    }
+  );
+  const visibleControllableCostsNewGoalLine = clampGoalLineToVisibleSeries(
+    controllableCostsNewGoalLine,
+    [controllableCostsNewChartData.controllable, controllableCostsNewChartData.uncontrollable]
+  );
+  const controllableCostsNewChartYAxis = buildDynamicNumericYAxis(
+    CONTROLLABLE_COSTS_Y_AXIS,
+    [controllableCostsNewChartData.controllable, controllableCostsNewChartData.uncontrollable],
+    {
+      includeZero: chartVariants.controllableCostsNew === 'bar',
+      goalLine: visibleControllableCostsNewGoalLine
     }
   );
   const controllableCostsHanaGoalLine = labelGoalLineValue(
@@ -6381,6 +6653,7 @@ export default function App() {
   );
   const visibleCards = {
     controllableCosts: activeCardKeys.has('controllableCosts'),
+    controllableCostsNew: activeCardKeys.has('controllableCostsNew'),
     controllableCostsHana:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsHana'),
     sif: activeCardKeys.has('sif'),
@@ -6448,6 +6721,7 @@ export default function App() {
   const setAllChartVariants = (nextVariant) => {
     setChartVariants({
       controllableCosts: nextVariant,
+      controllableCostsNew: nextVariant,
       controllableCostsHana: nextVariant,
       sif: nextVariant,
       potentialSif: nextVariant,
@@ -6495,6 +6769,15 @@ export default function App() {
 
     if (Object.hasOwn(CONTROLLABLE_COSTS_VIEW_CONFIG, presetState.controllableCosts?.viewMode)) {
       setControllableCostsViewMode(presetState.controllableCosts.viewMode);
+    }
+
+    if (
+      Object.hasOwn(
+        CONTROLLABLE_COSTS_NEW_VIEW_CONFIG,
+        presetState.controllableCostsNew?.viewMode
+      )
+    ) {
+      setControllableCostsNewViewMode(presetState.controllableCostsNew.viewMode);
     }
 
     if (
@@ -6635,6 +6918,40 @@ export default function App() {
     ) {
       setSelectedControllablePaletteColorField(
         presetState.controllableCosts.paletteColorField
+      );
+    }
+
+    if (
+      CONTROLLABLE_NEW_CHART_FILTER_FIELDS.some(
+        (option) => option.value === presetState.controllableCostsNew?.filterField
+      )
+    ) {
+      setSelectedControllableNewChartFilterField(
+        presetState.controllableCostsNew.filterField
+      );
+    }
+
+    setSelectedControllableNewChartFilterValue(
+      coerceFilterValues(presetState.controllableCostsNew?.filterValue)
+    );
+
+    if (
+      CONTROLLABLE_NEW_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.controllableCostsNew?.paletteGroupField
+      )
+    ) {
+      setSelectedControllableNewPaletteGroupField(
+        presetState.controllableCostsNew.paletteGroupField
+      );
+    }
+
+    if (
+      CONTROLLABLE_NEW_PALETTE_FIELDS.some(
+        (option) => option.value === presetState.controllableCostsNew?.paletteColorField
+      )
+    ) {
+      setSelectedControllableNewPaletteColorField(
+        presetState.controllableCostsNew.paletteColorField
       );
     }
 
@@ -6834,6 +7151,11 @@ export default function App() {
         selectedControllableChartFilterValue,
         selectedControllablePaletteGroupField,
         selectedControllablePaletteColorField,
+        controllableCostsNewViewMode,
+        selectedControllableNewChartFilterField,
+        selectedControllableNewChartFilterValue,
+        selectedControllableNewPaletteGroupField,
+        selectedControllableNewPaletteColorField,
         controllableCostsHanaViewMode,
         selectedControllableHanaChartFilterField,
         selectedControllableHanaChartFilterValue,
@@ -7511,6 +7833,221 @@ export default function App() {
                             {config.label}
                           </ToggleButton>
                         ))}
+                      </ToggleButtonGroup>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            )}
+
+            {visibleCards.controllableCostsNew && (
+              <article className="analytics-card" style={{ order: 2 }}>
+                <CardHeader
+                  title="Controllable Costs — New Data"
+                  info={controllableCostsNewMetricInfo}
+                  tooltipLegend={controllableCostsNewTooltipLegend}
+                />
+
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <MetricOverviewBand
+                      value={
+                        controllableCostsNewState.loading || controllableCostsNewState.error
+                          ? '--'
+                          : controllableCostsNewSummaryValue
+                      }
+                      label="Total Cost"
+                      legendItems={controllableCostsNewOverviewLegend}
+                      ariaLabel="New controllable costs dataset overview"
+                    />
+                    <div ref={controllableCostsNewChartHostRef} className="chart-host">
+                      {controllableCostsNewState.loading && (
+                        <p className="chart-message">Loading new controllable costs workbook...</p>
+                      )}
+
+                      {!controllableCostsNewState.loading && controllableCostsNewState.error && (
+                        <p className="chart-message chart-message-error">
+                          {controllableCostsNewState.error}
+                        </p>
+                      )}
+
+                      {!controllableCostsNewState.loading
+                        && !controllableCostsNewState.error
+                        && (baseFilteredControllableCostsNewRows.length === 0
+                          || (isControllableCostsNewPareto
+                            ? controllableCostsNewParetoChartData.labels.length === 0
+                            : isControllableCostsNewPalette
+                              ? controllableCostsNewPaletteChartData.labels.length === 0
+                              : globallyFilteredControllableCostsNewRows.length === 0)) && (
+                          <p className="chart-message">
+                            {controllableCostsNewState.rows.length === 0
+                              ? 'No rows were loaded from the new controllable costs workbook.'
+                              : filteredControllableCostsNewRows.length === 0
+                                  && controllableNewFilterApplies
+                                ? 'No new controllable cost rows match the selected filters.'
+                                : 'No new controllable cost rows fall within the selected date range.'}
+                          </p>
+                        )}
+
+                      {!controllableCostsNewState.loading
+                        && !controllableCostsNewState.error
+                        && (isControllableCostsNewPareto
+                          ? controllableCostsNewParetoChartData.labels.length > 0
+                          : isControllableCostsNewPalette
+                            ? controllableCostsNewPaletteChartData.labels.length > 0
+                            : controllableCostsNewChartData.labels.length > 0)
+                        && controllableCostsNewChartWidth > 0 && (
+                          isControllableCostsNewPareto ? (
+                            <ParetoMetricChart
+                              width={controllableCostsNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsNewParetoChartData.labels}
+                              values={controllableCostsNewParetoChartData.values}
+                              cumulativeShares={controllableCostsNewParetoChartData.cumulativeShares}
+                              barLabel="Total cost"
+                              barColor="var(--chart-line)"
+                              barAxis={CONTROLLABLE_COSTS_Y_AXIS}
+                              barValueFormatter={formatCurrency}
+                              goalLine={visibleControllableCostsNewGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          ) : isControllableCostsNewPalette ? (
+                            <StackedCategoryBarChart
+                              width={controllableCostsNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsNewPaletteChartData.labels}
+                              yAxis={controllableCostsNewPaletteChartYAxis}
+                              series={controllableCostsNewPaletteChartData.series.map(
+                                (seriesItem) => ({
+                                  ...seriesItem,
+                                  valueFormatter: formatCurrency
+                                })
+                              )}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              variant={
+                                chartVariants.controllableCostsNew === 'bar' ? 'bar' : 'line'
+                              }
+                              width={controllableCostsNewChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={controllableCostsNewChartData.labels}
+                              yAxis={controllableCostsNewChartYAxis}
+                              series={[
+                                {
+                                  data: controllableCostsNewChartData.controllable,
+                                  label: 'Controllable',
+                                  color: 'var(--chart-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: controllableCostsNewChartData.labels.length <= 1
+                                },
+                                {
+                                  data: controllableCostsNewChartData.uncontrollable,
+                                  label: 'Uncontrollable',
+                                  color: 'var(--chart-accent-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: controllableCostsNewChartData.labels.length <= 1
+                                }
+                              ]}
+                              goalLine={visibleControllableCostsNewGoalLine}
+                              sx={sharedChartSx}
+                            />
+                          )
+                        )}
+                    </div>
+
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.controllableCostsNew}
+                          onChange={(nextVariant) => {
+                            if (nextVariant === 'pareto') {
+                              setSelectedControllableNewChartFilterField(
+                                CONTROLLABLE_NEW_PARETO_FILTER_FIELDS[0].value
+                              );
+                            }
+
+                            setChartVariants((currentValue) => ({
+                              ...currentValue,
+                              controllableCostsNew: nextVariant
+                            }));
+                          }}
+                          alwaysGridToggle
+                          supportsFilter
+                          supportsPalette
+                          supportsPareto
+                          filterToggleAriaLabel="New controllable costs time series"
+                          filterFieldValue={activeControllableNewChartFilterField.value}
+                          filterFieldOptions={CONTROLLABLE_NEW_CHART_FILTER_FIELDS}
+                          paretoFieldOptions={CONTROLLABLE_NEW_PARETO_FILTER_FIELDS}
+                          filterFieldAriaLabel="Select new controllable costs filter field"
+                          onFilterFieldChange={(nextField) => {
+                            setSelectedControllableNewChartFilterField(nextField);
+                            setSelectedControllableNewChartFilterValue([]);
+                          }}
+                          filterValue={activeControllableNewChartFilterValue}
+                          filterValueOptions={controllableNewChartFilterValueOptions}
+                          filterValueAllLabel={activeControllableNewChartFilterField.allLabel}
+                          filterValueAriaLabel="Select new controllable costs filter value"
+                          onFilterValueChange={setSelectedControllableNewChartFilterValue}
+                          paletteToggleAriaLabel="New controllable costs grouped palette chart"
+                          paletteGroupFieldValue={activeControllableNewPaletteGroupField.value}
+                          paletteGroupFieldOptions={controllableNewPaletteGroupFieldOptions}
+                          paletteGroupFieldAriaLabel="Select new controllable costs group field"
+                          onPaletteGroupFieldChange={(nextField) => {
+                            setSelectedControllableNewPaletteGroupField(nextField);
+
+                            if (nextField === activeControllableNewPaletteColorField.value) {
+                              const nextColorField =
+                                CONTROLLABLE_NEW_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedControllableNewPaletteColorField(nextColorField);
+                            }
+                          }}
+                          paletteColorFieldValue={activeControllableNewPaletteColorField.value}
+                          paletteColorFieldOptions={controllableNewPaletteColorFieldOptions}
+                          paletteColorFieldAriaLabel="Select new controllable costs color field"
+                          onPaletteColorFieldChange={(nextField) => {
+                            setSelectedControllableNewPaletteColorField(nextField);
+
+                            if (nextField === activeControllableNewPaletteGroupField.value) {
+                              const nextGroupField =
+                                CONTROLLABLE_NEW_PALETTE_FIELDS.find(
+                                  (option) => option.value !== nextField
+                                )?.value ?? nextField;
+
+                              setSelectedControllableNewPaletteGroupField(nextGroupField);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="chart-footer chart-footer-match-labor">
+                      <ToggleButtonGroup
+                        value={controllableCostsNewViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, nextMode) => {
+                          if (nextMode) {
+                            setControllableCostsNewViewMode(nextMode);
+                          }
+                        }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(CONTROLLABLE_COSTS_NEW_VIEW_CONFIG).map(
+                          ([mode, config]) => (
+                            <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                              {config.label}
+                            </ToggleButton>
+                          )
+                        )}
                       </ToggleButtonGroup>
                     </div>
                   </div>

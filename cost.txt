@@ -1,0 +1,131 @@
+WITH CostCenterHierarchy AS (
+    SELECT
+        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
+        NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS Division,
+        NULLIF(LTRIM(RTRIM(LEV04_DESC)), '') AS Business_Unit,
+        ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(COST_CENTER))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS rn
+    FROM rpt.rb_load_cost_center_hierarchy
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+),
+
+FacilityCounts AS (
+    SELECT
+        LTRIM(RTRIM(employee_cost_center)) AS Cost_Center,
+        NULLIF(
+            CONCAT_WS(
+                ' | ',
+                NULLIF(LTRIM(RTRIM(address_1)), ''),
+                NULLIF(LTRIM(RTRIM(city)), ''),
+                NULLIF(LTRIM(RTRIM(state)), '')
+            ),
+            ''
+        ) AS Facility,
+        COUNT(DISTINCT employee_my_id) AS Employee_Count
+    FROM rpt.rb_archibus
+    WHERE NULLIF(LTRIM(RTRIM(employee_cost_center)), '') IS NOT NULL
+    GROUP BY
+        LTRIM(RTRIM(employee_cost_center)),
+        NULLIF(
+            CONCAT_WS(
+                ' | ',
+                NULLIF(LTRIM(RTRIM(address_1)), ''),
+                NULLIF(LTRIM(RTRIM(city)), ''),
+                NULLIF(LTRIM(RTRIM(state)), '')
+            ),
+            ''
+        )
+),
+
+Facility AS (
+    SELECT
+        Cost_Center,
+        Facility,
+        ROW_NUMBER() OVER (
+            PARTITION BY Cost_Center
+            ORDER BY Employee_Count DESC, Facility
+        ) AS rn
+    FROM FacilityCounts
+    WHERE Facility IS NOT NULL
+)
+
+SELECT
+    TRY_CONVERT(INT, a.GJAHR) AS [year],
+
+    CONCAT(
+        'Q',
+        ((TRY_CONVERT(INT, a.POPER) - 1) / 3) + 1
+    ) AS quarter,
+
+    h.Division AS division,
+    h.Business_Unit AS business_unit,
+
+    COALESCE(
+        f.Facility,
+        'Unmapped'
+    ) AS facility,
+
+    LTRIM(RTRIM(a.COST_CENTER)) AS cost_center,
+
+    LTRIM(RTRIM(a.RACCT)) AS gl_account_cost_element,
+
+    NULLIF(
+        LTRIM(RTRIM(a.GL_TXT20)),
+        ''
+    ) AS cost_element_description,
+
+    COALESCE(
+        NULLIF(LTRIM(RTRIM(a.Cost_Category)), ''),
+        'Other'
+    ) AS cost_category,
+
+    a.Cost_Type AS cost_type,
+    a.Facility_Type AS facility_type,
+
+    SUM(
+        TRY_CONVERT(DECIMAL(18,2), a.KSL)
+    ) AS cost
+
+FROM dbo.rb_Actuals_SAP_Transformation a
+
+JOIN CostCenterHierarchy h
+    ON LTRIM(RTRIM(a.COST_CENTER)) = h.Cost_Center
+   AND h.rn = 1
+
+LEFT JOIN Facility f
+    ON LTRIM(RTRIM(a.COST_CENTER)) = f.Cost_Center
+   AND f.rn = 1
+
+WHERE
+    TRY_CONVERT(INT, a.POPER) BETWEEN 1 AND 12
+    AND TRY_CONVERT(DECIMAL(18,2), a.KSL) IS NOT NULL
+
+GROUP BY
+    TRY_CONVERT(INT, a.GJAHR),
+    CONCAT(
+        'Q',
+        ((TRY_CONVERT(INT, a.POPER) - 1) / 3) + 1
+    ),
+    h.Division,
+    h.Business_Unit,
+    COALESCE(f.Facility, 'Unmapped'),
+    LTRIM(RTRIM(a.COST_CENTER)),
+    LTRIM(RTRIM(a.RACCT)),
+    NULLIF(LTRIM(RTRIM(a.GL_TXT20)), ''),
+    COALESCE(
+        NULLIF(LTRIM(RTRIM(a.Cost_Category)), ''),
+        'Other'
+    ),
+    a.Cost_Type,
+    a.Facility_Type
+
+ORDER BY
+    [year],
+    quarter,
+    division,
+    business_unit,
+    facility,
+    cost_category,
+    gl_account_cost_element;

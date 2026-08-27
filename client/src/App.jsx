@@ -4775,6 +4775,8 @@ export default function App() {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
           source: payload.source,
           sourceRowCount: payload.sourceRowCount,
+          excludedByCostElementKeyCount: payload.excludedByCostElementKeyCount,
+          validCostElementCount: payload.validCostElementCount,
           years: payload.years,
           totalCost: payload.totalCost,
           controllableRowCount: payload.controllableRowCount,

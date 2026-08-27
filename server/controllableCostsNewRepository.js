@@ -8,10 +8,16 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import {
+  formatSqlIdentifier,
+  getConnectionConfig,
+  getPool
+} from './sqlConnection.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONTROLLABLE_COSTS_NEW_FILE_PATH = path.resolve(__dirname, '../data/cost.xlsx');
+const COST_ELEMENT_KEY_TABLE_NAME = 'cost_element_key';
 const REQUIRED_COLUMNS = [
   'year',
   'month',
@@ -34,6 +40,21 @@ function normalizeHeader(value) {
 
 function normalizeText(value) {
   return String(value ?? '').trim();
+}
+
+function normalizeCostElementIdentifier(value) {
+  const normalizedValue = normalizeText(value);
+  const numericMatch = /^(\d+)(?:\.0+)?$/.exec(normalizedValue);
+
+  if (numericMatch) {
+    try {
+      return BigInt(numericMatch[1]).toString();
+    } catch {
+      // Fall through to text comparison for identifiers outside BigInt's accepted format.
+    }
+  }
+
+  return normalizedValue.toUpperCase();
 }
 
 function normalizeNumber(value) {
@@ -64,6 +85,49 @@ function normalizeControllability(costType, costCategory) {
 
   // The new extract has no resolved status column, so unmatched rows remain in the primary series.
   return 'Controllable';
+}
+
+async function readValidCostElements() {
+  const { config, missing } = getConnectionConfig();
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Cannot filter new controllable costs without database configuration: ${missing.join(', ')}`
+    );
+  }
+
+  const pool = await getPool(config);
+  const costElementKeyTableName = formatSqlIdentifier(COST_ELEMENT_KEY_TABLE_NAME, config);
+
+  logDebug('controllable-costs-new', 'Loading valid cost elements for the new cost dataset.', {
+    tableName: costElementKeyTableName
+  });
+
+  const result = await pool.request().query(`
+    SELECT DISTINCT
+      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), '')))
+        AS [Cost Element]
+    FROM ${costElementKeyTableName} AS source
+    WHERE NULLIF(
+      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), ''))),
+      ''
+    ) IS NOT NULL;
+  `);
+  const validCostElements = new Set(
+    result.recordset
+      .map((row) => normalizeCostElementIdentifier(row['Cost Element']))
+      .filter(Boolean)
+  );
+
+  logDebug('controllable-costs-new', 'Valid cost elements loaded.', {
+    tableName: costElementKeyTableName,
+    costElementCount: validCostElements.size
+  });
+
+  return {
+    tableName: costElementKeyTableName,
+    values: validCostElements
+  };
 }
 
 export function normalizeControllableCostsNewRow(row) {
@@ -138,7 +202,14 @@ export async function readControllableCostsNewData() {
       );
     }
 
-    const rows = sourceRows.map(normalizeControllableCostsNewRow).filter(Boolean);
+    const normalizedRows = sourceRows.map(normalizeControllableCostsNewRow).filter(Boolean);
+    const validCostElements = await readValidCostElements();
+    const rows = normalizedRows.filter((row) =>
+      validCostElements.values.has(
+        normalizeCostElementIdentifier(row.gl_account_cost_element)
+      )
+    );
+    const excludedByCostElementKeyCount = normalizedRows.length - rows.length;
     const years = Array.from(new Set(rows.map((row) => row.year)).values()).sort(
       (left, right) => left - right
     );
@@ -153,7 +224,10 @@ export async function readControllableCostsNewData() {
       sheetName,
       sourceRowCount: sourceRows.length,
       rowCount: rows.length,
-      invalidRowCount: sourceRows.length - rows.length,
+      invalidRowCount: sourceRows.length - normalizedRows.length,
+      excludedByCostElementKeyCount,
+      costElementKeyTableName: validCostElements.tableName,
+      validCostElementCount: validCostElements.values.size,
       years,
       totalCost,
       controllableRowCount,
@@ -167,6 +241,9 @@ export async function readControllableCostsNewData() {
       sourceRowCount: payload.sourceRowCount,
       rowCount: payload.rowCount,
       invalidRowCount: payload.invalidRowCount,
+      excludedByCostElementKeyCount,
+      validCostElementCount: payload.validCostElementCount,
+      costElementKeyTableName: payload.costElementKeyTableName,
       years,
       totalCost,
       controllableRowCount,

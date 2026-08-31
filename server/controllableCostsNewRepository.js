@@ -218,6 +218,62 @@ export function normalizeControllableCostsNewRow(row) {
   };
 }
 
+export async function readControllableCostsNewPipelineData() {
+  await fs.access(CONTROLLABLE_COSTS_NEW_FILE_PATH);
+
+  const workbook = XLSX.readFile(CONTROLLABLE_COSTS_NEW_FILE_PATH, { cellDates: false });
+  const sheetName = workbook.SheetNames[0];
+
+  if (!sheetName) {
+    throw new Error('The new controllable costs workbook does not contain a worksheet.');
+  }
+
+  const worksheet = workbook.Sheets[sheetName];
+  const sourceRows = XLSX.utils.sheet_to_json(worksheet, {
+    defval: null,
+    raw: true
+  });
+  const availableColumns = new Set(Object.keys(sourceRows[0] ?? {}).map(normalizeHeader));
+  const missingColumns = REQUIRED_COLUMNS.filter(
+    (columnName) => !availableColumns.has(columnName)
+  );
+
+  if (sourceRows.length > 0 && missingColumns.length > 0) {
+    throw new Error(
+      `The new controllable costs workbook is missing required columns: ${missingColumns.join(', ')}`
+    );
+  }
+
+  const normalizedRows = sourceRows.map(normalizeControllableCostsNewRow).filter(Boolean);
+  const costElementKeys = await readCostElementKeys();
+  const rows = [];
+  const excludedRows = [];
+
+  normalizedRows.forEach((row) => {
+    const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
+
+    if (!matchedKey) {
+      excludedRows.push(row);
+      return;
+    }
+
+    rows.push({
+      ...row,
+      controllable: matchedKey.controllable
+    });
+  });
+
+  return {
+    fileName: path.basename(CONTROLLABLE_COSTS_NEW_FILE_PATH),
+    sheetName,
+    sourceRows,
+    normalizedRows,
+    rows,
+    excludedRows,
+    costElementKeys
+  };
+}
+
 export async function readControllableCostsNewData() {
   const stopTimer = createTimer();
 
@@ -226,45 +282,15 @@ export async function readControllableCostsNewData() {
   });
 
   try {
-    await fs.access(CONTROLLABLE_COSTS_NEW_FILE_PATH);
-
-    const workbook = XLSX.readFile(CONTROLLABLE_COSTS_NEW_FILE_PATH, { cellDates: false });
-    const sheetName = workbook.SheetNames[0];
-
-    if (!sheetName) {
-      throw new Error('The new controllable costs workbook does not contain a worksheet.');
-    }
-
-    const worksheet = workbook.Sheets[sheetName];
-    const sourceRows = XLSX.utils.sheet_to_json(worksheet, {
-      defval: null,
-      raw: true
-    });
-    const availableColumns = new Set(Object.keys(sourceRows[0] ?? {}).map(normalizeHeader));
-    const missingColumns = REQUIRED_COLUMNS.filter(
-      (columnName) => !availableColumns.has(columnName)
-    );
-
-    if (sourceRows.length > 0 && missingColumns.length > 0) {
-      throw new Error(
-        `The new controllable costs workbook is missing required columns: ${missingColumns.join(', ')}`
-      );
-    }
-
-    const normalizedRows = sourceRows.map(normalizeControllableCostsNewRow).filter(Boolean);
-    const costElementKeys = await readCostElementKeys();
-    const rows = normalizedRows.flatMap((row) => {
-      const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
-
-      if (!matchedKey) {
-        return [];
-      }
-
-      return [{
-        ...row,
-        controllable: matchedKey.controllable
-      }];
-    });
+    const {
+      fileName,
+      sheetName,
+      sourceRows,
+      normalizedRows,
+      rows,
+      excludedRows,
+      costElementKeys
+    } = await readControllableCostsNewPipelineData();
     const excludedByCostElementKeyCount = normalizedRows.length - rows.length;
     const years = Array.from(new Set(rows.map((row) => row.year)).values()).sort(
       (left, right) => left - right
@@ -276,12 +302,12 @@ export async function readControllableCostsNewData() {
     const uncontrollableRowCount = rows.length - controllableRowCount;
     const payload = {
       source: 'excel',
-      fileName: path.basename(CONTROLLABLE_COSTS_NEW_FILE_PATH),
+      fileName,
       sheetName,
       sourceRowCount: sourceRows.length,
       rowCount: rows.length,
       invalidRowCount: sourceRows.length - normalizedRows.length,
-      excludedByCostElementKeyCount,
+      excludedByCostElementKeyCount: excludedRows.length,
       costElementKeyTableName: costElementKeys.tableName,
       costElementKeyRowCount: costElementKeys.rowCount,
       validCostElementCount: costElementKeys.valuesByIdentifier.size,

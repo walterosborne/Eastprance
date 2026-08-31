@@ -1,96 +1,16 @@
-WITH Base AS (
-    SELECT
-        TRY_CONVERT(INT, GJAHR) AS [year],
-        TRY_CONVERT(INT, POPER) AS [month],
-        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
-        LTRIM(RTRIM(RACCT)) AS Cost_Element,
-        TRY_CONVERT(DECIMAL(18,2), KSL) AS Cost
-    FROM dbo.rb_Actuals_SAP_Transformation
-),
-
-Hierarchy AS (
-    SELECT
-        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
-        LTRIM(RTRIM(LEV02)) AS LEV02,
-        ROW_NUMBER() OVER (
-            PARTITION BY LTRIM(RTRIM(COST_CENTER))
-            ORDER BY last_modified_date DESC, created_date DESC, id DESC
-        ) AS rn
-    FROM rpt.rb_load_cost_center_hierarchy
-),
-
-CostElements AS (
-    SELECT DISTINCT
-        COALESCE(
-            CONVERT(VARCHAR(50), TRY_CONVERT(BIGINT, LTRIM(RTRIM([Cost Element])))),
-            LTRIM(RTRIM([Cost Element]))
-        ) AS Cost_Element
-    FROM cost_element_key
-)
-
 SELECT
-    '1 - Raw cost data' AS Stage,
-    [year],
-    [month],
-    COUNT(*) AS Row_Count,
-    SUM(Cost) AS Cost
-FROM Base
-WHERE Cost IS NOT NULL
-GROUP BY [year], [month]
-
-UNION ALL
-
-SELECT
-    '2 - Valid month',
-    [year],
-    [month],
-    COUNT(*),
-    SUM(Cost)
-FROM Base
-WHERE Cost IS NOT NULL
-  AND [month] BETWEEN 1 AND 12
-GROUP BY [year], [month]
-
-UNION ALL
-
-SELECT
-    '3 - DS hierarchy match',
-    b.[year],
-    b.[month],
-    COUNT(*),
-    SUM(b.Cost)
-FROM Base b
-JOIN Hierarchy h
-    ON b.Cost_Center = h.Cost_Center
-   AND h.rn = 1
-   AND h.LEV02 = 'NGRBT'
-WHERE b.Cost IS NOT NULL
-  AND b.[month] BETWEEN 1 AND 12
-GROUP BY b.[year], b.[month]
-
-UNION ALL
-
-SELECT
-    '4 - Cost element key match',
-    b.[year],
-    b.[month],
-    COUNT(*),
-    SUM(b.Cost)
-FROM Base b
-JOIN Hierarchy h
-    ON b.Cost_Center = h.Cost_Center
-   AND h.rn = 1
-   AND h.LEV02 = 'NGRBT'
-JOIN CostElements k
-    ON COALESCE(
-        CONVERT(VARCHAR(50), TRY_CONVERT(BIGINT, b.Cost_Element)),
-        b.Cost_Element
-    ) = k.Cost_Element
-WHERE b.Cost IS NOT NULL
-  AND b.[month] BETWEEN 1 AND 12
-GROUP BY b.[year], b.[month]
-
+    TRY_CONVERT(INT, GJAHR) AS [year],
+    TRY_CONVERT(INT, POPER) AS [month],
+    Cost_Type,
+    COUNT(*) AS row_count,
+    SUM(TRY_CONVERT(DECIMAL(18,2), KSL)) AS cost
+FROM dbo.rb_Actuals_SAP_Transformation
+WHERE TRY_CONVERT(INT, POPER) BETWEEN 1 AND 12
+GROUP BY
+    TRY_CONVERT(INT, GJAHR),
+    TRY_CONVERT(INT, POPER),
+    Cost_Type
 ORDER BY
-    Stage,
-    [year],
-    [month];
+    [year] DESC,
+    [month] DESC,
+    Cost_Type;

@@ -72,22 +72,55 @@ function getNormalizedSourceRow(row) {
   );
 }
 
-function normalizeControllability(costType, costCategory) {
-  const classification = `${normalizeText(costType)} ${normalizeText(costCategory)}`.toLowerCase();
-  const compactClassification = classification.replace(/[^a-z]/g, '');
-
-  if (
-    compactClassification.includes('uncontrollable')
-    || compactClassification.includes('noncontrollable')
-  ) {
-    return 'Uncontrollable';
-  }
-
-  // The new extract has no resolved status column, so unmatched rows remain in the primary series.
-  return 'Controllable';
+function normalizeMatchText(value) {
+  return normalizeText(value).toLowerCase().replace(/\s+/g, ' ');
 }
 
-async function readValidCostElements() {
+function normalizeKeyControllability(value) {
+  return normalizeMatchText(value) === 'controllable'
+    ? 'Controllable'
+    : 'Uncontrollable';
+}
+
+function getCostElementMatchRank(costRow, keyRow) {
+  const costCategoryMatches =
+    normalizeMatchText(keyRow.costCategory) === normalizeMatchText(costRow.cost_category);
+  const descriptionMatches =
+    normalizeMatchText(keyRow.costElementDescription)
+      === normalizeMatchText(costRow.cost_element_description);
+
+  if (costCategoryMatches && descriptionMatches) {
+    return 0;
+  }
+
+  if (costCategoryMatches) {
+    return 1;
+  }
+
+  if (descriptionMatches) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function resolveCostElementKey(costRow, costElementKeysByIdentifier) {
+  const identifier = normalizeCostElementIdentifier(costRow.gl_account_cost_element);
+  const candidates = costElementKeysByIdentifier.get(identifier) ?? [];
+
+  return candidates.reduce((bestMatch, candidate) => {
+    if (!bestMatch) {
+      return candidate;
+    }
+
+    return getCostElementMatchRank(costRow, candidate)
+      < getCostElementMatchRank(costRow, bestMatch)
+      ? candidate
+      : bestMatch;
+  }, null);
+}
+
+async function readCostElementKeys() {
   const { config, missing } = getConnectionConfig();
 
   if (missing.length > 0) {
@@ -99,34 +132,50 @@ async function readValidCostElements() {
   const pool = await getPool(config);
   const costElementKeyTableName = formatSqlIdentifier(COST_ELEMENT_KEY_TABLE_NAME, config);
 
-  logDebug('controllable-costs-new', 'Loading valid cost elements for the new cost dataset.', {
+  logDebug('controllable-costs-new', 'Loading cost element keys for the new cost dataset.', {
     tableName: costElementKeyTableName
   });
 
   const result = await pool.request().query(`
-    SELECT DISTINCT
+    SELECT
+      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Category] AS nvarchar(4000)), '')))
+        AS [Cost Category],
       LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), '')))
-        AS [Cost Element]
+        AS [Cost Element],
+      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element Description] AS nvarchar(4000)), '')))
+        AS [Cost Element Description],
+      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Controllable] AS nvarchar(255)), '')))
+        AS [Controllable]
     FROM ${costElementKeyTableName} AS source
     WHERE NULLIF(
       LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), ''))),
       ''
     ) IS NOT NULL;
   `);
-  const validCostElements = new Set(
-    result.recordset
-      .map((row) => normalizeCostElementIdentifier(row['Cost Element']))
-      .filter(Boolean)
-  );
+  const rows = result.recordset.map((row) => ({
+    costCategory: normalizeText(row['Cost Category']),
+    costElement: normalizeCostElementIdentifier(row['Cost Element']),
+    costElementDescription: normalizeText(row['Cost Element Description']),
+    controllable: normalizeKeyControllability(row.Controllable)
+  }));
+  const valuesByIdentifier = rows.reduce((lookup, row) => {
+    const currentRows = lookup.get(row.costElement) ?? [];
 
-  logDebug('controllable-costs-new', 'Valid cost elements loaded.', {
+    currentRows.push(row);
+    lookup.set(row.costElement, currentRows);
+    return lookup;
+  }, new Map());
+
+  logDebug('controllable-costs-new', 'Cost element keys loaded.', {
     tableName: costElementKeyTableName,
-    costElementCount: validCostElements.size
+    costElementKeyRowCount: rows.length,
+    costElementCount: valuesByIdentifier.size
   });
 
   return {
     tableName: costElementKeyTableName,
-    values: validCostElements
+    rowCount: rows.length,
+    valuesByIdentifier
   };
 }
 
@@ -165,7 +214,7 @@ export function normalizeControllableCostsNewRow(row) {
     cost_type: normalizeText(source.cost_type),
     facility_type: normalizeText(source.facility_type),
     cost,
-    controllable: normalizeControllability(source.cost_type, costCategory)
+    controllable: null
   };
 }
 
@@ -203,12 +252,19 @@ export async function readControllableCostsNewData() {
     }
 
     const normalizedRows = sourceRows.map(normalizeControllableCostsNewRow).filter(Boolean);
-    const validCostElements = await readValidCostElements();
-    const rows = normalizedRows.filter((row) =>
-      validCostElements.values.has(
-        normalizeCostElementIdentifier(row.gl_account_cost_element)
-      )
-    );
+    const costElementKeys = await readCostElementKeys();
+    const rows = normalizedRows.flatMap((row) => {
+      const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
+
+      if (!matchedKey) {
+        return [];
+      }
+
+      return [{
+        ...row,
+        controllable: matchedKey.controllable
+      }];
+    });
     const excludedByCostElementKeyCount = normalizedRows.length - rows.length;
     const years = Array.from(new Set(rows.map((row) => row.year)).values()).sort(
       (left, right) => left - right
@@ -226,8 +282,9 @@ export async function readControllableCostsNewData() {
       rowCount: rows.length,
       invalidRowCount: sourceRows.length - normalizedRows.length,
       excludedByCostElementKeyCount,
-      costElementKeyTableName: validCostElements.tableName,
-      validCostElementCount: validCostElements.values.size,
+      costElementKeyTableName: costElementKeys.tableName,
+      costElementKeyRowCount: costElementKeys.rowCount,
+      validCostElementCount: costElementKeys.valuesByIdentifier.size,
       years,
       totalCost,
       controllableRowCount,
@@ -242,6 +299,7 @@ export async function readControllableCostsNewData() {
       rowCount: payload.rowCount,
       invalidRowCount: payload.invalidRowCount,
       excludedByCostElementKeyCount,
+      costElementKeyRowCount: payload.costElementKeyRowCount,
       validCostElementCount: payload.validCostElementCount,
       costElementKeyTableName: payload.costElementKeyTableName,
       years,

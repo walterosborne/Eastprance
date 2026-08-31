@@ -307,6 +307,64 @@ function getSortedMonthKeys(monthKeys) {
   return [...monthKeys].sort((left, right) => left.localeCompare(right));
 }
 
+function buildOldOtherHoursByCategory(records, oldCoverage) {
+  const monthKeys = getSortedMonthKeys(oldCoverage);
+  const groups = new Map();
+  const monthlyTotals = Object.fromEntries(monthKeys.map((monthKey) => [monthKey, 0]));
+
+  records.forEach((record) => {
+    if (record.category !== 'other' || !oldCoverage.has(record.monthKey)) {
+      return;
+    }
+
+    const rawCategory = record.laborCategory;
+    const group = groups.get(rawCategory) ?? {
+      laborCategory: rawCategory,
+      totalHours: 0,
+      monthlyHours: Object.fromEntries(monthKeys.map((monthKey) => [monthKey, 0]))
+    };
+
+    group.totalHours += record.enteredHours;
+    group.monthlyHours[record.monthKey] += record.enteredHours;
+    monthlyTotals[record.monthKey] += record.enteredHours;
+    groups.set(rawCategory, group);
+  });
+
+  const rows = [...groups.values()]
+    .map((group) => ({
+      ...group,
+      totalHours: Number(group.totalHours.toFixed(2)),
+      monthlyHours: Object.fromEntries(
+        Object.entries(group.monthlyHours).map(([monthKey, hours]) => [
+          monthKey,
+          Number(hours.toFixed(2))
+        ])
+      )
+    }))
+    .sort((left, right) => {
+      if (right.totalHours !== left.totalHours) {
+        return right.totalHours - left.totalHours;
+      }
+
+      return left.laborCategory.localeCompare(right.laborCategory);
+    });
+
+  return {
+    monthKeys,
+    monthLabels: monthKeys.map(formatMonthKey),
+    totalHours: Number(
+      Object.values(monthlyTotals).reduce((sum, hours) => sum + hours, 0).toFixed(2)
+    ),
+    monthlyTotals: Object.fromEntries(
+      Object.entries(monthlyTotals).map(([monthKey, hours]) => [
+        monthKey,
+        Number(hours.toFixed(2))
+      ])
+    ),
+    rows
+  };
+}
+
 function summarizeSource(payload, records) {
   const recognizedRecordCount = records.filter((record) => record.category !== 'other').length;
 
@@ -370,6 +428,7 @@ export function buildLaborDiagnosticsPayload(oldPayload, newPayload, now = new D
     },
     overall: compareTotals(oldOverall, newOverall),
     monthly,
+    oldOtherHours: buildOldOtherHoursByCategory(oldRecords, oldCoverage),
     discrepancies: {
       facility: compareDimension(oldRecords, newRecords, commonMonthKeys, 'facility'),
       facilityMonth: compareFacilityMonths(oldRecords, newRecords, commonMonthKeys),
@@ -537,6 +596,48 @@ function renderDiscrepancyTable(rows, firstColumnLabel, includeMonth = false) {
   `;
 }
 
+function renderOldOtherHoursTable(otherHours) {
+  if (otherHours.rows.length === 0) {
+    return '<p class="empty">No old-source Other hours were found in the scorecard date window.</p>';
+  }
+
+  return `
+    <div class="table-scroll">
+      <table class="other-hours-table">
+        <thead>
+          <tr>
+            <th>Raw labor_category</th>
+            <th>Total</th>
+            ${otherHours.monthLabels.map((monthLabel) => `
+              <th>${escapeHtml(monthLabel)}</th>
+            `).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${otherHours.rows.map((row) => `
+            <tr>
+              <th title="${escapeHtml(row.laborCategory)}">${escapeHtml(row.laborCategory)}</th>
+              <td class="difference">${formatHours(row.totalHours)}</td>
+              ${otherHours.monthKeys.map((monthKey) => `
+                <td>${formatHours(row.monthlyHours[monthKey])}</td>
+              `).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th>All Other Categories</th>
+            <td>${formatHours(otherHours.totalHours)}</td>
+            ${otherHours.monthKeys.map((monthKey) => `
+              <td>${formatHours(otherHours.monthlyTotals[monthKey])}</td>
+            `).join('')}
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+}
+
 function renderMonthList(months) {
   return months.length > 0 ? months.map(escapeHtml).join(', ') : 'None';
 }
@@ -584,8 +685,10 @@ export function renderLaborDiagnosticsPage(payload) {
       tbody th, thead th:first-child { text-align: left; }
       tbody tr:nth-child(even) { background: #182231; }
       tbody tr:hover { background: #263548; }
+      tfoot th, tfoot td { border-top: 2px solid #6b7280; background: #28223c; color: white; font-weight: 700; }
       .difference { color: #fbbf24; font-weight: 700; }
       .discrepancy-table tbody th { max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
+      .other-hours-table tbody th { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
       .empty { margin: 0; padding: 8px; color: #fbbf24; font-size: 12px; }
       @media (max-width: 900px) {
         .overall-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -640,6 +743,12 @@ export function renderLaborDiagnosticsPage(payload) {
       <section class="panel">
         <h2>Monthly Comparison</h2>
         ${renderMonthlyTable(payload.monthly)}
+      </section>
+
+      <section class="panel">
+        <h2>Old Source Other Hours by Raw Labor Category</h2>
+        <p class="note">Includes blank/null labor categories as <b>(Blank)</b>. Categories are sorted by total hours descending.</p>
+        ${renderOldOtherHoursTable(payload.oldOtherHours)}
       </section>
 
       <section class="panel">

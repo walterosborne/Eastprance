@@ -44,6 +44,7 @@ import { toast } from 'react-toastify';
 import {
   CALCULATED_GOAL_MIN_OBSERVATIONS,
   forecastControllableCostsGoalLineFromSeries,
+  forecastIncidentGoalLineFromSeries,
   forecastLaborHanaGoalLineFromSeries,
   forecastLaborGoalLineFromSeries,
   forecastNmfrGoalLineFromSeries,
@@ -71,6 +72,13 @@ const AUTHENTICATION_EXPIRED_ERROR = 'authentication_expired';
 const AUTHENTICATION_RETRY_SESSION_KEY = 'qmi-authentication-reauthentication-attempted';
 const AUTHENTICATION_RETRY_QUERY_PARAMETER = 'qmi_reauthentication_attempted';
 const NG_TOAST_BLUE = '#0057b8';
+const SCORECARD_START_STAMP = Date.UTC(2025, 0, 1);
+const scorecardCurrentDate = new Date();
+const SCORECARD_END_STAMP = Date.UTC(
+  scorecardCurrentDate.getUTCFullYear(),
+  scorecardCurrentDate.getUTCMonth(),
+  1
+);
 const PALETTE_INFO_TOAST_OPTIONS = {
   autoClose: 10000,
   progressStyle: { backgroundColor: NG_TOAST_BLUE },
@@ -875,6 +883,12 @@ function formatPercentValue(value) {
   return percentFormatter.format(Number(value ?? 0));
 }
 
+function formatForecastValue(calculation, valueFormatter) {
+  const forecastValue = Number(calculation?.goalLine?.expectedValue);
+
+  return Number.isFinite(forecastValue) ? valueFormatter(forecastValue) : '--';
+}
+
 function formatPercentAxis(value) {
   return `${numberFormatter.format(Number(value ?? 0) * 100)}%`;
 }
@@ -1291,12 +1305,16 @@ function getLaborNewRowStamp(row) {
 }
 
 function isStampWithinDateRange(stamp, selectedDateRange) {
-  if (!selectedDateRange) {
-    return true;
-  }
-
   if (stamp == null) {
     return false;
+  }
+
+  if (stamp < SCORECARD_START_STAMP || stamp > SCORECARD_END_STAMP) {
+    return false;
+  }
+
+  if (!selectedDateRange) {
+    return true;
   }
 
   return stamp >= selectedDateRange.startStamp && stamp <= selectedDateRange.endStamp;
@@ -1401,7 +1419,9 @@ function getAvailableTimelineStamps({
     }
   });
 
-  return Array.from(stampSet).sort((left, right) => left - right);
+  return Array.from(stampSet)
+    .filter((stamp) => isStampWithinDateRange(stamp, null))
+    .sort((left, right) => left - right);
 }
 
 function getYtdRangeIndices(availableTimelineStamps) {
@@ -3739,15 +3759,27 @@ function CardHeader({ title, info, tooltipLegend = null }) {
   );
 }
 
-function MetricOverviewBand({ value, label, legendItems = [], ariaLabel = '' }) {
+function MetricOverviewBand({
+  value,
+  label,
+  forecastValue = '--',
+  legendItems = [],
+  ariaLabel = ''
+}) {
   return (
     <section
       className="metric-overview-band"
       aria-label={ariaLabel || undefined}
     >
       <div className="metric-overview-summary">
-        <p className="metric-overview-value">{value}</p>
-        <p className="metric-overview-label">{label}</p>
+        <div className="metric-overview-primary">
+          <p className="metric-overview-value">{value}</p>
+          <p className="metric-overview-label">{label}</p>
+        </div>
+        <div className="metric-overview-forecast">
+          <p className="metric-overview-forecast-value">{forecastValue}</p>
+          <p className="metric-overview-forecast-label">Next Month Forecast</p>
+        </div>
       </div>
       <div className="metric-overview-legend" aria-label="Chart legend">
         {legendItems.map((item) => (
@@ -5751,6 +5783,14 @@ export default function App() {
     sifViewMode,
     selectedDateRange
   );
+  const sifForecastCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'sif-forecast',
+    timeline: sifViewMode,
+    seriesValues: sifChartData.map((bucket) => bucket.total),
+    loading: sifState.loading,
+    error: sifState.error,
+    calculateGoalLine: forecastIncidentGoalLineFromSeries
+  });
   const sifParetoChartData = buildSafetyParetoChartData(
     baseFilteredSifRows,
     activeSifChartFilterField.value,
@@ -5823,6 +5863,14 @@ export default function App() {
     potentialSifViewMode,
     selectedDateRange
   );
+  const potentialSifForecastCalculation = useCalculatedMetricGoalLine({
+    metricKey: 'potential-sif-forecast',
+    timeline: potentialSifViewMode,
+    seriesValues: potentialSifChartData.map((bucket) => bucket.total),
+    loading: potentialSifState.loading,
+    error: potentialSifState.error,
+    calculateGoalLine: forecastIncidentGoalLineFromSeries
+  });
   const potentialSifParetoChartData = buildSafetyParetoChartData(
     baseFilteredPotentialSifRows,
     activePotentialSifChartFilterField.value,
@@ -6041,7 +6089,7 @@ export default function App() {
 
   const otdBaseGoalLine = isOtdPareto || isOtdPalette
     ? null
-    : otdGoalCalculation.goalLine;
+    : getMetricGoalLine('otd', otdViewMode);
   const otdGoalLine = labelGoalLineValue(
     otdBaseGoalLine,
     formatPercentValue
@@ -6493,7 +6541,7 @@ export default function App() {
   const controllableCostsGoalLine = labelGoalLineValue(
     isControllableCostsPareto || isControllableCostsPalette
       ? null
-      : controllableCostsGoalCalculation.goalLine,
+      : getMetricGoalLine('controllableCosts', controllableCostsViewMode),
     formatCompactCurrency
   );
   const controllableCostsMetricInfo = buildControllableCostsMetricInfo(
@@ -6521,7 +6569,7 @@ export default function App() {
   const controllableCostsNewGoalLine = labelGoalLineValue(
     isControllableCostsNewPareto || isControllableCostsNewPalette
       ? null
-      : controllableCostsNewGoalCalculation.goalLine,
+      : getMetricGoalLine('controllableCostsNew', controllableCostsNewViewMode),
     formatCompactCurrency
   );
   const controllableCostsNewMetricInfo = buildControllableCostsMetricInfo(
@@ -6549,7 +6597,7 @@ export default function App() {
   const controllableCostsHanaGoalLine = labelGoalLineValue(
     isControllableCostsHanaPareto || isControllableCostsHanaPalette
       ? null
-      : controllableCostsHanaGoalCalculation.goalLine,
+      : getMetricGoalLine('controllableCostsHana', controllableCostsHanaViewMode),
     formatCompactCurrency
   );
   const controllableCostsHanaMetricInfo = buildControllableCostsMetricInfo(
@@ -6598,7 +6646,7 @@ export default function App() {
   });
   const nmfrBaseGoalLine = isNmfrPareto || isNmfrPalette
     ? null
-    : nmfrGoalCalculation.goalLine;
+    : getMetricGoalLine('nmfr', nmfrViewMode);
   const visibleNmfrGoalLine = clampGoalLineToVisibleSeries(
     nmfrBaseGoalLine,
     [nmfrChartData.map((bucket) => bucket.total)]
@@ -6614,7 +6662,7 @@ export default function App() {
     }
   );
   const laborGoalLine = labelGoalLineValue(
-    isLaborPareto || isLaborPalette ? null : laborGoalCalculation.goalLine,
+    isLaborPareto || isLaborPalette ? null : getMetricGoalLine('labor', laborViewMode),
     formatPercentValue
   );
   const laborMetricInfo = buildLaborMetricInfo(METRIC_INFO.labor, {
@@ -6625,7 +6673,9 @@ export default function App() {
     timelineLabel: LABOR_VIEW_CONFIG[laborViewMode]?.label
   });
   const laborNewGoalLine = labelGoalLineValue(
-    isLaborNewPareto || isLaborNewPalette ? null : laborNewGoalCalculation.goalLine,
+    isLaborNewPareto || isLaborNewPalette
+      ? null
+      : getMetricGoalLine('laborNew', laborNewViewMode),
     formatPercentValue
   );
   const laborNewMetricInfo = buildLaborMetricInfo(METRIC_INFO.laborNew, {
@@ -6637,7 +6687,7 @@ export default function App() {
   });
   const laborHanaBaseGoalLine = isLaborHanaPareto || isLaborHanaPalette
     ? null
-    : laborHanaGoalCalculation.goalLine;
+    : getMetricGoalLine('laborHana', laborHanaViewMode);
   const laborHanaGoalLine = labelGoalLineValue(
     laborHanaBaseGoalLine,
     formatPercentValue
@@ -7651,6 +7701,10 @@ export default function App() {
                           : controllableCostsSummaryValue
                       }
                       label="Total Cost"
+                      forecastValue={formatForecastValue(
+                        controllableCostsGoalCalculation,
+                        formatOverviewCurrency
+                      )}
                       legendItems={controllableCostsOverviewLegend}
                       ariaLabel="Controllable costs overview"
                     />
@@ -7859,6 +7913,10 @@ export default function App() {
                           : controllableCostsNewSummaryValue
                       }
                       label="Total Cost"
+                      forecastValue={formatForecastValue(
+                        controllableCostsNewGoalCalculation,
+                        formatOverviewCurrency
+                      )}
                       legendItems={controllableCostsNewOverviewLegend}
                       ariaLabel="New controllable costs dataset overview"
                     />
@@ -8074,6 +8132,10 @@ export default function App() {
                           : controllableCostsHanaSummaryValue
                       }
                       label="Total Cost"
+                      forecastValue={formatForecastValue(
+                        controllableCostsHanaGoalCalculation,
+                        formatOverviewCurrency
+                      )}
                       legendItems={controllableCostsHanaOverviewLegend}
                       ariaLabel="HANA controllable costs overview"
                     />
@@ -8272,6 +8334,10 @@ export default function App() {
                     <MetricOverviewBand
                       value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
                       label="SIF Incidents"
+                      forecastValue={formatForecastValue(
+                        sifForecastCalculation,
+                        formatIncidentCount
+                      )}
                       legendItems={sifOverviewLegend}
                       ariaLabel="SIF incidents overview"
                     />
@@ -8463,6 +8529,10 @@ export default function App() {
                           : potentialSifSummaryValue
                       }
                       label="Potential SIFs"
+                      forecastValue={formatForecastValue(
+                        potentialSifForecastCalculation,
+                        formatIncidentCount
+                      )}
                       legendItems={potentialSifOverviewLegend}
                       ariaLabel="Potential SIF incidents overview"
                     />
@@ -8654,6 +8724,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
                       label="NMFR"
+                      forecastValue={formatForecastValue(nmfrGoalCalculation, formatNumber)}
                       legendItems={nmfrOverviewLegend}
                       ariaLabel="Near miss frequency rate overview"
                     />
@@ -8841,6 +8912,10 @@ export default function App() {
                     <MetricOverviewBand
                       value={otdState.loading || otdState.error ? '--' : otdSummaryValue}
                       label="Percent Delivered"
+                      forecastValue={formatForecastValue(
+                        otdGoalCalculation,
+                        formatPercentValue
+                      )}
                       legendItems={otdOverviewLegend}
                       ariaLabel="On time delivery overview"
                     />
@@ -9049,6 +9124,10 @@ export default function App() {
                     <MetricOverviewBand
                       value={laborState.loading || laborState.error ? '--' : laborSummaryValue}
                       label="Direct Labor"
+                      forecastValue={formatForecastValue(
+                        laborGoalCalculation,
+                        formatPercentValue
+                      )}
                       legendItems={laborOverviewLegend}
                       ariaLabel="Direct labor utilization overview"
                     />
@@ -9243,6 +9322,10 @@ export default function App() {
                           : laborNewSummaryValue
                       }
                       label="Direct Labor"
+                      forecastValue={formatForecastValue(
+                        laborNewGoalCalculation,
+                        formatPercentValue
+                      )}
                       legendItems={laborNewOverviewLegend}
                       ariaLabel="New labor utilization dataset overview"
                     />
@@ -9446,6 +9529,10 @@ export default function App() {
                           : laborHanaSummaryValue
                       }
                       label="Direct Labor"
+                      forecastValue={formatForecastValue(
+                        laborHanaGoalCalculation,
+                        formatPercentValue
+                      )}
                       legendItems={laborHanaOverviewLegend}
                       ariaLabel="HANA direct labor utilization overview"
                     />

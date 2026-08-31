@@ -167,6 +167,12 @@ export function forecastLaborGoalLineFromSeries(seriesValues) {
   });
 }
 
+export function forecastIncidentGoalLineFromSeries(seriesValues) {
+  return forecastStandardGoalLineFromSeries(seriesValues, {
+    roundValue: roundRate
+  });
+}
+
 export async function forecastNmfrGoalLineFromSeries(seriesValues) {
   const numericSeries = normalizeSeries(seriesValues);
 

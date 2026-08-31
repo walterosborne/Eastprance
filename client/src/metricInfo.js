@@ -106,8 +106,6 @@ function buildArimaMetricInfo(
   const status = String(goalLineDetails?.status ?? '').trim();
   const expectedValue = Number(goalLineDetails?.expectedValue);
   const averageValue = Number(goalLineDetails?.averageValue);
-  const goalValue = Number(goalLineDetails?.goalValue);
-  const challengePercent = Number(goalLineDetails?.challengePercent);
   const forecastMonthLabel = String(goalLineDetails?.forecastMonthLabel ?? '').trim();
   const observationCount = Number(goalLineDetails?.observationCount);
   const requiredObservations = Number(goalLineDetails?.requiredObservations);
@@ -123,13 +121,13 @@ function buildArimaMetricInfo(
     ? {
       bullet: true,
       parts: [
-        createMetricInfoTextPart('Calculated goals use ARIMA for '),
+        createMetricInfoTextPart('Forecasts use ARIMA for '),
         createMetricInfoTextPart(`${formatMetricInfoNumber(requiredObservations)} or more`, {
           bold: true
         }),
-        createMetricInfoTextPart(' valid timeline points, or average plus '),
-        createMetricInfoTextPart('3%', { bold: true }),
-        createMetricInfoTextPart(' for 1–9 points.')
+        createMetricInfoTextPart(' valid timeline points, or the arithmetic average for '),
+        createMetricInfoTextPart('1–9', { bold: true }),
+        createMetricInfoTextPart(' points.')
       ]
     }
     : status === 'average_fallback'
@@ -140,9 +138,7 @@ function buildArimaMetricInfo(
         createMetricInfoTextPart(formatMetricInfoNumber(requiredObservations), { bold: true }),
         createMetricInfoTextPart(` datapoints. The ${selectedTimelineDescription} has `),
         createMetricInfoTextPart(formatMetricInfoNumber(observationCount), { bold: true }),
-        createMetricInfoTextPart(', so the goal uses the average plus '),
-        createMetricInfoTextPart(formatMetricInfoPercent(challengePercent), { bold: true }),
-        createMetricInfoTextPart('.')
+        createMetricInfoTextPart(', so the next-period forecast uses their arithmetic average.')
       ]
     }
     : {
@@ -156,7 +152,7 @@ function buildArimaMetricInfo(
       ? {
         bullet: true,
         parts: [
-          createMetricInfoTextPart('A goal line is not displayed because the '),
+          createMetricInfoTextPart('A forecast is not displayed because the '),
           createMetricInfoTextPart(selectedTimelineDescription),
           createMetricInfoTextPart(' has '),
           createMetricInfoTextPart(
@@ -170,29 +166,21 @@ function buildArimaMetricInfo(
       }
       : status === 'average_fallback'
         && Number.isFinite(averageValue)
-        && Number.isFinite(goalValue)
-        && Number.isFinite(challengePercent)
       ? {
         bullet: true,
         parts: [
           createMetricInfoTextPart('The current average is '),
           createMetricInfoTextPart(valueFormatter(averageValue), { bold: true }),
-          createMetricInfoTextPart(', and the goal line has been set to '),
-          createMetricInfoTextPart(valueFormatter(goalValue), { bold: true }),
-          createMetricInfoTextPart('.')
+          createMetricInfoTextPart(', which is displayed as the next-period forecast.')
         ]
       }
-      : Number.isFinite(expectedValue) && Number.isFinite(goalValue) && Number.isFinite(challengePercent)
+      : Number.isFinite(expectedValue)
       ? {
         bullet: true,
         parts: [
           createMetricInfoTextPart(expectedValuePrefix),
           createMetricInfoTextPart(valueFormatter(expectedValue), { bold: true }),
-          createMetricInfoTextPart(', and the goal line has been set to '),
-          createMetricInfoTextPart(valueFormatter(goalValue), { bold: true }),
-          createMetricInfoTextPart(' to present a '),
-          createMetricInfoTextPart(formatMetricInfoPercent(challengePercent), { bold: true }),
-          createMetricInfoTextPart(' challenge.')
+          createMetricInfoTextPart('.')
         ]
       }
       : {
@@ -200,11 +188,7 @@ function buildArimaMetricInfo(
         parts: [
           createMetricInfoTextPart(expectedValuePrefix),
           createMetricInfoTextPart('Unavailable', { bold: true }),
-          createMetricInfoTextPart(', and the goal line has been set to '),
-          createMetricInfoTextPart('Unavailable', { bold: true }),
-          createMetricInfoTextPart(' to present a '),
-          createMetricInfoTextPart('Unavailable', { bold: true }),
-          createMetricInfoTextPart(' challenge.')
+          createMetricInfoTextPart('.')
         ]
       }
   ]);
@@ -212,7 +196,7 @@ function buildArimaMetricInfo(
 
 function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
-    explanation: 'ARIMA projects the next NMFR value, then tightens that forecast slightly to create a realistic stretch target.'
+    explanation: 'ARIMA projects the next NMFR value from the selected timeline.'
   });
 }
 
@@ -220,7 +204,7 @@ function buildOtdMetricInfo(baseInfo, goalLineDetails = null) {
   const usedRecentBaseline = Boolean(goalLineDetails?.usedRecentBaseline);
 
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
-    explanation: 'ARIMA projects the next percent-delivered value using completed months only. Forecasts more than 20 percentage points from the recent six-month median use that median before applying the stretch target.',
+    explanation: 'ARIMA projects the next percent-delivered value using completed months only. Forecasts more than 20 percentage points from the recent six-month median use that median instead.',
     forecastDescription: usedRecentBaseline
       ? 'the ARIMA model with its recent-performance safeguard'
       : 'the ARIMA model',
@@ -230,21 +214,21 @@ function buildOtdMetricInfo(baseInfo, goalLineDetails = null) {
 
 function buildLaborHanaMetricInfo(baseInfo, goalLineDetails = null) {
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
-    explanation: 'ARIMA projects the next direct-labor-share value, then raises that forecast slightly to create a realistic stretch target.',
+    explanation: 'ARIMA projects the next direct-labor-share value from the selected timeline.',
     valueFormatter: formatMetricInfoShare
   });
 }
 
 function buildControllableCostsMetricInfo(baseInfo, goalLineDetails = null) {
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
-    explanation: 'ARIMA projects the next total-cost value, then lowers that forecast slightly to create a realistic stretch target.',
+    explanation: 'ARIMA projects the next total-cost value from the selected timeline.',
     valueFormatter: formatMetricInfoCurrency
   });
 }
 
 function buildLaborMetricInfo(baseInfo, goalLineDetails = null) {
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
-    explanation: 'ARIMA projects the next direct-labor-share value, then raises that forecast slightly to create a realistic stretch target.',
+    explanation: 'ARIMA projects the next direct-labor-share value from the selected timeline.',
     valueFormatter: formatMetricInfoShare
   });
 }

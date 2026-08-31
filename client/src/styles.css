@@ -1388,14 +1388,33 @@ h1 {
 
 .metric-overview-summary {
   display: grid;
-  align-content: center;
-  gap: 0.22rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
   min-width: 0;
   padding-right: 0;
 }
 
+.metric-overview-primary,
+.metric-overview-forecast {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+}
+
+.metric-overview-primary {
+  gap: 0.22rem;
+}
+
+.metric-overview-forecast {
+  gap: 0.18rem;
+  justify-items: start;
+}
+
 .metric-overview-value,
-.metric-overview-label {
+.metric-overview-label,
+.metric-overview-forecast-value,
+.metric-overview-forecast-label {
   margin: 0;
 }
 
@@ -1419,6 +1438,26 @@ h1 {
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.metric-overview-forecast-value {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-overview-forecast-label {
+  max-width: 5.2rem;
+  color: var(--text-secondary);
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.1;
+  text-transform: uppercase;
 }
 
 .metric-overview-legend {

@@ -1,15 +1,34 @@
+WITH CostCenterHierarchy AS (
+    SELECT
+        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
+        ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(COST_CENTER))
+            ORDER BY
+                last_modified_date DESC,
+                created_date DESC,
+                id DESC
+        ) AS rn
+    FROM rpt.rb_load_cost_center_hierarchy
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+)
+
 SELECT
-    ACCT_LEVEL03_TEXT,
-    ACCT_LEVEL04_TEXT,
+    t.ACCT_LEVEL03_TEXT AS cost_category,
     COUNT(*) AS row_count,
-    SUM(TRY_CONVERT(DECIMAL(18,2), KSL)) AS cost
-FROM src.rb_CVG_Transaction_Details_03
+    SUM(TRY_CONVERT(DECIMAL(18,2), t.KSL)) AS cost
+FROM src.rb_CVG_Transaction_Details_03 t
+
+JOIN CostCenterHierarchy h
+    ON LTRIM(RTRIM(t.RCNTR)) = h.Cost_Center
+   AND h.rn = 1
+
 WHERE
-    GJAHR = '2026'
-    AND POPER = '008'
-    AND ACCT_LEVEL02_TEXT = 'NGRB Indirect Non Labor CEG'
+    t.GJAHR = '2026'
+    AND t.POPER = '008'
+    AND t.ACCT_LEVEL02_TEXT = 'NGRB Indirect Non Labor CEG'
+
 GROUP BY
-    ACCT_LEVEL03_TEXT,
-    ACCT_LEVEL04_TEXT
+    t.ACCT_LEVEL03_TEXT
+
 ORDER BY
-    ABS(SUM(TRY_CONVERT(DECIMAL(18,2), KSL))) DESC;
+    ABS(SUM(TRY_CONVERT(DECIMAL(18,2), t.KSL))) DESC;

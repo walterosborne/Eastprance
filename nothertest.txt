@@ -1,78 +1,92 @@
 WITH Base AS (
     SELECT
-        [Period],
-        LTRIM(RTRIM(Cost_Center)) AS Cost_Center,
-        LTRIM(RTRIM(MyID)) AS MyID,
-        TRY_CONVERT(DECIMAL(18,2), Hours) AS Hours,
-        TRY_CONVERT(INT, RIGHT(LTRIM(RTRIM([Period])), 4)) AS [year],
-        TRY_CONVERT(INT, LEFT(LTRIM(RTRIM([Period])), 2)) AS [month]
-    FROM rpt.rb_Actuals_RM_Load_Table
+        TRY_CONVERT(INT, GJAHR) AS [year],
+        TRY_CONVERT(INT, POPER) AS [month],
+        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
+        LTRIM(RTRIM(RACCT)) AS Cost_Element,
+        TRY_CONVERT(DECIMAL(18,2), KSL) AS Cost
+    FROM dbo.rb_Actuals_SAP_Transformation
 ),
 
 Hierarchy AS (
     SELECT
         LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
-        LEV02,
+        LTRIM(RTRIM(LEV02)) AS LEV02,
         ROW_NUMBER() OVER (
             PARTITION BY LTRIM(RTRIM(COST_CENTER))
             ORDER BY last_modified_date DESC, created_date DESC, id DESC
         ) AS rn
     FROM rpt.rb_load_cost_center_hierarchy
+),
+
+CostElements AS (
+    SELECT DISTINCT
+        COALESCE(
+            CONVERT(VARCHAR(50), TRY_CONVERT(BIGINT, LTRIM(RTRIM([Cost Element])))),
+            LTRIM(RTRIM([Cost Element]))
+        ) AS Cost_Element
+    FROM cost_element_key
 )
 
 SELECT
-    '1 - Raw table' AS Stage,
+    '1 - Raw cost data' AS Stage,
     [year],
     [month],
     COUNT(*) AS Row_Count,
-    SUM(Hours) AS Hours
+    SUM(Cost) AS Cost
 FROM Base
+WHERE Cost IS NOT NULL
 GROUP BY [year], [month]
 
 UNION ALL
 
 SELECT
-    '2 - Valid MyID + Hours',
+    '2 - Valid month',
     [year],
     [month],
     COUNT(*),
-    SUM(Hours)
+    SUM(Cost)
 FROM Base
-WHERE NULLIF(MyID, '') IS NOT NULL
-  AND Hours IS NOT NULL
-GROUP BY [year], [month]
-
-UNION ALL
-
-SELECT
-    '3 - Valid parsed period',
-    [year],
-    [month],
-    COUNT(*),
-    SUM(Hours)
-FROM Base
-WHERE NULLIF(MyID, '') IS NOT NULL
-  AND Hours IS NOT NULL
-  AND [year] IS NOT NULL
+WHERE Cost IS NOT NULL
   AND [month] BETWEEN 1 AND 12
 GROUP BY [year], [month]
 
 UNION ALL
 
 SELECT
-    '4 - DS hierarchy match',
+    '3 - DS hierarchy match',
     b.[year],
     b.[month],
     COUNT(*),
-    SUM(b.Hours)
+    SUM(b.Cost)
 FROM Base b
 JOIN Hierarchy h
     ON b.Cost_Center = h.Cost_Center
    AND h.rn = 1
-   AND LTRIM(RTRIM(h.LEV02)) = 'NGRBT'
-WHERE NULLIF(b.MyID, '') IS NOT NULL
-  AND b.Hours IS NOT NULL
-  AND b.[year] IS NOT NULL
+   AND h.LEV02 = 'NGRBT'
+WHERE b.Cost IS NOT NULL
+  AND b.[month] BETWEEN 1 AND 12
+GROUP BY b.[year], b.[month]
+
+UNION ALL
+
+SELECT
+    '4 - Cost element key match',
+    b.[year],
+    b.[month],
+    COUNT(*),
+    SUM(b.Cost)
+FROM Base b
+JOIN Hierarchy h
+    ON b.Cost_Center = h.Cost_Center
+   AND h.rn = 1
+   AND h.LEV02 = 'NGRBT'
+JOIN CostElements k
+    ON COALESCE(
+        CONVERT(VARCHAR(50), TRY_CONVERT(BIGINT, b.Cost_Element)),
+        b.Cost_Element
+    ) = k.Cost_Element
+WHERE b.Cost IS NOT NULL
   AND b.[month] BETWEEN 1 AND 12
 GROUP BY b.[year], b.[month]
 

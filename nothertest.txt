@@ -1,0 +1,82 @@
+WITH Base AS (
+    SELECT
+        [Period],
+        LTRIM(RTRIM(Cost_Center)) AS Cost_Center,
+        LTRIM(RTRIM(MyID)) AS MyID,
+        TRY_CONVERT(DECIMAL(18,2), Hours) AS Hours,
+        TRY_CONVERT(INT, RIGHT(LTRIM(RTRIM([Period])), 4)) AS [year],
+        TRY_CONVERT(INT, LEFT(LTRIM(RTRIM([Period])), 2)) AS [month]
+    FROM rpt.rb_Actuals_RM_Load_Table
+),
+
+Hierarchy AS (
+    SELECT
+        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
+        LEV02,
+        ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(COST_CENTER))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS rn
+    FROM rpt.rb_load_cost_center_hierarchy
+)
+
+SELECT
+    '1 - Raw table' AS Stage,
+    [year],
+    [month],
+    COUNT(*) AS Row_Count,
+    SUM(Hours) AS Hours
+FROM Base
+GROUP BY [year], [month]
+
+UNION ALL
+
+SELECT
+    '2 - Valid MyID + Hours',
+    [year],
+    [month],
+    COUNT(*),
+    SUM(Hours)
+FROM Base
+WHERE NULLIF(MyID, '') IS NOT NULL
+  AND Hours IS NOT NULL
+GROUP BY [year], [month]
+
+UNION ALL
+
+SELECT
+    '3 - Valid parsed period',
+    [year],
+    [month],
+    COUNT(*),
+    SUM(Hours)
+FROM Base
+WHERE NULLIF(MyID, '') IS NOT NULL
+  AND Hours IS NOT NULL
+  AND [year] IS NOT NULL
+  AND [month] BETWEEN 1 AND 12
+GROUP BY [year], [month]
+
+UNION ALL
+
+SELECT
+    '4 - DS hierarchy match',
+    b.[year],
+    b.[month],
+    COUNT(*),
+    SUM(b.Hours)
+FROM Base b
+JOIN Hierarchy h
+    ON b.Cost_Center = h.Cost_Center
+   AND h.rn = 1
+   AND LTRIM(RTRIM(h.LEV02)) = 'NGRBT'
+WHERE NULLIF(b.MyID, '') IS NOT NULL
+  AND b.Hours IS NOT NULL
+  AND b.[year] IS NOT NULL
+  AND b.[month] BETWEEN 1 AND 12
+GROUP BY b.[year], b.[month]
+
+ORDER BY
+    Stage,
+    [year],
+    [month];

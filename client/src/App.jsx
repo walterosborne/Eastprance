@@ -2260,12 +2260,12 @@ function buildLaborUtilizationNewChartData(rows, viewMode, selectedDateRange) {
       indirectRowCount += 1;
     } else {
       otherRowCount += 1;
-      return;
     }
 
     const yearTotals = monthlyTotalsByYear.get(year) ?? {
       direct: LABOR_MONTH_COLUMNS.map(() => 0),
-      indirect: LABOR_MONTH_COLUMNS.map(() => 0)
+      indirect: LABOR_MONTH_COLUMNS.map(() => 0),
+      other: LABOR_MONTH_COLUMNS.map(() => 0)
     };
 
     yearTotals[laborCategoryGroup][month - 1] += enteredHours;
@@ -2303,8 +2303,22 @@ function buildLaborUtilizationNewChartData(rows, viewMode, selectedDateRange) {
     };
     return normalizedValue;
   });
+  const other = buckets.map(({ label, year, monthIndices }) => {
+    const monthlyValues = monthlyTotalsByYear.get(year)?.other ?? [];
+    const value = monthIndices.reduce(
+      (sum, monthIndex) => sum + (monthlyValues[monthIndex] ?? 0),
+      0
+    );
+    const normalizedValue = Number(value.toFixed(2));
+
+    tooltipLookup[label] = {
+      ...tooltipLookup[label],
+      other: normalizedValue
+    };
+    return normalizedValue;
+  });
   const totals = buckets.map(({ label }, index) => {
-    const total = Number((direct[index] + indirect[index]).toFixed(2));
+    const total = Number((direct[index] + indirect[index] + other[index]).toFixed(2));
 
     tooltipLookup[label] = {
       ...tooltipLookup[label],
@@ -2328,7 +2342,7 @@ function buildLaborUtilizationNewChartData(rows, viewMode, selectedDateRange) {
     tooltipLookup,
     direct,
     indirect,
-    other: buckets.map(() => 0),
+    other,
     totals,
     directShare,
     directRowCount,

@@ -13,6 +13,10 @@ import {
   buildHeadersDebugPayload,
   renderHeadersDebugPage
 } from './headerDiagnostics.js';
+import {
+  buildLaborDiagnosticsPayload,
+  renderLaborDiagnosticsPage
+} from './laborDiagnostics.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
@@ -326,6 +330,43 @@ app.get(['/headers', '/api/headers'], async (request, response) => {
     logError('headers', 'Unable to build header diagnostics.', error);
     response.status(500).json({
       message: 'Unable to build header diagnostics.'
+    });
+  }
+});
+
+app.get(['/labor-diagnostics', '/api/labor-diagnostics'], async (request, response) => {
+  const stopTimer = createTimer();
+
+  try {
+    const [oldPayload, newPayload] = await Promise.all([
+      getCachedSqlDataset('labor'),
+      readLaborUtilizationNewData()
+    ]);
+    const payload = buildLaborDiagnosticsPayload(oldPayload, newPayload);
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    logDebug('labor-diagnostics', 'Labor source comparison completed.', {
+      oldRowCount: payload.sources.old.rowCount,
+      newRowCount: payload.sources.new.rowCount,
+      commonMonthCount: payload.comparisonWindow.commonMonths.length,
+      duration: formatDuration(stopTimer())
+    });
+
+    if (wantsJson) {
+      response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+      return;
+    }
+
+    response.type('text/html').send(renderLaborDiagnosticsPage(payload));
+  } catch (error) {
+    logError('labor-diagnostics', 'Unable to build labor diagnostics.', error, {
+      duration: formatDuration(stopTimer())
+    });
+    response.status(500).json({
+      message: 'Unable to build labor diagnostics.',
+      error: error.message
     });
   }
 });

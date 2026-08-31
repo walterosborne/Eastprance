@@ -23,6 +23,10 @@ export default defineConfig(() => {
     server: {
       port: 5173,
       proxy: {
+        '/labor-diagnostics': {
+          target: `http://${apiHost}:${apiPort}`,
+          changeOrigin: true
+        },
         '/headers': {
           target: `http://${apiHost}:${apiPort}`,
           changeOrigin: true

@@ -3768,7 +3768,9 @@ function MetricOverviewBand({
 }) {
   return (
     <section
-      className="metric-overview-band"
+      className={`metric-overview-band${
+        legendItems.length === 0 ? ' metric-overview-band--without-legend' : ''
+      }`}
       aria-label={ariaLabel || undefined}
     >
       <div className="metric-overview-summary">

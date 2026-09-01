@@ -382,8 +382,11 @@ app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response
   const stopTimer = createTimer();
 
   try {
-    const pipeline = await readControllableCostsNewPipelineData();
-    const payload = buildCostDiagnosticsPayload(pipeline);
+    const [oldPayload, pipeline] = await Promise.all([
+      getCachedSqlDataset('controllable-costs'),
+      readControllableCostsNewPipelineData()
+    ]);
+    const payload = buildCostDiagnosticsPayload(pipeline, oldPayload);
     const wantsJson = request.path.startsWith('/api/')
       || String(request.query.format || '').toLowerCase() === 'json'
       || String(request.get('accept') || '').includes('application/json');
@@ -393,6 +396,8 @@ app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response
       includedRowCount: payload.stages.included.rowCount,
       excludedRowCount: payload.stages.excluded.rowCount,
       latestRawMonth: payload.stages.raw.latestMonth,
+      overlappingQuarterCount: payload.controllabilityComparison.commonQuarters.length,
+      classificationMismatchCount: payload.controllabilityComparison.mismatchCount,
       duration: formatDuration(stopTimer())
     });
 

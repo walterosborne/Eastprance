@@ -151,7 +151,200 @@ function buildUnmatchedCostElements(excludedRows) {
     });
 }
 
-export function buildCostDiagnosticsPayload(pipeline, now = new Date()) {
+function normalizeCostElementIdentifier(value) {
+  const normalizedValue = String(value ?? '').trim();
+  const numericMatch = /^(\d+)(?:\.0+)?$/.exec(normalizedValue);
+
+  if (numericMatch) {
+    try {
+      return BigInt(numericMatch[1]).toString();
+    } catch {
+      // Fall through to normalized text for identifiers outside BigInt's range.
+    }
+  }
+
+  return normalizedValue.toUpperCase();
+}
+
+function getQuarterKey(row) {
+  const year = Number(row?.year);
+  let quarter = Number(row?.month) > 0
+    ? Math.floor((Number(row.month) - 1) / 3) + 1
+    : null;
+
+  if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4) {
+    const quarterMatch = /^Q([1-4])$/i.exec(String(row?.quarter ?? '').trim());
+    quarter = quarterMatch ? Number(quarterMatch[1]) : null;
+  }
+
+  return Number.isInteger(year) && quarter !== null
+    ? `${year}-Q${quarter}`
+    : null;
+}
+
+function getQuarterCoverage(rows) {
+  return new Set(rows.map(getQuarterKey).filter(Boolean));
+}
+
+function formatQuarterKey(quarterKey) {
+  if (!quarterKey) {
+    return 'None';
+  }
+
+  const [year, quarter] = quarterKey.split('-');
+  return `${quarter} ${year}`;
+}
+
+function createControllabilityTotals() {
+  return {
+    controllable: 0,
+    uncontrollable: 0
+  };
+}
+
+function addControllabilityRows(groups, rows, commonQuarterKeys, sourceName) {
+  rows.forEach((row) => {
+    const quarterKey = getQuarterKey(row);
+    const cost = Number(row?.cost);
+
+    if (!quarterKey || !commonQuarterKeys.has(quarterKey) || !Number.isFinite(cost)) {
+      return;
+    }
+
+    const rawIdentifier = row?.gl_account_cost_element ?? row?.cost_element;
+    const identifier = normalizeCostElementIdentifier(rawIdentifier);
+    const key = identifier || '(BLANK)';
+    const group = groups.get(key) ?? {
+      costElement: String(rawIdentifier ?? '').trim() || '(Blank)',
+      old: createControllabilityTotals(),
+      new: createControllabilityTotals()
+    };
+    const classification = row?.controllable === 'Controllable'
+      ? 'controllable'
+      : 'uncontrollable';
+
+    group[sourceName][classification] += cost;
+    groups.set(key, group);
+  });
+}
+
+function getDominantClassification(totals) {
+  const controllableMagnitude = Math.abs(totals.controllable);
+  const uncontrollableMagnitude = Math.abs(totals.uncontrollable);
+
+  if (controllableMagnitude === 0 && uncontrollableMagnitude === 0) {
+    return 'No data';
+  }
+
+  if (controllableMagnitude === uncontrollableMagnitude) {
+    return 'Tie';
+  }
+
+  return controllableMagnitude > uncontrollableMagnitude
+    ? 'Controllable'
+    : 'Uncontrollable';
+}
+
+function buildSelectedKeyLookup(selectedKeyMatches, commonQuarterKeys) {
+  const lookup = new Map();
+
+  selectedKeyMatches.forEach(({ row, selectedKey }) => {
+    const quarterKey = getQuarterKey(row);
+
+    if (!quarterKey || !commonQuarterKeys.has(quarterKey)) {
+      return;
+    }
+
+    const identifier = normalizeCostElementIdentifier(row?.gl_account_cost_element);
+    const key = identifier || '(BLANK)';
+    const selections = lookup.get(key) ?? new Map();
+    const signature = [
+      selectedKey?.costCategory,
+      selectedKey?.costElementDescription,
+      selectedKey?.controllable
+    ].join('|||');
+
+    selections.set(signature, {
+      costCategory: String(selectedKey?.costCategory ?? '').trim() || '(Blank)',
+      costElementDescription:
+        String(selectedKey?.costElementDescription ?? '').trim() || '(Blank)',
+      controllable: String(selectedKey?.controllable ?? '').trim() || '(Blank)'
+    });
+    lookup.set(key, selections);
+  });
+
+  return lookup;
+}
+
+function buildControllabilityComparison(oldRows, newRows, selectedKeyMatches) {
+  const oldCoverage = getQuarterCoverage(oldRows);
+  const newCoverage = getQuarterCoverage(newRows);
+  const commonQuarterKeys = new Set(
+    [...oldCoverage].filter((quarterKey) => newCoverage.has(quarterKey))
+  );
+  const groups = new Map();
+
+  addControllabilityRows(groups, oldRows, commonQuarterKeys, 'old');
+  addControllabilityRows(groups, newRows, commonQuarterKeys, 'new');
+
+  const selectedKeyLookup = buildSelectedKeyLookup(selectedKeyMatches, commonQuarterKeys);
+  const rows = [...groups.entries()].map(([key, group]) => {
+    const oldDominant = getDominantClassification(group.old);
+    const newDominant = getDominantClassification(group.new);
+    const classificationDiffers =
+      oldDominant !== 'No data'
+      && newDominant !== 'No data'
+      && oldDominant !== newDominant;
+
+    return {
+      costElement: group.costElement,
+      old: {
+        controllable: roundCurrency(group.old.controllable),
+        uncontrollable: roundCurrency(group.old.uncontrollable),
+        dominant: oldDominant
+      },
+      new: {
+        controllable: roundCurrency(group.new.controllable),
+        uncontrollable: roundCurrency(group.new.uncontrollable),
+        dominant: newDominant
+      },
+      classificationDiffers,
+      selectedKeyRows: classificationDiffers
+        ? [...(selectedKeyLookup.get(key)?.values() ?? [])]
+        : []
+    };
+  });
+
+  rows.sort((left, right) => {
+    if (left.classificationDiffers !== right.classificationDiffers) {
+      return left.classificationDiffers ? -1 : 1;
+    }
+
+    const leftMagnitude = Object.values(left.old)
+      .concat(Object.values(left.new))
+      .filter(Number.isFinite)
+      .reduce((sum, value) => sum + Math.abs(value), 0);
+    const rightMagnitude = Object.values(right.old)
+      .concat(Object.values(right.new))
+      .filter(Number.isFinite)
+      .reduce((sum, value) => sum + Math.abs(value), 0);
+
+    return rightMagnitude - leftMagnitude || left.costElement.localeCompare(right.costElement);
+  });
+
+  const sortedCommonQuarterKeys = [...commonQuarterKeys].sort();
+
+  return {
+    commonQuarterKeys: sortedCommonQuarterKeys,
+    commonQuarters: sortedCommonQuarterKeys.map(formatQuarterKey),
+    earliestQuarter: formatQuarterKey(sortedCommonQuarterKeys[0] ?? null),
+    latestQuarter: formatQuarterKey(sortedCommonQuarterKeys.at(-1) ?? null),
+    mismatchCount: rows.filter((row) => row.classificationDiffers).length,
+    rows
+  };
+}
+
+export function buildCostDiagnosticsPayload(pipeline, oldPayload = {}, now = new Date()) {
   const {
     fileName,
     sheetName,
@@ -159,6 +352,7 @@ export function buildCostDiagnosticsPayload(pipeline, now = new Date()) {
     normalizedRows = [],
     rows = [],
     excludedRows = [],
+    selectedKeyMatches = [],
     costElementKeys = {}
   } = pipeline;
   const controllableRows = rows.filter((row) => row.controllable === 'Controllable');
@@ -184,7 +378,12 @@ export function buildCostDiagnosticsPayload(pipeline, now = new Date()) {
       excluded: summarizeRows(excludedRows)
     },
     monthly: buildMonthlyComparison(normalizedRows, rows, excludedRows),
-    unmatchedCostElements: buildUnmatchedCostElements(excludedRows)
+    unmatchedCostElements: buildUnmatchedCostElements(excludedRows),
+    controllabilityComparison: buildControllabilityComparison(
+      oldPayload.rows ?? [],
+      rows,
+      selectedKeyMatches
+    )
   };
 }
 
@@ -310,6 +509,62 @@ function renderUnmatchedTable(rows) {
   `;
 }
 
+function renderSelectedKeyValues(selectedKeyRows, fieldName) {
+  if (selectedKeyRows.length === 0) {
+    return '—';
+  }
+
+  return selectedKeyRows
+    .map((selectedKey) => `<div>${escapeHtml(selectedKey[fieldName])}</div>`)
+    .join('');
+}
+
+function renderControllabilityComparison(comparison) {
+  if (comparison.rows.length === 0) {
+    return '<p class="empty">No overlapping quarters were found between the old and new cost sources.</p>';
+  }
+
+  return `
+    <div class="table-scroll">
+      <table class="classification-table">
+        <thead>
+          <tr>
+            <th>Cost Element</th>
+            <th>Old Controllable</th>
+            <th>Old Uncontrollable</th>
+            <th>Old Dominant</th>
+            <th>New Controllable</th>
+            <th>New Uncontrollable</th>
+            <th>New Dominant</th>
+            <th>Selected Key Category</th>
+            <th>Selected Key Description</th>
+            <th>Selected Key Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${comparison.rows.map((row) => `
+            <tr class="${row.classificationDiffers ? 'classification-mismatch' : ''}">
+              <th title="${escapeHtml(row.costElement)}">
+                ${escapeHtml(row.costElement)}
+                ${row.classificationDiffers ? '<span class="mismatch-badge">Mismatch</span>' : ''}
+              </th>
+              <td>${formatCurrency(row.old.controllable)}</td>
+              <td>${formatCurrency(row.old.uncontrollable)}</td>
+              <td>${escapeHtml(row.old.dominant)}</td>
+              <td>${formatCurrency(row.new.controllable)}</td>
+              <td>${formatCurrency(row.new.uncontrollable)}</td>
+              <td>${escapeHtml(row.new.dominant)}</td>
+              <td class="key-detail">${renderSelectedKeyValues(row.selectedKeyRows, 'costCategory')}</td>
+              <td class="key-detail">${renderSelectedKeyValues(row.selectedKeyRows, 'costElementDescription')}</td>
+              <td class="key-detail">${renderSelectedKeyValues(row.selectedKeyRows, 'controllable')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 export function renderCostDiagnosticsPage(payload) {
   const { source, stages } = payload;
 
@@ -349,6 +604,13 @@ export function renderCostDiagnosticsPage(payload) {
       .excluded { color: #fbbf24; font-weight: 700; }
       .unmatched-table { width: auto; min-width: 620px; }
       .unmatched-table tbody th { max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+      .classification-table { min-width: 1280px; }
+      .classification-table tbody th { max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+      .classification-mismatch { background: rgba(180, 83, 9, .24) !important; }
+      .classification-mismatch th:first-child { border-left: 4px solid #f59e0b; }
+      .mismatch-badge { display: inline-block; margin-left: 6px; padding: 2px 5px; border-radius: 999px; background: #b45309; color: white; font-size: 8px; text-transform: uppercase; }
+      .key-detail { max-width: 260px; white-space: normal; text-align: left; vertical-align: top; }
+      .key-detail div + div { margin-top: 4px; padding-top: 4px; border-top: 1px solid #4b5563; }
       .empty { margin: 0; padding: 8px; color: #fbbf24; font-size: 12px; }
       @media (max-width: 900px) { .stage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
       @media (max-width: 500px) {
@@ -398,6 +660,18 @@ export function renderCostDiagnosticsPage(payload) {
         <h2>Monthly Pipeline</h2>
         <p class="note">Raw totals include valid workbook rows before the Cost Element Key filter. Included totals equal controllable plus uncontrollable.</p>
         ${renderMonthlyTable(payload.monthly)}
+      </section>
+
+      <section class="panel">
+        <h2>Old vs New Controllability by Cost Element</h2>
+        <p class="note">
+          Common quarter range: <b>${escapeHtml(payload.controllabilityComparison.earliestQuarter)}</b> through
+          <b>${escapeHtml(payload.controllabilityComparison.latestQuarter)}</b> ·
+          ${formatCount(payload.controllabilityComparison.commonQuarters.length)} overlapping quarters ·
+          <b>${formatCount(payload.controllabilityComparison.mismatchCount)}</b> dominant-classification mismatches.
+          Dominance is based on absolute dollar magnitude. Key details are shown only for mismatches.
+        </p>
+        ${renderControllabilityComparison(payload.controllabilityComparison)}
       </section>
 
       <section class="panel">

@@ -248,6 +248,7 @@ export async function readControllableCostsNewPipelineData() {
   const costElementKeys = await readCostElementKeys();
   const rows = [];
   const excludedRows = [];
+  const selectedKeyMatches = [];
 
   normalizedRows.forEach((row) => {
     const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
@@ -257,9 +258,20 @@ export async function readControllableCostsNewPipelineData() {
       return;
     }
 
-    rows.push({
+    const classifiedRow = {
       ...row,
       controllable: matchedKey.controllable
+    };
+
+    rows.push(classifiedRow);
+    selectedKeyMatches.push({
+      row: classifiedRow,
+      selectedKey: {
+        costCategory: matchedKey.costCategory,
+        costElement: matchedKey.costElement,
+        costElementDescription: matchedKey.costElementDescription,
+        controllable: matchedKey.controllable
+      }
     });
   });
 
@@ -270,6 +282,7 @@ export async function readControllableCostsNewPipelineData() {
     normalizedRows,
     rows,
     excludedRows,
+    selectedKeyMatches,
     costElementKeys
   };
 }

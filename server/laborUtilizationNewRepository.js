@@ -8,6 +8,7 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import { getConnectionConfig, getPool } from './sqlConnection.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +16,7 @@ const LABOR_UTILIZATION_NEW_FILE_PATH = path.resolve(
   __dirname,
   '../data/labor_utilization_new.xlsx'
 );
+const LABOR_UTILIZATION_DBM_QUERY_PATH = path.resolve(__dirname, '../test.txt');
 const REQUIRED_COLUMNS = [
   'year',
   'month',
@@ -93,11 +95,61 @@ export function normalizeLaborUtilizationNewRow(row) {
   };
 }
 
-export async function readLaborUtilizationNewData() {
+function validateSourceColumns(sourceRows, sourceLabel) {
+  const availableColumns = new Set(
+    Object.keys(sourceRows[0] ?? {}).map(normalizeHeader)
+  );
+  const missingColumns = REQUIRED_COLUMNS.filter(
+    (columnName) => !availableColumns.has(columnName)
+  );
+
+  if (sourceRows.length > 0 && missingColumns.length > 0) {
+    throw new Error(
+      `${sourceLabel} is missing required columns: ${missingColumns.join(', ')}`
+    );
+  }
+}
+
+function buildLaborUtilizationPayload(sourceRows, metadata) {
+  validateSourceColumns(sourceRows, metadata.sourceLabel);
+
+  const rows = sourceRows.map(normalizeLaborUtilizationNewRow).filter(Boolean);
+  const years = Array.from(new Set(rows.map((row) => row.year))).sort(
+    (left, right) => left - right
+  );
+  const categoryCounts = rows.reduce(
+    (counts, row) => {
+      counts[classifyLaborCategory(row.labor_category)] += 1;
+      return counts;
+    },
+    { direct: 0, indirect: 0, other: 0 }
+  );
+  const totalEnteredHours = Number(
+    rows.reduce((sum, row) => sum + row.entered_hours, 0).toFixed(2)
+  );
+
+  return {
+    source: metadata.source,
+    fileName: metadata.fileName ?? null,
+    sheetName: metadata.sheetName ?? null,
+    queryFile: metadata.queryFile ?? null,
+    fallbackReason: metadata.fallbackReason ?? null,
+    sourceRowCount: sourceRows.length,
+    rowCount: rows.length,
+    invalidRowCount: sourceRows.length - rows.length,
+    years,
+    totalEnteredHours,
+    laborCategoryCounts: categoryCounts,
+    rows
+  };
+}
+
+async function readLaborUtilizationNewExcelFallback(fallbackReason) {
   const stopTimer = createTimer();
 
-  logDebug('labor-new', 'Loading new labor utilization workbook.', {
-    filePath: LABOR_UTILIZATION_NEW_FILE_PATH
+  logDebug('labor-new', 'Loading Excel fallback for new labor utilization.', {
+    filePath: LABOR_UTILIZATION_NEW_FILE_PATH,
+    fallbackReason
   });
 
   try {
@@ -110,64 +162,29 @@ export async function readLaborUtilizationNewData() {
       throw new Error('The new labor utilization workbook does not contain a worksheet.');
     }
 
-    const worksheet = workbook.Sheets[sheetName];
-    const sourceRows = XLSX.utils.sheet_to_json(worksheet, {
+    const sourceRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
       defval: null,
       raw: true
     });
-    const availableColumns = new Set(
-      Object.keys(sourceRows[0] ?? {}).map(normalizeHeader)
-    );
-    const missingColumns = REQUIRED_COLUMNS.filter(
-      (columnName) => !availableColumns.has(columnName)
-    );
-
-    if (sourceRows.length > 0 && missingColumns.length > 0) {
-      throw new Error(
-        `The new labor utilization workbook is missing required columns: ${missingColumns.join(', ')}`
-      );
-    }
-
-    const rows = sourceRows
-      .map(normalizeLaborUtilizationNewRow)
-      .filter(Boolean);
-    const years = Array.from(new Set(rows.map((row) => row.year))).sort(
-      (left, right) => left - right
-    );
-    const categoryCounts = rows.reduce(
-      (counts, row) => {
-        counts[classifyLaborCategory(row.labor_category)] += 1;
-        return counts;
-      },
-      { direct: 0, indirect: 0, other: 0 }
-    );
-    const totalEnteredHours = Number(
-      rows.reduce((sum, row) => sum + row.entered_hours, 0).toFixed(2)
-    );
-    const payload = {
-      source: 'excel',
+    const payload = buildLaborUtilizationPayload(sourceRows, {
+      source: 'excel-fallback',
+      sourceLabel: 'The new labor utilization workbook',
       fileName: path.basename(LABOR_UTILIZATION_NEW_FILE_PATH),
       sheetName,
-      sourceRowCount: sourceRows.length,
-      rowCount: rows.length,
-      invalidRowCount: sourceRows.length - rows.length,
-      years,
-      totalEnteredHours,
-      laborCategoryCounts: categoryCounts,
-      rows
-    };
+      fallbackReason
+    });
 
-    logDebug('labor-new', 'New labor utilization workbook loaded.', {
+    logDebug('labor-new', 'New labor utilization loaded from Excel fallback.', {
+      source: payload.source,
+      fallbackReason,
       fileName: payload.fileName,
       sheetName,
       sourceRowCount: payload.sourceRowCount,
       rowCount: payload.rowCount,
       invalidRowCount: payload.invalidRowCount,
-      years,
-      totalEnteredHours,
-      directRowCount: categoryCounts.direct,
-      indirectRowCount: categoryCounts.indirect,
-      otherRowCount: categoryCounts.other,
+      years: payload.years,
+      totalEnteredHours: payload.totalEnteredHours,
+      laborCategoryCounts: payload.laborCategoryCounts,
       duration: formatDuration(stopTimer())
     });
 
@@ -179,10 +196,74 @@ export async function readLaborUtilizationNewData() {
       )
       : error;
 
-    logError('labor-new', 'Unable to load new labor utilization workbook.', normalizedError, {
+    logError('labor-new', 'Unable to load new labor Excel fallback.', normalizedError, {
       filePath: LABOR_UTILIZATION_NEW_FILE_PATH,
+      fallbackReason,
       duration: formatDuration(stopTimer())
     });
     throw normalizedError;
+  }
+}
+
+async function readLaborUtilizationNewDbmData(config) {
+  const stopTimer = createTimer();
+  const pool = await getPool(config, 'dbm');
+  const query = await fs.readFile(LABOR_UTILIZATION_DBM_QUERY_PATH, 'utf8');
+
+  logDebug('labor-new', 'Executing DBM labor utilization query.', {
+    server: config.server,
+    database: config.database,
+    queryFile: path.basename(LABOR_UTILIZATION_DBM_QUERY_PATH)
+  });
+
+  const result = await pool.request().query(query);
+  const payload = buildLaborUtilizationPayload(result.recordset, {
+    source: 'dbm-sql',
+    sourceLabel: 'The DBM labor utilization query',
+    queryFile: path.basename(LABOR_UTILIZATION_DBM_QUERY_PATH)
+  });
+
+  logDebug('labor-new', 'New labor utilization loaded from DBM SQL.', {
+    source: payload.source,
+    server: config.server,
+    database: config.database,
+    queryFile: payload.queryFile,
+    sourceRowCount: payload.sourceRowCount,
+    rowCount: payload.rowCount,
+    invalidRowCount: payload.invalidRowCount,
+    years: payload.years,
+    totalEnteredHours: payload.totalEnteredHours,
+    laborCategoryCounts: payload.laborCategoryCounts,
+    duration: formatDuration(stopTimer())
+  });
+
+  return payload;
+}
+
+export async function readLaborUtilizationNewData() {
+  const { config, missing } = getConnectionConfig('dbm');
+
+  if (missing.length > 0) {
+    const fallbackReason = `Missing DBM environment variables: ${missing.join(', ')}`;
+
+    logDebug('labor-new', 'DBM configuration is incomplete; using Excel fallback.', {
+      source: 'excel-fallback',
+      fallbackReason
+    });
+    return readLaborUtilizationNewExcelFallback(fallbackReason);
+  }
+
+  try {
+    return await readLaborUtilizationNewDbmData(config);
+  } catch (error) {
+    const fallbackReason = 'DBM labor utilization query failed; Excel fallback used.';
+
+    logError('labor-new', 'DBM labor utilization load failed; using Excel fallback.', error, {
+      server: config.server,
+      database: config.database,
+      source: 'excel-fallback',
+      fallbackReason
+    });
+    return readLaborUtilizationNewExcelFallback(fallbackReason);
   }
 }

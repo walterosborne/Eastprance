@@ -17,6 +17,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONTROLLABLE_COSTS_NEW_FILE_PATH = path.resolve(__dirname, '../data/cost.xlsx');
+const CONTROLLABLE_COSTS_DBM_QUERY_PATH = path.resolve(__dirname, '../nothertest.txt');
 const COST_ELEMENT_KEY_TABLE_NAME = 'cost_element_key';
 const REQUIRED_COLUMNS = [
   'year',
@@ -218,21 +219,7 @@ export function normalizeControllableCostsNewRow(row) {
   };
 }
 
-export async function readControllableCostsNewPipelineData() {
-  await fs.access(CONTROLLABLE_COSTS_NEW_FILE_PATH);
-
-  const workbook = XLSX.readFile(CONTROLLABLE_COSTS_NEW_FILE_PATH, { cellDates: false });
-  const sheetName = workbook.SheetNames[0];
-
-  if (!sheetName) {
-    throw new Error('The new controllable costs workbook does not contain a worksheet.');
-  }
-
-  const worksheet = workbook.Sheets[sheetName];
-  const sourceRows = XLSX.utils.sheet_to_json(worksheet, {
-    defval: null,
-    raw: true
-  });
+async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
   const availableColumns = new Set(Object.keys(sourceRows[0] ?? {}).map(normalizeHeader));
   const missingColumns = REQUIRED_COLUMNS.filter(
     (columnName) => !availableColumns.has(columnName)
@@ -240,7 +227,7 @@ export async function readControllableCostsNewPipelineData() {
 
   if (sourceRows.length > 0 && missingColumns.length > 0) {
     throw new Error(
-      `The new controllable costs workbook is missing required columns: ${missingColumns.join(', ')}`
+      `${metadata.sourceLabel} is missing required columns: ${missingColumns.join(', ')}`
     );
   }
 
@@ -276,8 +263,11 @@ export async function readControllableCostsNewPipelineData() {
   });
 
   return {
-    fileName: path.basename(CONTROLLABLE_COSTS_NEW_FILE_PATH),
-    sheetName,
+    source: metadata.source,
+    fileName: metadata.fileName ?? null,
+    sheetName: metadata.sheetName ?? null,
+    queryFile: metadata.queryFile ?? null,
+    tableName: metadata.tableName ?? null,
     sourceRows,
     normalizedRows,
     rows,
@@ -287,67 +277,128 @@ export async function readControllableCostsNewPipelineData() {
   };
 }
 
-export async function readControllableCostsNewData() {
-  const stopTimer = createTimer();
+export async function readControllableCostsNewExcelPipelineData() {
+  await fs.access(CONTROLLABLE_COSTS_NEW_FILE_PATH);
 
-  logDebug('controllable-costs-new', 'Loading new controllable costs workbook.', {
-    filePath: CONTROLLABLE_COSTS_NEW_FILE_PATH
+  const workbook = XLSX.readFile(CONTROLLABLE_COSTS_NEW_FILE_PATH, { cellDates: false });
+  const sheetName = workbook.SheetNames[0];
+
+  if (!sheetName) {
+    throw new Error('The new controllable costs workbook does not contain a worksheet.');
+  }
+
+  const sourceRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    defval: null,
+    raw: true
+  });
+
+  return buildControllableCostsNewPipelineData(sourceRows, {
+    source: 'excel',
+    sourceLabel: 'The new controllable costs workbook',
+    fileName: path.basename(CONTROLLABLE_COSTS_NEW_FILE_PATH),
+    sheetName
+  });
+}
+
+async function readControllableCostsNewDbmPipelineData(config) {
+  const pool = await getPool(config, 'dbm');
+  const query = await fs.readFile(CONTROLLABLE_COSTS_DBM_QUERY_PATH, 'utf8');
+
+  logDebug('controllable-costs-new', 'Executing DBM controllable costs query.', {
+    server: config.server,
+    database: config.database,
+    queryFile: path.basename(CONTROLLABLE_COSTS_DBM_QUERY_PATH)
+  });
+
+  const result = await pool.request().query(query);
+
+  return buildControllableCostsNewPipelineData(result.recordset, {
+    source: 'dbm-sql',
+    sourceLabel: 'The DBM controllable costs query',
+    queryFile: path.basename(CONTROLLABLE_COSTS_DBM_QUERY_PATH),
+    tableName: 'src.rb_CVG_Transaction_Details_03'
+  });
+}
+
+function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
+  const {
+    source,
+    fileName,
+    sheetName,
+    queryFile,
+    tableName,
+    sourceRows,
+    normalizedRows,
+    rows,
+    excludedRows,
+    costElementKeys
+  } = pipeline;
+  const years = Array.from(new Set(rows.map((row) => row.year)).values()).sort(
+    (left, right) => left - right
+  );
+  const totalCost = Number(rows.reduce((sum, row) => sum + row.cost, 0).toFixed(2));
+  const controllableRowCount = rows.filter(
+    (row) => row.controllable === 'Controllable'
+  ).length;
+  const uncontrollableRowCount = rows.length - controllableRowCount;
+
+  return {
+    source: fallbackReason ? 'excel-fallback' : source,
+    fileName,
+    sheetName,
+    queryFile,
+    tableName,
+    fallbackReason,
+    sourceRowCount: sourceRows.length,
+    rowCount: rows.length,
+    invalidRowCount: sourceRows.length - normalizedRows.length,
+    excludedByCostElementKeyCount: excludedRows.length,
+    costElementKeyTableName: costElementKeys.tableName,
+    costElementKeyRowCount: costElementKeys.rowCount,
+    validCostElementCount: costElementKeys.valuesByIdentifier.size,
+    years,
+    totalCost,
+    controllableRowCount,
+    uncontrollableRowCount,
+    rows
+  };
+}
+
+function logControllableCostsNewPayload(payload, stopTimer) {
+  logDebug('controllable-costs-new', 'New controllable costs dataset loaded.', {
+    source: payload.source,
+    fallbackReason: payload.fallbackReason,
+    fileName: payload.fileName,
+    sheetName: payload.sheetName,
+    queryFile: payload.queryFile,
+    tableName: payload.tableName,
+    sourceRowCount: payload.sourceRowCount,
+    rowCount: payload.rowCount,
+    invalidRowCount: payload.invalidRowCount,
+    excludedByCostElementKeyCount: payload.excludedByCostElementKeyCount,
+    costElementKeyRowCount: payload.costElementKeyRowCount,
+    validCostElementCount: payload.validCostElementCount,
+    costElementKeyTableName: payload.costElementKeyTableName,
+    years: payload.years,
+    totalCost: payload.totalCost,
+    controllableRowCount: payload.controllableRowCount,
+    uncontrollableRowCount: payload.uncontrollableRowCount,
+    duration: formatDuration(stopTimer())
+  });
+}
+
+async function readControllableCostsNewExcelFallback(fallbackReason, stopTimer) {
+  logDebug('controllable-costs-new', 'Loading Excel fallback for new controllable costs.', {
+    source: 'excel-fallback',
+    filePath: CONTROLLABLE_COSTS_NEW_FILE_PATH,
+    fallbackReason
   });
 
   try {
-    const {
-      fileName,
-      sheetName,
-      sourceRows,
-      normalizedRows,
-      rows,
-      excludedRows,
-      costElementKeys
-    } = await readControllableCostsNewPipelineData();
-    const excludedByCostElementKeyCount = normalizedRows.length - rows.length;
-    const years = Array.from(new Set(rows.map((row) => row.year)).values()).sort(
-      (left, right) => left - right
-    );
-    const totalCost = Number(rows.reduce((sum, row) => sum + row.cost, 0).toFixed(2));
-    const controllableRowCount = rows.filter(
-      (row) => row.controllable === 'Controllable'
-    ).length;
-    const uncontrollableRowCount = rows.length - controllableRowCount;
-    const payload = {
-      source: 'excel',
-      fileName,
-      sheetName,
-      sourceRowCount: sourceRows.length,
-      rowCount: rows.length,
-      invalidRowCount: sourceRows.length - normalizedRows.length,
-      excludedByCostElementKeyCount: excludedRows.length,
-      costElementKeyTableName: costElementKeys.tableName,
-      costElementKeyRowCount: costElementKeys.rowCount,
-      validCostElementCount: costElementKeys.valuesByIdentifier.size,
-      years,
-      totalCost,
-      controllableRowCount,
-      uncontrollableRowCount,
-      rows
-    };
+    const pipeline = await readControllableCostsNewExcelPipelineData();
+    const payload = buildControllableCostsNewPayload(pipeline, fallbackReason);
 
-    logDebug('controllable-costs-new', 'New controllable costs workbook loaded.', {
-      fileName: payload.fileName,
-      sheetName,
-      sourceRowCount: payload.sourceRowCount,
-      rowCount: payload.rowCount,
-      invalidRowCount: payload.invalidRowCount,
-      excludedByCostElementKeyCount,
-      costElementKeyRowCount: payload.costElementKeyRowCount,
-      validCostElementCount: payload.validCostElementCount,
-      costElementKeyTableName: payload.costElementKeyTableName,
-      years,
-      totalCost,
-      controllableRowCount,
-      uncontrollableRowCount,
-      duration: formatDuration(stopTimer())
-    });
-
+    logControllableCostsNewPayload(payload, stopTimer);
     return payload;
   } catch (error) {
     const normalizedError = error?.code === 'ENOENT'
@@ -356,13 +407,52 @@ export async function readControllableCostsNewData() {
 
     logError(
       'controllable-costs-new',
-      'Unable to load new controllable costs workbook.',
+      'Unable to load new controllable costs Excel fallback.',
       normalizedError,
       {
         filePath: CONTROLLABLE_COSTS_NEW_FILE_PATH,
+        fallbackReason,
         duration: formatDuration(stopTimer())
       }
     );
     throw normalizedError;
+  }
+}
+
+export async function readControllableCostsNewData() {
+  const stopTimer = createTimer();
+  const { config, missing } = getConnectionConfig('dbm');
+
+  if (missing.length > 0) {
+    const fallbackReason = `Missing DBM environment variables: ${missing.join(', ')}`;
+
+    logDebug('controllable-costs-new', 'DBM configuration is incomplete; using Excel fallback.', {
+      source: 'excel-fallback',
+      fallbackReason
+    });
+    return readControllableCostsNewExcelFallback(fallbackReason, stopTimer);
+  }
+
+  try {
+    const pipeline = await readControllableCostsNewDbmPipelineData(config);
+    const payload = buildControllableCostsNewPayload(pipeline);
+
+    logControllableCostsNewPayload(payload, stopTimer);
+    return payload;
+  } catch (error) {
+    const fallbackReason = 'DBM controllable costs query failed; Excel fallback used.';
+
+    logError(
+      'controllable-costs-new',
+      'DBM controllable costs load failed; using Excel fallback.',
+      error,
+      {
+        server: config.server,
+        database: config.database,
+        source: 'excel-fallback',
+        fallbackReason
+      }
+    );
+    return readControllableCostsNewExcelFallback(fallbackReason, stopTimer);
   }
 }

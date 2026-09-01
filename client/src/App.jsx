@@ -1081,7 +1081,7 @@ function logClientDebug(scope, message, metadata) {
 }
 
 function getSourceLabel(source) {
-  if (source === 'mssql') {
+  if (source === 'mssql' || source === 'dbm-sql') {
     return 'SQL Server data';
   }
 
@@ -1089,7 +1089,7 @@ function getSourceLabel(source) {
     return 'Local JSON data';
   }
 
-  if (source === 'excel' || source === 'dummy') {
+  if (source === 'excel' || source === 'excel-fallback' || source === 'dummy') {
     return 'Local fallback data';
   }
 
@@ -4822,6 +4822,9 @@ export default function App() {
         logClientDebug('controllable-costs-new', 'New controllable costs state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
           source: payload.source,
+          fallbackReason: payload.fallbackReason,
+          queryFile: payload.queryFile,
+          fileName: payload.fileName,
           sourceRowCount: payload.sourceRowCount,
           excludedByCostElementKeyCount: payload.excludedByCostElementKeyCount,
           validCostElementCount: payload.validCostElementCount,
@@ -4839,7 +4842,7 @@ export default function App() {
         setControllableCostsNewState({
           rows: [],
           loading: false,
-          error: error.message || 'Unable to load the new controllable costs workbook.',
+          error: error.message || 'Unable to load the new controllable costs dataset.',
           source: ''
         });
 
@@ -5146,7 +5149,7 @@ export default function App() {
           source: getSourceLabel(payload.source)
         });
 
-        logClientDebug('labor-new', 'New labor workbook state updated.', {
+        logClientDebug('labor-new', 'New labor dataset state updated.', {
           rowCount: payload.rowCount,
           sourceRowCount: payload.sourceRowCount,
           invalidRowCount: payload.invalidRowCount,
@@ -5154,6 +5157,9 @@ export default function App() {
           totalEnteredHours: payload.totalEnteredHours,
           laborCategoryCounts: payload.laborCategoryCounts,
           source: payload.source,
+          fallbackReason: payload.fallbackReason,
+          queryFile: payload.queryFile,
+          fileName: payload.fileName,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });
       } catch (error) {
@@ -5167,11 +5173,11 @@ export default function App() {
         setLaborNewState({
           rows: [],
           loading: false,
-          error: error.message || 'Unable to load the new labor utilization workbook.',
+          error: error.message || 'Unable to load the new labor utilization dataset.',
           source: ''
         });
 
-        logClientDebug('labor-new', 'New labor workbook load failed.', {
+        logClientDebug('labor-new', 'New labor dataset load failed.', {
           error: error.message,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });

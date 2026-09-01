@@ -30,7 +30,7 @@ import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
 import {
   readControllableCostsNewData,
-  readControllableCostsNewPipelineData
+  readControllableCostsNewExcelPipelineData
 } from './controllableCostsNewRepository.js';
 import { readCurrentUser } from './currentUserRepository.js';
 import {
@@ -388,7 +388,7 @@ app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response
   try {
     const [oldPayload, pipeline] = await Promise.all([
       getCachedSqlDataset('controllable-costs'),
-      readControllableCostsNewPipelineData()
+      readControllableCostsNewExcelPipelineData()
     ]);
     const payload = buildCostDiagnosticsPayload(pipeline, oldPayload);
     const wantsJson = request.path.startsWith('/api/')
@@ -469,7 +469,7 @@ app.get('/api/controllable-costs-new', async (request, response) => {
     response,
     'controllable-costs-new',
     readControllableCostsNewData,
-    'Unable to read the new controllable costs workbook.'
+    'Unable to read the new controllable costs dataset.'
   );
 });
 
@@ -532,7 +532,7 @@ app.get('/api/labor-utilization-new', async (request, response) => {
     response,
     'labor-new',
     readLaborUtilizationNewData,
-    'Unable to read the new labor utilization workbook.'
+    'Unable to read the new labor utilization dataset.'
   );
 });
 

@@ -60,11 +60,18 @@ function getRosterConnectionConfigFromEnv() {
 }
 
 function getDbmConnectionConfigFromEnv() {
+  const configuredRequestTimeout = Number(
+    getFirstDefinedEnvValue('dbmrequesttimeout', 'DBMREQUESTTIMEOUT')
+  );
+
   return {
     server: getFirstDefinedEnvValue('dbmserver', 'DBMSERVER'),
     database: getFirstDefinedEnvValue('dbmdatabase', 'DBMDATABASE'),
     user: getFirstDefinedEnvValue('dbmuser', 'DBMUSER'),
     password: getFirstDefinedEnvValue('dbmpassword', 'DBMPASSWORD'),
+    requestTimeout: Number.isFinite(configuredRequestTimeout) && configuredRequestTimeout > 0
+      ? configuredRequestTimeout
+      : 120000,
     source: 'dbm-env'
   };
 }
@@ -104,7 +111,8 @@ export function getConnectionConfig(connectionName = 'default') {
         server: dbmConfig.server,
         database: dbmConfig.database,
         user: dbmConfig.user,
-        password: dbmConfig.password
+        password: dbmConfig.password,
+        requestTimeout: dbmConfig.requestTimeout
       },
       missing,
       source: dbmConfig.source

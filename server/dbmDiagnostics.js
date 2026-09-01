@@ -4,6 +4,7 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import { readCostClassificationDiagnostics } from './costClassificationDiagnostics.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
 const DBM_TABLE_CHECKS = [
@@ -104,7 +105,9 @@ export async function readDbmDiagnostics() {
       year: null,
       month: null,
       label: 'None'
-    }
+    },
+    costClassification: null,
+    costClassificationError: null
   };
 
   if (missing.length > 0) {
@@ -145,10 +148,21 @@ export async function readDbmDiagnostics() {
     (table) => table.name === 'src.rb_CVG_Transaction_Details_03'
   );
 
+  let costClassification = null;
+  let costClassificationError = null;
+
+  try {
+    costClassification = await readCostClassificationDiagnostics();
+  } catch (error) {
+    costClassificationError = error.message;
+    logError('dbm-diagnostics', 'Cost classification explorer failed to load.', error);
+  }
+
   logDebug('dbm-diagnostics', 'DBM diagnostics completed.', {
     server: config.server,
     database: config.database,
     accessibleTableCount: tables.filter((table) => table.accessible).length,
+    costClassificationLoaded: Boolean(costClassification),
     duration: formatDuration(stopTimer())
   });
 
@@ -171,7 +185,9 @@ export async function readDbmDiagnostics() {
         transactionTable?.latestYear,
         transactionTable?.latestMonth
       )
-    }
+    },
+    costClassification,
+    costClassificationError
   };
 }
 
@@ -182,6 +198,103 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0
+});
+const countFormatter = new Intl.NumberFormat('en-US');
+const percentFormatter = new Intl.NumberFormat('en-US', {
+  style: 'percent',
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1
+});
+
+function formatCurrency(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? currencyFormatter.format(numeric) : 'N/A';
+}
+
+function formatCount(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? countFormatter.format(numeric) : 'N/A';
+}
+
+function formatPercent(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? percentFormatter.format(numeric) : 'N/A';
+}
+
+function renderCostClassification(payload, errorMessage) {
+  if (!payload) {
+    return `
+      <section class="panel">
+        <h2>Facility Cost Classification Explorer</h2>
+        <p class="error">${escapeHtml(errorMessage || 'Classification data did not load.')}</p>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="panel classification-panel">
+      <h2>Facility Cost Classification Explorer</h2>
+      <p class="note">Fresh DS DBM non-labor population only. This section intentionally ignores the old Cost Element Key and all existing controllable/uncontrollable assumptions.</p>
+
+      <div class="classification-summary">
+        <article class="summary-card"><span>Period</span><strong>${escapeHtml(payload.firstPeriod)} – ${escapeHtml(payload.latestPeriod)}</strong></article>
+        <article class="summary-card"><span>Net Cost</span><strong>${formatCurrency(payload.totalNetCost)}</strong></article>
+        <article class="summary-card"><span>GL / Category Combos</span><strong>${formatCount(payload.costElementCombinationCount)}</strong></article>
+        <article class="summary-card"><span>Rows to 95%</span><strong>${formatCount(payload.rowsTo95)}</strong></article>
+        <article class="summary-card"><span>Rows to 99%</span><strong>${formatCount(payload.rowsTo99)}</strong></article>
+      </div>
+
+      <h3>Category Summary</h3>
+      <p class="note">Start here. Obvious facility/non-facility categories can be classified in bulk; mixed categories can be reviewed at GL level.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>#</th><th>Level 3</th><th>Level 4</th><th>GL Combos</th><th>Net Cost</th><th>Abs Share</th><th>Cumulative</th></tr></thead>
+          <tbody>
+            ${payload.categoryRows.map((row) => `
+              <tr>
+                <td>${row.rank}</td>
+                <td>${escapeHtml(row.level3Category)}</td>
+                <td>${escapeHtml(row.level4Category)}</td>
+                <td>${formatCount(row.costElementCount)}</td>
+                <td>${formatCurrency(row.netCost)}</td>
+                <td>${formatPercent(row.absoluteShare)}</td>
+                <td>${formatPercent(row.cumulativeShare)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Cost Elements Ranked by Dollar Impact</h3>
+      <p class="note">Showing ${formatCount(payload.visibleRowCount)} rows. Green-tinted rows are inside the set that gets us to roughly 95% of absolute net dollars.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>#</th><th>Cost Element</th><th>Description</th><th>Level 3</th><th>Level 4</th><th>Net Cost</th><th>Abs Share</th><th>Cumulative</th><th>Txn Rows</th></tr></thead>
+          <tbody>
+            ${payload.costElementRows.map((row) => `
+              <tr class="${row.cumulativeShare <= 0.95 ? 'coverage' : ''}">
+                <td>${row.rank}</td>
+                <td class="mono">${escapeHtml(row.costElement)}</td>
+                <td>${escapeHtml(row.costElementDescription)}</td>
+                <td>${escapeHtml(row.level3Category)}</td>
+                <td>${escapeHtml(row.level4Category)}</td>
+                <td>${formatCurrency(row.netCost)}</td>
+                <td>${formatPercent(row.absoluteShare)}</td>
+                <td>${formatPercent(row.cumulativeShare)}</td>
+                <td>${formatCount(row.transactionRowCount)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
 }
 
 export function renderDbmDiagnosticsPage(payload) {
@@ -195,29 +308,38 @@ export function renderDbmDiagnosticsPage(payload) {
       :root { color-scheme: dark; font-family: Arial, sans-serif; }
       * { box-sizing: border-box; }
       body { margin: 0; padding: 18px; background: #111827; color: #f3f4f6; }
-      .shell { width: min(920px, 100%); margin: 0 auto; display: grid; gap: 12px; }
+      .shell { width: min(1500px, 100%); margin: 0 auto; display: grid; gap: 12px; }
       .hero, .panel, .summary-card { border: 1px solid #374151; border-radius: 10px; background: #1f2937; }
       .hero { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; }
-      h1, h2, p { margin-top: 0; }
+      h1, h2, h3, p { margin-top: 0; }
       h1 { margin-bottom: 0; font-size: 22px; }
-      h2 { margin-bottom: 10px; font-size: 15px; }
+      h2 { margin-bottom: 10px; font-size: 16px; }
+      h3 { margin: 18px 0 8px; font-size: 14px; }
       .button { padding: 8px 12px; border: 1px solid #4b5563; border-radius: 999px; background: #28223c; color: white; text-decoration: none; font-size: 12px; font-weight: 700; }
       .panel { padding: 12px; }
       .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .classification-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
       .summary-card { padding: 10px 12px; background: #111827; }
       .summary-card span { display: block; margin-bottom: 5px; color: #9ca3af; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
       .summary-card strong { display: block; overflow-wrap: anywhere; font-size: 14px; }
-      table { width: 100%; border-collapse: collapse; font-size: 12px; }
-      th, td { padding: 8px 10px; border: 1px solid #374151; text-align: left; }
-      thead th { background: #28223c; color: white; }
+      .table-scroll { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: 11px; }
+      th, td { padding: 7px 8px; border: 1px solid #374151; text-align: left; white-space: nowrap; }
+      thead th { position: sticky; top: 0; background: #28223c; color: white; z-index: 1; }
       tbody tr:nth-child(even) { background: #182231; }
+      tbody tr.coverage { background: rgba(34, 197, 94, .07); }
       .accessible { color: #86efac; font-weight: 700; }
-      .unavailable { color: #fca5a5; font-weight: 700; }
+      .unavailable, .error { color: #fca5a5; font-weight: 700; }
       .not-tested { color: #fcd34d; font-weight: 700; }
-      @media (max-width: 700px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      .note { padding: 9px 10px; border-radius: 8px; background: #111827; color: #d1d5db; font-size: 12px; margin-bottom: 10px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      @media (max-width: 1000px) {
+        .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .classification-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
       @media (max-width: 420px) {
         body { padding: 8px; }
-        .summary-grid { grid-template-columns: 1fr; }
+        .summary-grid, .classification-summary { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -252,6 +374,8 @@ export function renderDbmDiagnosticsPage(payload) {
           </tbody>
         </table>
       </section>
+
+      ${renderCostClassification(payload.costClassification, payload.costClassificationError)}
     </main>
   </body>
 </html>`;

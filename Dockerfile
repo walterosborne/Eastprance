@@ -21,7 +21,6 @@ COPY --chown=1001:0 client ./client
 COPY --chown=1001:0 server ./server
 COPY --chown=1001:0 shared ./shared
 COPY --chown=1001:0 data ./data
-COPY --chown=1001:0 test.txt nothertest.txt ./
 
 RUN npm run build --workspace client
 

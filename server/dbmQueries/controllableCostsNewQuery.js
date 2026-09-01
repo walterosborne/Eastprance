@@ -1,3 +1,4 @@
+export const CONTROLLABLE_COSTS_NEW_DBM_QUERY = `
 WITH CostCenterHierarchy AS (
     SELECT
         LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
@@ -119,3 +120,4 @@ ORDER BY
     facility,
     cost_category,
     gl_account_cost_element;
+`;

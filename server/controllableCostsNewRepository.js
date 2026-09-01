@@ -8,6 +8,7 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import { CONTROLLABLE_COSTS_NEW_DBM_QUERY } from './dbmQueries/controllableCostsNewQuery.js';
 import {
   formatSqlIdentifier,
   getConnectionConfig,
@@ -17,7 +18,6 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONTROLLABLE_COSTS_NEW_FILE_PATH = path.resolve(__dirname, '../data/cost.xlsx');
-const CONTROLLABLE_COSTS_DBM_QUERY_PATH = path.resolve(__dirname, '../nothertest.txt');
 const COST_ELEMENT_KEY_TABLE_NAME = 'cost_element_key';
 const REQUIRED_COLUMNS = [
   'year',
@@ -302,20 +302,18 @@ export async function readControllableCostsNewExcelPipelineData() {
 
 async function readControllableCostsNewDbmPipelineData(config) {
   const pool = await getPool(config, 'dbm');
-  const query = await fs.readFile(CONTROLLABLE_COSTS_DBM_QUERY_PATH, 'utf8');
 
   logDebug('controllable-costs-new', 'Executing DBM controllable costs query.', {
     server: config.server,
     database: config.database,
-    queryFile: path.basename(CONTROLLABLE_COSTS_DBM_QUERY_PATH)
+    querySource: 'embedded-server-query'
   });
 
-  const result = await pool.request().query(query);
+  const result = await pool.request().query(CONTROLLABLE_COSTS_NEW_DBM_QUERY);
 
   return buildControllableCostsNewPipelineData(result.recordset, {
     source: 'dbm-sql',
     sourceLabel: 'The DBM controllable costs query',
-    queryFile: path.basename(CONTROLLABLE_COSTS_DBM_QUERY_PATH),
     tableName: 'src.rb_CVG_Transaction_Details_03'
   });
 }

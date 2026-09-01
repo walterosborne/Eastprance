@@ -8,6 +8,7 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import { LABOR_UTILIZATION_NEW_DBM_QUERY } from './dbmQueries/laborUtilizationNewQuery.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,7 +17,6 @@ const LABOR_UTILIZATION_NEW_FILE_PATH = path.resolve(
   __dirname,
   '../data/labor_utilization_new.xlsx'
 );
-const LABOR_UTILIZATION_DBM_QUERY_PATH = path.resolve(__dirname, '../test.txt');
 const REQUIRED_COLUMNS = [
   'year',
   'month',
@@ -208,19 +208,17 @@ async function readLaborUtilizationNewExcelFallback(fallbackReason) {
 async function readLaborUtilizationNewDbmData(config) {
   const stopTimer = createTimer();
   const pool = await getPool(config, 'dbm');
-  const query = await fs.readFile(LABOR_UTILIZATION_DBM_QUERY_PATH, 'utf8');
 
   logDebug('labor-new', 'Executing DBM labor utilization query.', {
     server: config.server,
     database: config.database,
-    queryFile: path.basename(LABOR_UTILIZATION_DBM_QUERY_PATH)
+    querySource: 'embedded-server-query'
   });
 
-  const result = await pool.request().query(query);
+  const result = await pool.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY);
   const payload = buildLaborUtilizationPayload(result.recordset, {
     source: 'dbm-sql',
-    sourceLabel: 'The DBM labor utilization query',
-    queryFile: path.basename(LABOR_UTILIZATION_DBM_QUERY_PATH)
+    sourceLabel: 'The DBM labor utilization query'
   });
 
   logDebug('labor-new', 'New labor utilization loaded from DBM SQL.', {

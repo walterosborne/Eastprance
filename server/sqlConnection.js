@@ -59,6 +59,16 @@ function getRosterConnectionConfigFromEnv() {
   };
 }
 
+function getDbmConnectionConfigFromEnv() {
+  return {
+    server: getFirstDefinedEnvValue('dbmserver', 'DBMSERVER'),
+    database: getFirstDefinedEnvValue('dbmdatabase', 'DBMDATABASE'),
+    user: getFirstDefinedEnvValue('dbmuser', 'DBMUSER'),
+    password: getFirstDefinedEnvValue('dbmpassword', 'DBMPASSWORD'),
+    source: 'dbm-env'
+  };
+}
+
 function getMissingConnectionFields(config, prefix = '') {
   const missingFields = [];
 
@@ -83,6 +93,23 @@ function getMissingConnectionFields(config, prefix = '') {
 
 export function getConnectionConfig(connectionName = 'default') {
   const defaultConfig = getPrimaryConnectionConfigFromEnv();
+
+  if (connectionName === 'dbm') {
+    const dbmConfig = getDbmConnectionConfigFromEnv();
+    const missing = getMissingConnectionFields(dbmConfig, 'dbm');
+
+    return {
+      connectionName: 'dbm',
+      config: {
+        server: dbmConfig.server,
+        database: dbmConfig.database,
+        user: dbmConfig.user,
+        password: dbmConfig.password
+      },
+      missing,
+      source: dbmConfig.source
+    };
+  }
 
   if (connectionName !== 'roster') {
     const missing = getMissingConnectionFields(defaultConfig);

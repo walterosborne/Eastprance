@@ -21,6 +21,10 @@ import {
   buildCostDiagnosticsPayload,
   renderCostDiagnosticsPage
 } from './costDiagnostics.js';
+import {
+  readDbmDiagnostics,
+  renderDbmDiagnosticsPage
+} from './dbmDiagnostics.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
@@ -414,6 +418,27 @@ app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response
     response.status(500).json({
       message: 'Unable to build cost diagnostics.',
       error: error.message
+    });
+  }
+});
+
+app.get(['/dbm-diagnostics', '/api/dbm-diagnostics'], async (request, response) => {
+  try {
+    const payload = await readDbmDiagnostics();
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    if (wantsJson) {
+      response.json(payload);
+      return;
+    }
+
+    response.type('text/html').send(renderDbmDiagnosticsPage(payload));
+  } catch (error) {
+    logError('dbm-diagnostics', 'Unable to render DBM diagnostics.', error);
+    response.status(500).json({
+      message: 'Unable to render DBM diagnostics.'
     });
   }
 });

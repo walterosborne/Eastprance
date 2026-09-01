@@ -123,7 +123,7 @@ CostCenterHierarchy AS (
                 id DESC
         ) AS rn
     FROM rpt.rb_load_cost_center_hierarchy
-    WHERE NULLIF(LTRIM(RTRIM(COST_CENTER)), '') IS NOT NULL
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 ),
 
 Actuals AS (
@@ -172,7 +172,7 @@ EnrichedActuals AS (
         ON r.Location_Code = lf.Location_Code
        AND lf.rn = 1
        AND lf.Facility_Share >= 0.90
-    LEFT JOIN CostCenterHierarchy h
+    JOIN CostCenterHierarchy h
         ON a.Cost_Center = h.Cost_Center
        AND h.rn = 1
     WHERE

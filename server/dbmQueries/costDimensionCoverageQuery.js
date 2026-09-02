@@ -156,6 +156,33 @@ CostCenterFacility AS (
         ) AS rn
     FROM CostCenterFacilityCounts
     WHERE Facility IS NOT NULL
+),
+
+SapCostCenterMaster AS (
+    SELECT
+        Cost_Center,
+        Plant,
+        City,
+        District
+    FROM (
+        SELECT
+            LTRIM(RTRIM(KOSTL)) AS Cost_Center,
+            NULLIF(LTRIM(RTRIM(WERKS)), '') AS Plant,
+            NULLIF(LTRIM(RTRIM(ORT01)), '') AS City,
+            NULLIF(LTRIM(RTRIM(ORT02)), '') AS District,
+            ROW_NUMBER() OVER (
+                PARTITION BY LTRIM(RTRIM(KOSTL))
+                ORDER BY
+                    CASE WHEN NULLIF(LTRIM(RTRIM(WERKS)), '') IS NULL THEN 1 ELSE 0 END,
+                    CASE WHEN NULLIF(LTRIM(RTRIM(ORT01)), '') IS NULL THEN 1 ELSE 0 END,
+                    LTRIM(RTRIM(WERKS)),
+                    LTRIM(RTRIM(ORT01)),
+                    LTRIM(RTRIM(ORT02))
+            ) AS rn
+        FROM src.cv_md_cost_ctr
+        WHERE NULLIF(LTRIM(RTRIM(KOSTL)), '') IS NOT NULL
+    ) master
+    WHERE rn = 1
 )
 
 SELECT
@@ -167,6 +194,9 @@ SELECT
     ccf.Facility AS current_cost_center_facility,
     ae.Facility AS employee_myid_facility,
     lf.Facility AS roster_location_facility,
+    scm.Plant AS sap_plant,
+    scm.City AS sap_city,
+    scm.District AS sap_district,
     COUNT_BIG(*) AS transaction_row_count,
     SUM(TRY_CONVERT(DECIMAL(18,2), t.KSL)) AS net_cost
 FROM src.rb_CVG_Transaction_Details_03 t
@@ -186,6 +216,8 @@ LEFT JOIN LocationFallback lf
     ON r.Location_Code = lf.Location_Code
    AND lf.rn = 1
    AND lf.Facility_Share >= 0.90
+LEFT JOIN SapCostCenterMaster scm
+    ON LTRIM(RTRIM(t.RCNTR)) = scm.Cost_Center
 WHERE
     TRY_CONVERT(INT, t.GJAHR) >= 2025
     AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 12
@@ -199,5 +231,8 @@ GROUP BY
     LTRIM(RTRIM(t.RCNTR)),
     ccf.Facility,
     ae.Facility,
-    lf.Facility;
+    lf.Facility,
+    scm.Plant,
+    scm.City,
+    scm.District;
 `;

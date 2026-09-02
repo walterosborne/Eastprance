@@ -5,6 +5,7 @@ import {
   logError
 } from './debugLogger.js';
 import { readCostClassificationDiagnostics } from './costClassificationDiagnostics.js';
+import { readCostDimensionCoverageDiagnostics } from './costDimensionCoverageDiagnostics.js';
 import { classifyFacilityCost } from './costFacilityClassification.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
@@ -108,7 +109,9 @@ export async function readDbmDiagnostics() {
       label: 'None'
     },
     costClassification: null,
-    costClassificationError: null
+    costClassificationError: null,
+    costDimensionCoverage: null,
+    costDimensionCoverageError: null
   };
 
   if (missing.length > 0) {
@@ -151,6 +154,8 @@ export async function readDbmDiagnostics() {
 
   let costClassification = null;
   let costClassificationError = null;
+  let costDimensionCoverage = null;
+  let costDimensionCoverageError = null;
 
   try {
     costClassification = await readCostClassificationDiagnostics();
@@ -159,11 +164,19 @@ export async function readDbmDiagnostics() {
     logError('dbm-diagnostics', 'Cost classification explorer failed to load.', error);
   }
 
+  try {
+    costDimensionCoverage = await readCostDimensionCoverageDiagnostics();
+  } catch (error) {
+    costDimensionCoverageError = error.message;
+    logError('dbm-diagnostics', 'Cost dimension coverage diagnostics failed to load.', error);
+  }
+
   logDebug('dbm-diagnostics', 'DBM diagnostics completed.', {
     server: config.server,
     database: config.database,
     accessibleTableCount: tables.filter((table) => table.accessible).length,
     costClassificationLoaded: Boolean(costClassification),
+    costDimensionCoverageLoaded: Boolean(costDimensionCoverage),
     duration: formatDuration(stopTimer())
   });
 
@@ -188,7 +201,9 @@ export async function readDbmDiagnostics() {
       )
     },
     costClassification,
-    costClassificationError
+    costClassificationError,
+    costDimensionCoverage,
+    costDimensionCoverageError
   };
 }
 
@@ -242,6 +257,114 @@ function summarizeFacilityStatuses(rows) {
   });
 
   return summary;
+}
+
+function renderCostDimensionCoverage(payload, errorMessage, classificationTotal) {
+  if (!payload) {
+    return `
+      <section class="panel">
+        <h2>Cost Dimension Coverage</h2>
+        <p class="error">${escapeHtml(errorMessage || 'Dimension coverage data did not load.')}</p>
+      </section>
+    `;
+  }
+
+  const reconciliationDifference = Number(payload.totalNetCost) - Number(classificationTotal || 0);
+
+  return `
+    <section class="panel">
+      <h2>Cost Dimension Coverage</h2>
+      <p class="note">Same fresh DS indirect non-labor population, rolled up through the exact Division / Business Unit / Archibus facility mapping used by the new cost query. Use this to catch missing organizations, missing months, and weak facility mapping before we trust the cost classification.</p>
+
+      <div class="classification-summary coverage-summary">
+        <article class="summary-card"><span>Divisions</span><strong>${formatCount(payload.divisionCount)}</strong></article>
+        <article class="summary-card"><span>Business Units</span><strong>${formatCount(payload.businessUnitCount)}</strong></article>
+        <article class="summary-card"><span>Mapped Facilities</span><strong>${formatCount(payload.facilityCount)}</strong></article>
+        <article class="summary-card"><span>Cost Centers</span><strong>${formatCount(payload.costCenterCount)}</strong></article>
+        <article class="summary-card"><span>Months Present</span><strong>${formatCount(payload.monthCount)}</strong></article>
+        <article class="summary-card"><span>Unmapped Facility</span><strong>${formatCount(payload.unmapped.costCenterCount)} CCs · ${formatPercent(payload.unmapped.absoluteShare)}</strong></article>
+      </div>
+
+      <p class="note">Dimension total: ${formatCurrency(payload.totalNetCost)} · GL explorer total: ${formatCurrency(classificationTotal)} · Difference: ${formatCurrency(reconciliationDifference)}. These should reconcile essentially to zero.</p>
+
+      <h3>Division Coverage</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Division</th><th>BUs</th><th>Facilities</th><th>Cost Centers</th><th>Months</th><th>Net Cost</th><th>Abs Share</th></tr></thead>
+          <tbody>
+            ${payload.divisions.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.key)}</td>
+                <td>${formatCount(row.businessUnitCount)}</td>
+                <td>${formatCount(row.facilityCount)}</td>
+                <td>${formatCount(row.costCenterCount)}</td>
+                <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
+                <td>${formatCurrency(row.netCost)}</td>
+                <td>${formatPercent(row.absoluteShare)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Business Unit Coverage</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Division | Business Unit</th><th>Facilities</th><th>Cost Centers</th><th>Months</th><th>Net Cost</th><th>Abs Share</th></tr></thead>
+          <tbody>
+            ${payload.businessUnits.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.key)}</td>
+                <td>${formatCount(row.facilityCount)}</td>
+                <td>${formatCount(row.costCenterCount)}</td>
+                <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
+                <td>${formatCurrency(row.netCost)}</td>
+                <td>${formatPercent(row.absoluteShare)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Facility Coverage</h3>
+      <p class="note">Top facilities by absolute dollar activity. A facility spanning unexpected divisions/BUs or having fewer months than the population is worth checking.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Facility</th><th>Divisions</th><th>BUs</th><th>Cost Centers</th><th>Months</th><th>Net Cost</th><th>Abs Share</th></tr></thead>
+          <tbody>
+            ${payload.facilities.map((row) => `
+              <tr class="${row.key === 'Unmapped' ? 'review-row' : ''}">
+                <td>${escapeHtml(row.key)}</td>
+                <td>${formatCount(row.divisionCount)}</td>
+                <td>${formatCount(row.businessUnitCount)}</td>
+                <td>${formatCount(row.costCenterCount)}</td>
+                <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
+                <td>${formatCurrency(row.netCost)}</td>
+                <td>${formatPercent(row.absoluteShare)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Top Unmapped Facility Cost Centers</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Cost Center</th><th>Months</th><th>Net Cost</th><th>Share of Unmapped Activity</th></tr></thead>
+          <tbody>
+            ${payload.unmappedCostCenters.map((row) => `
+              <tr class="review-row">
+                <td class="mono">${escapeHtml(row.key)}</td>
+                <td>${formatCount(row.monthCount)}</td>
+                <td>${formatCurrency(row.netCost)}</td>
+                <td>${formatPercent(row.absoluteShare)}</td>
+              </tr>
+            `).join('') || '<tr><td colspan="4">No unmapped facility cost centers.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
 }
 
 function renderCostClassification(payload, errorMessage) {
@@ -374,6 +497,7 @@ export function renderDbmDiagnosticsPage(payload) {
       .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
       .classification-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
       .classification-summary.status-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .classification-summary.coverage-summary { grid-template-columns: repeat(6, minmax(0, 1fr)); }
       .summary-card { padding: 10px 12px; background: #111827; }
       .summary-card span { display: block; margin-bottom: 5px; color: #9ca3af; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
       .summary-card strong { display: block; overflow-wrap: anywhere; font-size: 14px; }
@@ -391,11 +515,11 @@ export function renderDbmDiagnosticsPage(payload) {
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       @media (max-width: 1000px) {
         .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .classification-summary, .classification-summary.status-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .classification-summary, .classification-summary.status-summary, .classification-summary.coverage-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
       @media (max-width: 420px) {
         body { padding: 8px; }
-        .summary-grid, .classification-summary, .classification-summary.status-summary { grid-template-columns: 1fr; }
+        .summary-grid, .classification-summary, .classification-summary.status-summary, .classification-summary.coverage-summary { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -430,6 +554,12 @@ export function renderDbmDiagnosticsPage(payload) {
           </tbody>
         </table>
       </section>
+
+      ${renderCostDimensionCoverage(
+        payload.costDimensionCoverage,
+        payload.costDimensionCoverageError,
+        payload.costClassification?.totalNetCost
+      )}
 
       ${renderCostClassification(payload.costClassification, payload.costClassificationError)}
     </main>

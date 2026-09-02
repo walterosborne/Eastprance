@@ -115,12 +115,31 @@ function appendMissingMonths(rows) {
   }));
 }
 
+function formatSapMasterHint(row) {
+  const parts = [];
+  if (row.sapPlant) parts.push(`plant ${row.sapPlant}`);
+  if (row.sapCity) parts.push(`city ${row.sapCity}`);
+  if (row.sapDistrict) parts.push(`district ${row.sapDistrict}`);
+  return parts.join(' · ');
+}
+
 function buildUnmappedCostCenters(rows, allMonthKeys) {
-  return summarize(
-    rows.filter((row) => row.facility === 'Unmapped'),
-    (row) => row.costCenter,
-    allMonthKeys
-  ).slice(0, 30);
+  const unmappedRows = rows.filter((row) => row.facility === 'Unmapped');
+  const hintsByCostCenter = new Map();
+
+  unmappedRows.forEach((row) => {
+    const hint = formatSapMasterHint(row);
+    if (hint && !hintsByCostCenter.has(row.costCenter)) {
+      hintsByCostCenter.set(row.costCenter, hint);
+    }
+  });
+
+  return summarize(unmappedRows, (row) => row.costCenter, allMonthKeys)
+    .slice(0, 30)
+    .map((row) => ({
+      ...row,
+      key: `${row.key} · ${hintsByCostCenter.get(row.key) || 'SAP master location blank'}`
+    }));
 }
 
 function summarizeMappingMethod(rows, fieldName, label, totalAbsoluteCost) {
@@ -155,18 +174,28 @@ function buildMappingMethodRows(methods) {
 }
 
 function buildPayload(sourceRows) {
-  const candidateRows = sourceRows.map((row) => ({
-    year: number(row.year),
-    month: number(row.month),
-    division: text(row.division),
-    businessUnit: text(row.business_unit),
-    costCenter: text(row.cost_center),
-    currentCostCenterFacility: optionalText(row.current_cost_center_facility),
-    employeeMyidFacility: optionalText(row.employee_myid_facility),
-    rosterLocationFacility: optionalText(row.roster_location_facility),
-    transactionRowCount: number(row.transaction_row_count),
-    netCost: round(row.net_cost)
-  })).filter((row) => Number.isInteger(row.year) && row.month >= 1 && row.month <= 12);
+  const candidateRows = sourceRows.map((row) => {
+    const sapPlant = optionalText(row.sap_plant);
+    const sapCity = optionalText(row.sap_city);
+    const sapDistrict = optionalText(row.sap_district);
+
+    return {
+      year: number(row.year),
+      month: number(row.month),
+      division: text(row.division),
+      businessUnit: text(row.business_unit),
+      costCenter: text(row.cost_center),
+      currentCostCenterFacility: optionalText(row.current_cost_center_facility),
+      employeeMyidFacility: optionalText(row.employee_myid_facility),
+      rosterLocationFacility: optionalText(row.roster_location_facility),
+      sapPlant,
+      sapCity,
+      sapDistrict,
+      sapMasterLocation: [sapPlant, sapCity, sapDistrict].filter(Boolean).join(' | ') || null,
+      transactionRowCount: number(row.transaction_row_count),
+      netCost: round(row.net_cost)
+    };
+  }).filter((row) => Number.isInteger(row.year) && row.month >= 1 && row.month <= 12);
 
   const rows = candidateRows.map((row) => ({
     ...row,
@@ -202,6 +231,12 @@ function buildPayload(sourceRows) {
       rows.map((row) => ({ ...row, combinedFacility: row.facility === 'Unmapped' ? null : row.facility })),
       'combinedFacility',
       'Combined waterfall: Employee → Roster Location → Cost Center',
+      totalAbsoluteCost
+    ),
+    summarizeMappingMethod(
+      rows,
+      'sapMasterLocation',
+      'SAP cost-center master has location fields (diagnostic only)',
       totalAbsoluteCost
     )
   ];

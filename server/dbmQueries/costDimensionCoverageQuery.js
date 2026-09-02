@@ -166,12 +166,12 @@ SapCostCenterMaster AS (
         District
     FROM (
         SELECT
-            LTRIM(RTRIM(KOSTL)) AS Cost_Center,
+            UPPER(LTRIM(RTRIM(KOSTL))) AS Cost_Center,
             NULLIF(LTRIM(RTRIM(WERKS)), '') AS Plant,
             NULLIF(LTRIM(RTRIM(ORT01)), '') AS City,
             NULLIF(LTRIM(RTRIM(ORT02)), '') AS District,
             ROW_NUMBER() OVER (
-                PARTITION BY LTRIM(RTRIM(KOSTL))
+                PARTITION BY UPPER(LTRIM(RTRIM(KOSTL)))
                 ORDER BY
                     CASE WHEN NULLIF(LTRIM(RTRIM(WERKS)), '') IS NULL THEN 1 ELSE 0 END,
                     CASE WHEN NULLIF(LTRIM(RTRIM(ORT01)), '') IS NULL THEN 1 ELSE 0 END,
@@ -183,6 +183,24 @@ SapCostCenterMaster AS (
         WHERE NULLIF(LTRIM(RTRIM(KOSTL)), '') IS NOT NULL
     ) master
     WHERE rn = 1
+),
+
+SapKostlKeys AS (
+    SELECT DISTINCT UPPER(LTRIM(RTRIM(KOSTL))) AS Candidate_Key
+    FROM src.cv_md_cost_ctr
+    WHERE NULLIF(LTRIM(RTRIM(KOSTL)), '') IS NOT NULL
+),
+
+SapPrctrKeys AS (
+    SELECT DISTINCT UPPER(LTRIM(RTRIM(PRCTR))) AS Candidate_Key
+    FROM src.cv_md_cost_ctr
+    WHERE NULLIF(LTRIM(RTRIM(PRCTR)), '') IS NOT NULL
+),
+
+SapOrgCodeKeys AS (
+    SELECT DISTINCT UPPER(LTRIM(RTRIM(ZZORGCODE))) AS Candidate_Key
+    FROM src.cv_md_cost_ctr
+    WHERE NULLIF(LTRIM(RTRIM(ZZORGCODE)), '') IS NOT NULL
 )
 
 SELECT
@@ -197,6 +215,9 @@ SELECT
     scm.Plant AS sap_plant,
     scm.City AS sap_city,
     scm.District AS sap_district,
+    CASE WHEN sk.Candidate_Key IS NULL THEN 0 ELSE 1 END AS sap_kostl_match,
+    CASE WHEN sp.Candidate_Key IS NULL THEN 0 ELSE 1 END AS sap_prctr_match,
+    CASE WHEN so.Candidate_Key IS NULL THEN 0 ELSE 1 END AS sap_orgcode_match,
     COUNT_BIG(*) AS transaction_row_count,
     SUM(TRY_CONVERT(DECIMAL(18,2), t.KSL)) AS net_cost
 FROM src.rb_CVG_Transaction_Details_03 t
@@ -217,7 +238,13 @@ LEFT JOIN LocationFallback lf
    AND lf.rn = 1
    AND lf.Facility_Share >= 0.90
 LEFT JOIN SapCostCenterMaster scm
-    ON LTRIM(RTRIM(t.RCNTR)) = scm.Cost_Center
+    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = scm.Cost_Center
+LEFT JOIN SapKostlKeys sk
+    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = sk.Candidate_Key
+LEFT JOIN SapPrctrKeys sp
+    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = sp.Candidate_Key
+LEFT JOIN SapOrgCodeKeys so
+    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = so.Candidate_Key
 WHERE
     TRY_CONVERT(INT, t.GJAHR) >= 2025
     AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 12
@@ -234,5 +261,8 @@ GROUP BY
     lf.Facility,
     scm.Plant,
     scm.City,
-    scm.District;
+    scm.District,
+    CASE WHEN sk.Candidate_Key IS NULL THEN 0 ELSE 1 END,
+    CASE WHEN sp.Candidate_Key IS NULL THEN 0 ELSE 1 END,
+    CASE WHEN so.Candidate_Key IS NULL THEN 0 ELSE 1 END;
 `;

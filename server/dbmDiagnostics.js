@@ -5,6 +5,7 @@ import {
   logError
 } from './debugLogger.js';
 import { readCostClassificationDiagnostics } from './costClassificationDiagnostics.js';
+import { classifyFacilityCost } from './costFacilityClassification.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
 const DBM_TABLE_CHECKS = [
@@ -227,6 +228,22 @@ function formatPercent(value) {
   return Number.isFinite(numeric) ? percentFormatter.format(numeric) : 'N/A';
 }
 
+function summarizeFacilityStatuses(rows) {
+  const summary = {
+    Facility: { rowCount: 0, netCost: 0 },
+    'Not Facility': { rowCount: 0, netCost: 0 },
+    'Needs Review': { rowCount: 0, netCost: 0 }
+  };
+
+  rows.forEach((row) => {
+    const bucket = summary[row.facilityStatus];
+    bucket.rowCount += 1;
+    bucket.netCost += Number(row.netCost) || 0;
+  });
+
+  return summary;
+}
+
 function renderCostClassification(payload, errorMessage) {
   if (!payload) {
     return `
@@ -236,6 +253,15 @@ function renderCostClassification(payload, errorMessage) {
       </section>
     `;
   }
+
+  const classifiedRows = payload.costElementRows.map((row) => ({
+    ...row,
+    ...classifyFacilityCost(row)
+  }));
+  const statusSummary = summarizeFacilityStatuses(classifiedRows);
+  const needsReviewRows = classifiedRows.filter(
+    (row) => row.facilityStatus === 'Needs Review'
+  );
 
   return `
     <section class="panel classification-panel">
@@ -250,8 +276,36 @@ function renderCostClassification(payload, errorMessage) {
         <article class="summary-card"><span>Rows to 99%</span><strong>${formatCount(payload.rowsTo99)}</strong></article>
       </div>
 
+      <h3>First-Pass Facility Classification — 95% Coverage Set</h3>
+      <p class="note">Conservative rules only. Nothing here changes the scorecard yet. Ambiguous rows stay in Needs Review instead of being guessed.</p>
+      <div class="classification-summary status-summary">
+        <article class="summary-card"><span>Facility</span><strong>${formatCount(statusSummary.Facility.rowCount)} rows · ${formatCurrency(statusSummary.Facility.netCost)}</strong></article>
+        <article class="summary-card"><span>Not Facility</span><strong>${formatCount(statusSummary['Not Facility'].rowCount)} rows · ${formatCurrency(statusSummary['Not Facility'].netCost)}</strong></article>
+        <article class="summary-card"><span>Needs Review</span><strong>${formatCount(statusSummary['Needs Review'].rowCount)} rows · ${formatCurrency(statusSummary['Needs Review'].netCost)}</strong></article>
+      </div>
+
+      <h3>Needs Review</h3>
+      <p class="note">This is the next working set. Send screenshots of this table only; once these rows are resolved, we can build the actual facility-cost population.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>#</th><th>Cost Element</th><th>Description</th><th>Level 3</th><th>Net Cost</th><th>Abs Share</th><th>Reason</th></tr></thead>
+          <tbody>
+            ${needsReviewRows.map((row) => `
+              <tr class="review-row">
+                <td>${row.rank}</td>
+                <td class="mono">${escapeHtml(row.costElement)}</td>
+                <td>${escapeHtml(row.costElementDescription)}</td>
+                <td>${escapeHtml(row.level3Category)}</td>
+                <td>${formatCurrency(row.netCost)}</td>
+                <td>${formatPercent(row.absoluteShare)}</td>
+                <td>${escapeHtml(row.facilityReason)}</td>
+              </tr>
+            `).join('') || '<tr><td colspan="7">No rows need review in the visible coverage set.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
       <h3>Category Summary</h3>
-      <p class="note">Start here. Obvious facility/non-facility categories can be classified in bulk; mixed categories can be reviewed at GL level.</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th>#</th><th>Level 3</th><th>Level 4</th><th>GL Combos</th><th>Net Cost</th><th>Abs Share</th><th>Cumulative</th></tr></thead>
@@ -272,18 +326,18 @@ function renderCostClassification(payload, errorMessage) {
       </div>
 
       <h3>Cost Elements Ranked by Dollar Impact</h3>
-      <p class="note">Showing ${formatCount(payload.visibleRowCount)} rows. Green-tinted rows are inside the set that gets us to roughly 95% of absolute net dollars.</p>
+      <p class="note">Showing ${formatCount(payload.visibleRowCount)} rows. Status is the conservative first-pass facility classification.</p>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>Cost Element</th><th>Description</th><th>Level 3</th><th>Level 4</th><th>Net Cost</th><th>Abs Share</th><th>Cumulative</th><th>Txn Rows</th></tr></thead>
+          <thead><tr><th>#</th><th>Cost Element</th><th>Description</th><th>Level 3</th><th>Status</th><th>Net Cost</th><th>Abs Share</th><th>Cumulative</th><th>Txn Rows</th></tr></thead>
           <tbody>
-            ${payload.costElementRows.map((row) => `
+            ${classifiedRows.map((row) => `
               <tr class="${row.cumulativeShare <= 0.95 ? 'coverage' : ''}">
                 <td>${row.rank}</td>
                 <td class="mono">${escapeHtml(row.costElement)}</td>
                 <td>${escapeHtml(row.costElementDescription)}</td>
                 <td>${escapeHtml(row.level3Category)}</td>
-                <td>${escapeHtml(row.level4Category)}</td>
+                <td class="status-${row.facilityStatus.toLowerCase().replaceAll(' ', '-')}">${escapeHtml(row.facilityStatus)}</td>
                 <td>${formatCurrency(row.netCost)}</td>
                 <td>${formatPercent(row.absoluteShare)}</td>
                 <td>${formatPercent(row.cumulativeShare)}</td>
@@ -319,6 +373,7 @@ export function renderDbmDiagnosticsPage(payload) {
       .panel { padding: 12px; }
       .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
       .classification-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+      .classification-summary.status-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .summary-card { padding: 10px 12px; background: #111827; }
       .summary-card span { display: block; margin-bottom: 5px; color: #9ca3af; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
       .summary-card strong { display: block; overflow-wrap: anywhere; font-size: 14px; }
@@ -328,18 +383,19 @@ export function renderDbmDiagnosticsPage(payload) {
       thead th { position: sticky; top: 0; background: #28223c; color: white; z-index: 1; }
       tbody tr:nth-child(even) { background: #182231; }
       tbody tr.coverage { background: rgba(34, 197, 94, .07); }
-      .accessible { color: #86efac; font-weight: 700; }
-      .unavailable, .error { color: #fca5a5; font-weight: 700; }
-      .not-tested { color: #fcd34d; font-weight: 700; }
+      tbody tr.review-row { background: rgba(245, 158, 11, .08); }
+      .accessible, .status-facility { color: #86efac; font-weight: 700; }
+      .unavailable, .error, .status-not-facility { color: #fca5a5; font-weight: 700; }
+      .not-tested, .status-needs-review { color: #fcd34d; font-weight: 700; }
       .note { padding: 9px 10px; border-radius: 8px; background: #111827; color: #d1d5db; font-size: 12px; margin-bottom: 10px; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       @media (max-width: 1000px) {
         .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .classification-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .classification-summary, .classification-summary.status-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
       @media (max-width: 420px) {
         body { padding: 8px; }
-        .summary-grid, .classification-summary { grid-template-columns: 1fr; }
+        .summary-grid, .classification-summary, .classification-summary.status-summary { grid-template-columns: 1fr; }
       }
     </style>
   </head>

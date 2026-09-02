@@ -2,6 +2,40 @@ import { COST_DIMENSION_COVERAGE_DBM_QUERY } from './dbmQueries/costDimensionCov
 import { readControllableCostsData } from './controllableCostsRepository.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
+const FACILITY_MAPPING_METADATA_QUERY = `
+SELECT
+    c.TABLE_SCHEMA AS table_schema,
+    c.TABLE_NAME AS table_name,
+    t.TABLE_TYPE AS table_type,
+    c.COLUMN_NAME AS column_name
+FROM INFORMATION_SCHEMA.COLUMNS c
+JOIN INFORMATION_SCHEMA.TABLES t
+    ON c.TABLE_SCHEMA = t.TABLE_SCHEMA
+   AND c.TABLE_NAME = t.TABLE_NAME
+WHERE
+    LOWER(c.COLUMN_NAME) LIKE '%kostl%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%cost_center%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%costcenter%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%cost_ctr%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%rcntr%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%cctr%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%facility%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%address%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%location%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%bldg%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%building%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%site%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%plant%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%werks%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%city%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%state%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%street%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%zip%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%ort01%'
+    OR LOWER(c.COLUMN_NAME) LIKE '%ort02%'
+ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION;
+`;
+
 function text(value, fallback = 'Unmapped') {
   const normalized = String(value ?? '').trim();
   return normalized || fallback;
@@ -57,6 +91,18 @@ function normalizeLocation(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+function normalizeCostElement(value) {
+  const normalized = String(value ?? '').trim();
+  const numericMatch = /^(\d+)(?:\.0+)?$/.exec(normalized);
+  if (!numericMatch) return null;
+
+  try {
+    return BigInt(numericMatch[1]).toString();
+  } catch {
+    return null;
+  }
 }
 
 function chooseWaterfallFacility(row) {
@@ -221,19 +267,24 @@ function groupLegacyRows(rows, keySelector) {
     .sort((a, b) => b.absoluteCost - a.absoluteCost || a.key.localeCompare(b.key));
 }
 
-function buildLegacyComparison(oldPayload, freshRows) {
-  const legacyRows = (oldPayload?.rows ?? [])
+function buildLegacyRows(oldPayload) {
+  return (oldPayload?.rows ?? [])
     .map((row) => ({
       year: Number(row.year),
       quarterKey: legacyQuarterKey(row),
       address: text(row.address, '(Blank)'),
       costCategory: text(row.cost_category, '(Blank)'),
-      costElement: text(row.cost_element, '(Blank)'),
+      costElement: normalizeCostElement(row.cost_element),
+      rawCostElement: text(row.cost_element, '(Blank)'),
+      costElementDescription: text(row.cost_element_description, '(Blank)'),
       controllable: row.controllable === 'Controllable' ? 'Controllable' : 'Uncontrollable',
       cost: Number(row.cost)
     }))
     .filter((row) => Number.isFinite(row.cost) && row.quarterKey);
+}
 
+function buildLegacyComparison(oldPayload, freshRows) {
+  const legacyRows = buildLegacyRows(oldPayload);
   const legacyQuarterKeys = new Set(legacyRows.map((row) => row.quarterKey));
   const freshQuarterKeys = new Set(freshRows.map(quarterKeyFromMonth).filter(Boolean));
   const commonQuarterKeys = [...legacyQuarterKeys].filter((key) => freshQuarterKeys.has(key)).sort();
@@ -288,7 +339,7 @@ function buildLegacyComparison(oldPayload, freshRows) {
     sourceName: oldPayload?.tableName ?? oldPayload?.fileName ?? 'legacy controllable costs',
     rowCount: legacyRows.length,
     addressCount: new Set(legacyRows.map((row) => row.address)).size,
-    costElementCount: new Set(legacyRows.map((row) => row.costElement)).size,
+    costElementCount: new Set(legacyRows.map((row) => row.costElement).filter(Boolean)).size,
     quarterCount: legacyQuarterKeys.size,
     quarters: [...legacyQuarterKeys].sort(),
     totalNetCost: round(legacyRows.reduce((sum, row) => sum + row.cost, 0)),
@@ -303,7 +354,242 @@ function buildLegacyComparison(oldPayload, freshRows) {
   };
 }
 
-function buildPayload(sourceRows, oldPayload) {
+function buildLegacyGlOverlapQuery(legacyRows) {
+  const costElements = [...new Set(legacyRows.map((row) => row.costElement).filter(Boolean))]
+    .filter((value) => /^\d+$/.test(value));
+
+  if (costElements.length === 0) return null;
+
+  return `
+WITH CostCenterHierarchy AS (
+    SELECT
+        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
+        ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(COST_CENTER))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS rn
+    FROM rpt.rb_load_cost_center_hierarchy
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+)
+SELECT
+    TRY_CONVERT(INT, t.GJAHR) AS [year],
+    ((TRY_CONVERT(INT, t.POPER) - 1) / 3) + 1 AS [quarter],
+    CONVERT(VARCHAR(40), TRY_CONVERT(BIGINT, t.RACCT)) AS cost_element,
+    COALESCE(NULLIF(LTRIM(RTRIM(t.GL_TXT20)), ''), '(Blank)') AS cost_element_description,
+    COALESCE(NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL01_TEXT)), ''), '(Blank)') AS level1,
+    COALESCE(NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL02_TEXT)), ''), '(Blank)') AS level2,
+    COALESCE(NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL03_TEXT)), ''), '(Blank)') AS level3,
+    COUNT_BIG(*) AS transaction_row_count,
+    SUM(TRY_CONVERT(DECIMAL(18,2), t.KSL)) AS net_cost
+FROM src.rb_CVG_Transaction_Details_03 t
+JOIN CostCenterHierarchy h
+    ON LTRIM(RTRIM(t.RCNTR)) = h.Cost_Center
+   AND h.rn = 1
+WHERE
+    TRY_CONVERT(INT, t.GJAHR) >= 2025
+    AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 12
+    AND TRY_CONVERT(BIGINT, t.RACCT) IN (${costElements.join(',')})
+    AND TRY_CONVERT(DECIMAL(18,2), t.KSL) IS NOT NULL
+GROUP BY
+    TRY_CONVERT(INT, t.GJAHR),
+    ((TRY_CONVERT(INT, t.POPER) - 1) / 3) + 1,
+    CONVERT(VARCHAR(40), TRY_CONVERT(BIGINT, t.RACCT)),
+    COALESCE(NULLIF(LTRIM(RTRIM(t.GL_TXT20)), ''), '(Blank)'),
+    COALESCE(NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL01_TEXT)), ''), '(Blank)'),
+    COALESCE(NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL02_TEXT)), ''), '(Blank)'),
+    COALESCE(NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL03_TEXT)), ''), '(Blank)');
+`;
+}
+
+function pickLegacyElementMetadata(legacyRows) {
+  const byElement = new Map();
+
+  legacyRows.forEach((row) => {
+    if (!row.costElement) return;
+    const byCategory = byElement.get(row.costElement) ?? new Map();
+    const current = byCategory.get(row.costCategory) ?? {
+      category: row.costCategory,
+      description: row.costElementDescription,
+      absoluteCost: 0
+    };
+    current.absoluteCost += Math.abs(row.cost);
+    if (current.description === '(Blank)' && row.costElementDescription !== '(Blank)') {
+      current.description = row.costElementDescription;
+    }
+    byCategory.set(row.costCategory, current);
+    byElement.set(row.costElement, byCategory);
+  });
+
+  const result = new Map();
+  byElement.forEach((categories, costElement) => {
+    const winner = [...categories.values()].sort((a, b) => b.absoluteCost - a.absoluteCost)[0];
+    result.set(costElement, winner);
+  });
+  return result;
+}
+
+function summarizeFreshHierarchy(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = `${row.level2} → ${row.level3}`;
+    groups.set(key, (groups.get(key) ?? 0) + Math.abs(row.netCost));
+  });
+
+  return [...groups.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([key]) => key)
+    .join(' | ') || 'No fresh match';
+}
+
+function buildLegacyGlOverlap(oldPayload, freshGlRows) {
+  const legacyRows = buildLegacyRows(oldPayload);
+  const elementMetadata = pickLegacyElementMetadata(legacyRows);
+  const normalizedFreshRows = freshGlRows.map((row) => ({
+    year: Number(row.year),
+    quarterKey: Number.isInteger(Number(row.year)) && Number.isInteger(Number(row.quarter))
+      ? `${Number(row.year)}-Q${Number(row.quarter)}`
+      : null,
+    costElement: normalizeCostElement(row.cost_element),
+    description: text(row.cost_element_description, '(Blank)'),
+    level1: text(row.level1, '(Blank)'),
+    level2: text(row.level2, '(Blank)'),
+    level3: text(row.level3, '(Blank)'),
+    transactionRows: Number(row.transaction_row_count) || 0,
+    netCost: Number(row.net_cost) || 0
+  })).filter((row) => row.quarterKey && row.costElement);
+
+  const oldQuarterKeys = new Set(legacyRows.map((row) => row.quarterKey));
+  const freshQuarterKeys = new Set(normalizedFreshRows.map((row) => row.quarterKey));
+  const commonQuarterKeys = [...oldQuarterKeys].filter((key) => freshQuarterKeys.has(key)).sort();
+  const commonQuarterSet = new Set(commonQuarterKeys);
+  const commonOld = legacyRows.filter((row) => commonQuarterSet.has(row.quarterKey));
+  const commonFresh = normalizedFreshRows.filter((row) => commonQuarterSet.has(row.quarterKey));
+
+  const categoryNames = new Set(commonOld.map((row) => row.costCategory));
+  const categoryRows = [...categoryNames].map((category) => {
+    const oldRows = commonOld.filter((row) => row.costCategory === category);
+    const elementSet = new Set(oldRows.map((row) => row.costElement).filter(Boolean));
+    const freshRows = commonFresh.filter((row) => elementSet.has(row.costElement));
+    const oldCost = oldRows.reduce((sum, row) => sum + row.cost, 0);
+    const freshCost = freshRows.reduce((sum, row) => sum + row.netCost, 0);
+
+    return {
+      category,
+      oldCost: round(oldCost),
+      freshExactGlCost: round(freshCost),
+      difference: round(freshCost - oldCost),
+      legacyElementCount: elementSet.size,
+      freshMatchedElementCount: new Set(freshRows.map((row) => row.costElement)).size,
+      freshHierarchy: summarizeFreshHierarchy(freshRows)
+    };
+  }).sort((a, b) => Math.abs(b.oldCost) - Math.abs(a.oldCost));
+
+  const allElements = new Set([
+    ...commonOld.map((row) => row.costElement).filter(Boolean),
+    ...commonFresh.map((row) => row.costElement).filter(Boolean)
+  ]);
+
+  const elementRows = [...allElements].map((costElement) => {
+    const oldRows = commonOld.filter((row) => row.costElement === costElement);
+    const freshRows = commonFresh.filter((row) => row.costElement === costElement);
+    const oldCost = oldRows.reduce((sum, row) => sum + row.cost, 0);
+    const freshCost = freshRows.reduce((sum, row) => sum + row.netCost, 0);
+    const metadata = elementMetadata.get(costElement);
+    const topFresh = [...freshRows].sort((a, b) => Math.abs(b.netCost) - Math.abs(a.netCost))[0];
+
+    return {
+      costElement,
+      legacyCategory: metadata?.category ?? '(Unknown)',
+      description: metadata?.description ?? topFresh?.description ?? '(Blank)',
+      oldCost: round(oldCost),
+      freshExactGlCost: round(freshCost),
+      difference: round(freshCost - oldCost),
+      level1: topFresh?.level1 ?? 'No fresh match',
+      level2: topFresh?.level2 ?? 'No fresh match',
+      level3: topFresh?.level3 ?? 'No fresh match'
+    };
+  }).sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference));
+
+  return {
+    commonQuarterKeys,
+    legacyElementCount: new Set(legacyRows.map((row) => row.costElement).filter(Boolean)).size,
+    freshMatchedElementCount: new Set(normalizedFreshRows.map((row) => row.costElement)).size,
+    oldNetCost: round(commonOld.reduce((sum, row) => sum + row.cost, 0)),
+    freshExactGlNetCost: round(commonFresh.reduce((sum, row) => sum + row.netCost, 0)),
+    difference: round(
+      commonFresh.reduce((sum, row) => sum + row.netCost, 0)
+      - commonOld.reduce((sum, row) => sum + row.cost, 0)
+    ),
+    categoryRows,
+    elementRows: elementRows.slice(0, 40)
+  };
+}
+
+function isCostCenterColumn(name) {
+  const value = String(name ?? '').toLowerCase();
+  return value.includes('kostl')
+    || value.includes('cost_center')
+    || value.includes('costcenter')
+    || value.includes('cost_ctr')
+    || value.includes('rcntr')
+    || value.includes('cctr');
+}
+
+function isLocationColumn(name) {
+  const value = String(name ?? '').toLowerCase();
+  return value.includes('facility')
+    || value.includes('address')
+    || value.includes('location')
+    || value.includes('bldg')
+    || value.includes('building')
+    || value.includes('site')
+    || value.includes('plant')
+    || value.includes('werks')
+    || value.includes('city')
+    || value.includes('state')
+    || value.includes('street')
+    || value.includes('zip')
+    || value.includes('ort01')
+    || value.includes('ort02');
+}
+
+function buildFacilityMappingCandidates(metadataRows) {
+  const groups = new Map();
+
+  metadataRows.forEach((row) => {
+    const schema = text(row.table_schema, '(Blank)');
+    const table = text(row.table_name, '(Blank)');
+    const key = `${schema}.${table}`;
+    const group = groups.get(key) ?? {
+      objectName: key,
+      tableType: text(row.table_type, '(Unknown)'),
+      costCenterColumns: new Set(),
+      locationColumns: new Set()
+    };
+    const column = text(row.column_name, '(Blank)');
+    if (isCostCenterColumn(column)) group.costCenterColumns.add(column);
+    if (isLocationColumn(column)) group.locationColumns.add(column);
+    groups.set(key, group);
+  });
+
+  return [...groups.values()]
+    .filter((group) => group.costCenterColumns.size > 0 && group.locationColumns.size > 0)
+    .map((group) => ({
+      objectName: group.objectName,
+      tableType: group.tableType,
+      costCenterColumns: [...group.costCenterColumns].sort(),
+      locationColumns: [...group.locationColumns].sort()
+    }))
+    .sort((a, b) => {
+      const scoreA = a.costCenterColumns.length + a.locationColumns.length;
+      const scoreB = b.costCenterColumns.length + b.locationColumns.length;
+      return scoreB - scoreA || a.objectName.localeCompare(b.objectName);
+    })
+    .slice(0, 40);
+}
+
+function buildPayload(sourceRows, oldPayload, legacyGlRows, metadataRows) {
   const candidateRows = sourceRows.map((row) => {
     const sapPlant = optionalText(row.sap_plant);
     const sapCity = optionalText(row.sap_city);
@@ -377,7 +663,9 @@ function buildPayload(sourceRows, oldPayload) {
     businessUnits,
     facilities: [...buildMappingMethodRows(methodCoverage), ...finalFacilities],
     unmappedCostCenters: buildUnmappedCostCenters(rows, allMonths),
-    legacyComparison: buildLegacyComparison(oldPayload, rows)
+    legacyComparison: buildLegacyComparison(oldPayload, rows),
+    legacyGlOverlap: buildLegacyGlOverlap(oldPayload, legacyGlRows),
+    facilityMappingCandidates: buildFacilityMappingCandidates(metadataRows)
   };
 }
 
@@ -389,10 +677,20 @@ export async function readCostDimensionCoverageDiagnostics() {
   }
 
   const pool = await getPool(config, 'dbm');
-  const [result, oldPayload] = await Promise.all([
+  const oldPayload = await readControllableCostsData();
+  const legacyRows = buildLegacyRows(oldPayload);
+  const legacyGlQuery = buildLegacyGlOverlapQuery(legacyRows);
+
+  const [result, legacyGlResult, metadataResult] = await Promise.all([
     pool.request().query(COST_DIMENSION_COVERAGE_DBM_QUERY),
-    readControllableCostsData()
+    legacyGlQuery ? pool.request().query(legacyGlQuery) : Promise.resolve({ recordset: [] }),
+    pool.request().query(FACILITY_MAPPING_METADATA_QUERY)
   ]);
 
-  return buildPayload(result.recordset, oldPayload);
+  return buildPayload(
+    result.recordset,
+    oldPayload,
+    legacyGlResult.recordset,
+    metadataResult.recordset
+  );
 }

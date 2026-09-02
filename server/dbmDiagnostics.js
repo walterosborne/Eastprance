@@ -7,6 +7,7 @@ import {
 import { readCostClassificationDiagnostics } from './costClassificationDiagnostics.js';
 import { readCostDimensionCoverageDiagnostics } from './costDimensionCoverageDiagnostics.js';
 import { classifyFacilityCost } from './costFacilityClassification.js';
+import { readControllableCostsData } from './controllableCostsRepository.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
 const DBM_TABLE_CHECKS = [
@@ -32,6 +33,109 @@ const DBM_TABLE_CHECKS = [
     query: 'SELECT TOP (0) 1 AS [accessible] FROM [rpt].[rb_archibus];'
   }
 ];
+
+const LEGACY_FACILITY_SOURCE_TESTS = [
+  {
+    name: 'src.rb_lvw_fdw_rems_buildings',
+    query: `
+      SELECT
+        UPPER(LTRIM(RTRIM(CONVERT(varchar(100), COST_CENTER)))) AS cost_center,
+        NULLIF(CONCAT_WS(' | ',
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), ADDRESS))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), BLDG_NAME))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), BLDG_ID))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), BLDG_FACID))), '')
+        ), '') AS facility
+      FROM src.rb_lvw_fdw_rems_buildings
+      WHERE NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), COST_CENTER))), '') IS NOT NULL
+      GROUP BY
+        UPPER(LTRIM(RTRIM(CONVERT(varchar(100), COST_CENTER)))),
+        NULLIF(CONCAT_WS(' | ',
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), ADDRESS))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), BLDG_NAME))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), BLDG_ID))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), BLDG_FACID))), '')
+        ), '');
+    `
+  },
+  {
+    name: 'dbo.src_ng_nonsensitive_roster',
+    query: `
+      SELECT
+        UPPER(LTRIM(RTRIM(CONVERT(varchar(100), CostCenter)))) AS cost_center,
+        NULLIF(CONCAT_WS(' | ',
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), LocationID))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), LocationName))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), WorkCity))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), WorkStateCode))), '')
+        ), '') AS facility
+      FROM dbo.src_ng_nonsensitive_roster
+      WHERE NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), CostCenter))), '') IS NOT NULL
+      GROUP BY
+        UPPER(LTRIM(RTRIM(CONVERT(varchar(100), CostCenter)))),
+        NULLIF(CONCAT_WS(' | ',
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), LocationID))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), LocationName))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), WorkCity))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), WorkStateCode))), '')
+        ), '');
+    `
+  },
+  {
+    name: 'rpt.rb_archibus',
+    query: `
+      SELECT
+        UPPER(LTRIM(RTRIM(CONVERT(varchar(100), employee_cost_center)))) AS cost_center,
+        NULLIF(CONCAT_WS(' | ',
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), address_1))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), city))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), state))), '')
+        ), '') AS facility
+      FROM rpt.rb_archibus
+      WHERE NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), employee_cost_center))), '') IS NOT NULL
+      GROUP BY
+        UPPER(LTRIM(RTRIM(CONVERT(varchar(100), employee_cost_center)))),
+        NULLIF(CONCAT_WS(' | ',
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(250), address_1))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), city))), ''),
+          NULLIF(LTRIM(RTRIM(CONVERT(varchar(100), state))), '')
+        ), '');
+    `
+  }
+];
+
+const LEGACY_FACILITY_RAW_QUERY = `
+WITH CostCenterHierarchy AS (
+  SELECT
+    LTRIM(RTRIM(COST_CENTER)) AS cost_center,
+    COALESCE(NULLIF(LTRIM(RTRIM(LEV03_DESC)), ''), 'Unmapped') AS division,
+    ROW_NUMBER() OVER (
+      PARTITION BY LTRIM(RTRIM(COST_CENTER))
+      ORDER BY last_modified_date DESC, created_date DESC, id DESC
+    ) AS rn
+  FROM rpt.rb_load_cost_center_hierarchy
+  WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+)
+SELECT
+  TRY_CONVERT(int, t.GJAHR) AS [year],
+  TRY_CONVERT(int, t.POPER) AS [month],
+  h.division,
+  UPPER(LTRIM(RTRIM(t.RCNTR))) AS cost_center,
+  SUM(TRY_CONVERT(decimal(18,2), t.KSL)) AS net_cost
+FROM src.rb_CVG_Transaction_Details_03 t
+JOIN CostCenterHierarchy h
+  ON LTRIM(RTRIM(t.RCNTR)) = h.cost_center
+ AND h.rn = 1
+WHERE TRY_CONVERT(int, t.GJAHR) >= 2025
+  AND TRY_CONVERT(int, t.POPER) BETWEEN 1 AND 12
+  AND LTRIM(RTRIM(t.ACCT_LEVEL02_TEXT)) = 'NGRB Indirect Non Labor CEG'
+  AND TRY_CONVERT(decimal(18,2), t.KSL) IS NOT NULL
+GROUP BY
+  TRY_CONVERT(int, t.GJAHR),
+  TRY_CONVERT(int, t.POPER),
+  h.division,
+  UPPER(LTRIM(RTRIM(t.RCNTR)));
+`;
 
 function getEmptyTableResults(status = 'Not tested') {
   return DBM_TABLE_CHECKS.map(({ name }) => ({ name, accessible: null, status }));
@@ -86,6 +190,371 @@ async function runTableCheck(pool, tableCheck) {
   }
 }
 
+function legacyQuarterKey(row) {
+  const year = Number(row?.year);
+  const match = /^Q([1-4])$/i.exec(String(row?.quarter ?? '').trim());
+  return Number.isInteger(year) && match ? `${year}-Q${match[1]}` : null;
+}
+
+function freshQuarterKey(year, month) {
+  const numericYear = Number(year);
+  const numericMonth = Number(month);
+  if (!Number.isInteger(numericYear) || !Number.isInteger(numericMonth) || numericMonth < 1 || numericMonth > 12) return null;
+  return `${numericYear}-Q${Math.floor((numericMonth - 1) / 3) + 1}`;
+}
+
+function normalizeCostElement(value) {
+  const normalized = String(value ?? '').trim();
+  const match = /^(\d+)(?:\.0+)?$/.exec(normalized);
+  if (!match) return null;
+  try {
+    return BigInt(match[1]).toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeCostCenter(value) {
+  const normalized = String(value ?? '').trim();
+  return normalized ? normalized.toUpperCase() : null;
+}
+
+const LOCATION_ALIASES = new Map([
+  ['drive', 'dr'], ['dr', 'dr'], ['road', 'rd'], ['rd', 'rd'], ['street', 'st'], ['st', 'st'],
+  ['avenue', 'ave'], ['ave', 'ave'], ['boulevard', 'blvd'], ['blvd', 'blvd'], ['highway', 'hwy'], ['hwy', 'hwy'],
+  ['lane', 'ln'], ['ln', 'ln'], ['circle', 'cir'], ['cir', 'cir'], ['parkway', 'pkwy'], ['pkwy', 'pkwy'],
+  ['north', 'n'], ['south', 's'], ['east', 'e'], ['west', 'w']
+]);
+
+function canonicalLocation(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => LOCATION_ALIASES.get(token) ?? token)
+    .join(' ');
+}
+
+function locationMatchScore(legacyAddress, candidateFacility) {
+  const legacy = canonicalLocation(legacyAddress);
+  const candidate = canonicalLocation(candidateFacility);
+  if (!legacy || !candidate) return 0;
+  if (candidate.includes(legacy) || legacy.includes(candidate)) return 1;
+
+  const legacyTokens = legacy.split(' ');
+  const candidateTokens = new Set(candidate.split(' '));
+  const legacyNumbers = legacyTokens.filter((token) => /^\d+$/.test(token));
+  const candidateNumbers = new Set([...candidateTokens].filter((token) => /^\d+$/.test(token)));
+  if (legacyNumbers.length > 0 && candidateNumbers.size > 0 && !legacyNumbers.some((value) => candidateNumbers.has(value))) {
+    return 0;
+  }
+
+  const overlap = legacyTokens.filter((token) => candidateTokens.has(token)).length;
+  let score = legacyTokens.length > 0 ? overlap / legacyTokens.length : 0;
+  if (legacyNumbers.length > 0 && legacyNumbers.some((value) => candidateNumbers.has(value))) score += 0.15;
+  return Math.min(score, 0.99);
+}
+
+function findLegacyAddressMatch(candidateFacility, legacyAddresses) {
+  const ranked = legacyAddresses
+    .map((address) => ({ address, score: locationMatchScore(address, candidateFacility) }))
+    .filter((row) => row.score >= 0.6)
+    .sort((a, b) => b.score - a.score || a.address.localeCompare(b.address));
+
+  if (ranked.length === 0) return null;
+  if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.08 && ranked[0].address !== ranked[1].address) {
+    return { ambiguous: true, matches: ranked.slice(0, 3) };
+  }
+  return {
+    ambiguous: false,
+    address: ranked[0].address,
+    score: ranked[0].score,
+    matchType: ranked[0].score >= 0.99 ? 'Exact/contains' : 'Fuzzy'
+  };
+}
+
+function buildExactLegacyGlQuery(costElements) {
+  if (costElements.length === 0) return null;
+  return `
+WITH CostCenterHierarchy AS (
+  SELECT
+    LTRIM(RTRIM(COST_CENTER)) AS cost_center,
+    COALESCE(NULLIF(LTRIM(RTRIM(LEV03_DESC)), ''), 'Unmapped') AS division,
+    ROW_NUMBER() OVER (
+      PARTITION BY LTRIM(RTRIM(COST_CENTER))
+      ORDER BY last_modified_date DESC, created_date DESC, id DESC
+    ) AS rn
+  FROM rpt.rb_load_cost_center_hierarchy
+  WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+)
+SELECT
+  TRY_CONVERT(int, t.GJAHR) AS [year],
+  ((TRY_CONVERT(int, t.POPER) - 1) / 3) + 1 AS [quarter],
+  h.division,
+  UPPER(LTRIM(RTRIM(t.RCNTR))) AS cost_center,
+  SUM(TRY_CONVERT(decimal(18,2), t.KSL)) AS net_cost
+FROM src.rb_CVG_Transaction_Details_03 t
+JOIN CostCenterHierarchy h
+  ON LTRIM(RTRIM(t.RCNTR)) = h.cost_center
+ AND h.rn = 1
+WHERE TRY_CONVERT(int, t.GJAHR) >= 2025
+  AND TRY_CONVERT(int, t.POPER) BETWEEN 1 AND 12
+  AND TRY_CONVERT(bigint, t.RACCT) IN (${costElements.join(',')})
+  AND TRY_CONVERT(decimal(18,2), t.KSL) IS NOT NULL
+GROUP BY
+  TRY_CONVERT(int, t.GJAHR),
+  ((TRY_CONVERT(int, t.POPER) - 1) / 3) + 1,
+  h.division,
+  UPPER(LTRIM(RTRIM(t.RCNTR)));
+`;
+}
+
+async function runLegacyFacilitySourceTest(pool, test) {
+  try {
+    const result = await pool.request().query(test.query);
+    return { name: test.name, rows: result.recordset, error: null };
+  } catch (error) {
+    return { name: test.name, rows: [], error: error.message };
+  }
+}
+
+function buildLegacyKeyMap(testRows, legacyAddresses) {
+  const facilitiesByCostCenter = new Map();
+  testRows.forEach((row) => {
+    const costCenter = normalizeCostCenter(row.cost_center);
+    const facility = String(row.facility ?? '').trim();
+    if (!costCenter || !facility) return;
+    const values = facilitiesByCostCenter.get(costCenter) ?? new Set();
+    values.add(facility);
+    facilitiesByCostCenter.set(costCenter, values);
+  });
+
+  const mapped = new Map();
+  let ambiguousCostCenters = 0;
+  facilitiesByCostCenter.forEach((facilities, costCenter) => {
+    const addressMatches = new Map();
+    let hadAmbiguousCandidate = false;
+
+    facilities.forEach((facility) => {
+      const match = findLegacyAddressMatch(facility, legacyAddresses);
+      if (!match) return;
+      if (match.ambiguous) {
+        hadAmbiguousCandidate = true;
+        return;
+      }
+      const previous = addressMatches.get(match.address);
+      if (!previous || match.score > previous.score) {
+        addressMatches.set(match.address, {
+          address: match.address,
+          score: match.score,
+          matchType: match.matchType,
+          candidateFacility: facility
+        });
+      }
+    });
+
+    if (addressMatches.size === 1) {
+      mapped.set(costCenter, [...addressMatches.values()][0]);
+    } else if (addressMatches.size > 1 || hadAmbiguousCandidate) {
+      ambiguousCostCenters += 1;
+    }
+  });
+
+  return { mapped, ambiguousCostCenters };
+}
+
+function buildLegacyFacilityKeyResult(oldRows, rawRows, exactRows, sourceResults) {
+  const legacyAddresses = [...new Set(oldRows.map((row) => row.address).filter((value) => value && value !== '(Blank)'))];
+  const oldQuarterKeys = new Set(oldRows.map((row) => row.quarterKey));
+  const freshQuarterKeys = new Set([
+    ...rawRows.map((row) => row.quarterKey),
+    ...exactRows.map((row) => row.quarterKey)
+  ].filter(Boolean));
+  const commonQuarterKeys = [...oldQuarterKeys].filter((key) => freshQuarterKeys.has(key)).sort();
+  const commonQuarterSet = new Set(commonQuarterKeys);
+  const commonOld = oldRows.filter((row) => commonQuarterSet.has(row.quarterKey));
+  const commonRaw = rawRows.filter((row) => commonQuarterSet.has(row.quarterKey));
+  const commonExact = exactRows.filter((row) => commonQuarterSet.has(row.quarterKey));
+  const legacyCommonAddresses = [...new Set(commonOld.map((row) => row.address))];
+  const legacyAbsTotal = commonOld.reduce((sum, row) => sum + Math.abs(row.cost), 0);
+
+  const summaries = sourceResults.map((source) => {
+    if (source.error) {
+      return {
+        source: source.name,
+        error: source.error,
+        mappedCostCenterCount: 0,
+        ambiguousCostCenterCount: 0,
+        matchedLegacyAddressCount: 0,
+        legacyAddressCount: legacyCommonAddresses.length,
+        legacyCoveredCost: 0,
+        legacyCoveredShare: 0,
+        freshExactGlCost: 0,
+        freshRawNonLaborCost: 0,
+        allPeriodRawNonLaborCost: 0,
+        difference: 0,
+        keyMap: new Map()
+      };
+    }
+
+    const { mapped, ambiguousCostCenters } = buildLegacyKeyMap(source.rows, legacyAddresses);
+    const matchedAddresses = new Set([...mapped.values()].map((value) => value.address));
+    const legacyCoveredRows = commonOld.filter((row) => matchedAddresses.has(row.address));
+    const legacyCoveredCost = legacyCoveredRows.reduce((sum, row) => sum + row.cost, 0);
+    const legacyCoveredAbs = legacyCoveredRows.reduce((sum, row) => sum + Math.abs(row.cost), 0);
+    const freshExactGlCost = commonExact
+      .filter((row) => mapped.has(row.costCenter))
+      .reduce((sum, row) => sum + row.netCost, 0);
+    const freshRawNonLaborCost = commonRaw
+      .filter((row) => mapped.has(row.costCenter))
+      .reduce((sum, row) => sum + row.netCost, 0);
+    const allPeriodRawNonLaborCost = rawRows
+      .filter((row) => mapped.has(row.costCenter))
+      .reduce((sum, row) => sum + row.netCost, 0);
+
+    return {
+      source: source.name,
+      error: null,
+      mappedCostCenterCount: mapped.size,
+      ambiguousCostCenterCount: ambiguousCostCenters,
+      matchedLegacyAddressCount: matchedAddresses.size,
+      legacyAddressCount: legacyCommonAddresses.length,
+      legacyCoveredCost,
+      legacyCoveredShare: legacyAbsTotal > 0 ? legacyCoveredAbs / legacyAbsTotal : 0,
+      freshExactGlCost,
+      freshRawNonLaborCost,
+      allPeriodRawNonLaborCost,
+      difference: freshExactGlCost - legacyCoveredCost,
+      keyMap: mapped
+    };
+  }).sort((a, b) => b.legacyCoveredShare - a.legacyCoveredShare || Math.abs(a.difference) - Math.abs(b.difference));
+
+  const best = summaries.find((row) => !row.error && row.mappedCostCenterCount > 0) ?? summaries[0] ?? null;
+  const bestMap = best?.keyMap ?? new Map();
+  const matchedAddressSet = new Set([...bestMap.values()].map((value) => value.address));
+
+  const addressGroups = new Map();
+  commonOld.forEach((row) => {
+    const group = addressGroups.get(row.address) ?? {
+      address: row.address,
+      legacyCost: 0,
+      freshExactGlCost: 0,
+      freshRawNonLaborCost: 0,
+      costCenters: new Set(),
+      divisions: new Set(),
+      examples: new Set(),
+      scores: []
+    };
+    group.legacyCost += row.cost;
+    addressGroups.set(row.address, group);
+  });
+
+  commonExact.forEach((row) => {
+    const mapping = bestMap.get(row.costCenter);
+    if (!mapping) return;
+    const group = addressGroups.get(mapping.address);
+    if (!group) return;
+    group.freshExactGlCost += row.netCost;
+    group.costCenters.add(row.costCenter);
+    group.divisions.add(row.division);
+    group.examples.add(mapping.candidateFacility);
+    group.scores.push(mapping.score);
+  });
+
+  commonRaw.forEach((row) => {
+    const mapping = bestMap.get(row.costCenter);
+    if (!mapping) return;
+    const group = addressGroups.get(mapping.address);
+    if (!group) return;
+    group.freshRawNonLaborCost += row.netCost;
+    group.costCenters.add(row.costCenter);
+    group.divisions.add(row.division);
+    group.examples.add(mapping.candidateFacility);
+    group.scores.push(mapping.score);
+  });
+
+  const alignmentRows = [...addressGroups.values()]
+    .filter((group) => matchedAddressSet.has(group.address))
+    .map((group) => ({
+      address: group.address,
+      legacyCost: group.legacyCost,
+      freshExactGlCost: group.freshExactGlCost,
+      difference: group.freshExactGlCost - group.legacyCost,
+      differencePct: Math.abs(group.legacyCost) > 0
+        ? (group.freshExactGlCost - group.legacyCost) / Math.abs(group.legacyCost)
+        : null,
+      freshRawNonLaborCost: group.freshRawNonLaborCost,
+      costCenterCount: group.costCenters.size,
+      divisions: [...group.divisions].sort(),
+      matchQuality: group.scores.length > 0 ? group.scores.reduce((sum, value) => sum + value, 0) / group.scores.length : 0,
+      examples: [...group.examples].slice(0, 2)
+    }))
+    .sort((a, b) => Math.abs(b.legacyCost) - Math.abs(a.legacyCost));
+
+  const unmatchedRows = [...addressGroups.values()]
+    .filter((group) => !matchedAddressSet.has(group.address))
+    .map((group) => ({ address: group.address, legacyCost: group.legacyCost }))
+    .sort((a, b) => Math.abs(b.legacyCost) - Math.abs(a.legacyCost))
+    .slice(0, 20);
+
+  return {
+    commonQuarterKeys,
+    bestSource: best?.source ?? 'None',
+    bestLegacyCoveredCost: best?.legacyCoveredCost ?? 0,
+    bestLegacyCoveredShare: best?.legacyCoveredShare ?? 0,
+    bestFreshExactGlCost: best?.freshExactGlCost ?? 0,
+    bestFreshRawNonLaborCost: best?.freshRawNonLaborCost ?? 0,
+    bestDifference: best?.difference ?? 0,
+    bestMatchedAddressCount: best?.matchedLegacyAddressCount ?? 0,
+    legacyAddressCount: legacyCommonAddresses.length,
+    sourceRows: summaries.map(({ keyMap, ...row }) => row),
+    alignmentRows: alignmentRows.slice(0, 40),
+    unmatchedRows
+  };
+}
+
+async function readLegacyFacilityKeyDiagnostics(pool) {
+  const oldPayload = await readControllableCostsData();
+  const oldRows = (oldPayload?.rows ?? [])
+    .map((row) => ({
+      quarterKey: legacyQuarterKey(row),
+      address: String(row.address ?? '').trim() || '(Blank)',
+      costElement: normalizeCostElement(row.cost_element),
+      cost: Number(row.cost)
+    }))
+    .filter((row) => row.quarterKey && Number.isFinite(row.cost));
+
+  const costElements = [...new Set(oldRows.map((row) => row.costElement).filter(Boolean))]
+    .filter((value) => /^\d+$/.test(value));
+  const exactQuery = buildExactLegacyGlQuery(costElements);
+
+  const [rawResult, exactResult, sourceResults] = await Promise.all([
+    pool.request().query(LEGACY_FACILITY_RAW_QUERY),
+    exactQuery ? pool.request().query(exactQuery) : Promise.resolve({ recordset: [] }),
+    Promise.all(LEGACY_FACILITY_SOURCE_TESTS.map((test) => runLegacyFacilitySourceTest(pool, test)))
+  ]);
+
+  const rawRows = rawResult.recordset.map((row) => ({
+    quarterKey: freshQuarterKey(row.year, row.month),
+    division: String(row.division ?? '').trim() || 'Unmapped',
+    costCenter: normalizeCostCenter(row.cost_center),
+    netCost: Number(row.net_cost) || 0
+  })).filter((row) => row.quarterKey && row.costCenter);
+
+  const exactRows = exactResult.recordset.map((row) => ({
+    quarterKey: Number.isInteger(Number(row.year)) && Number.isInteger(Number(row.quarter))
+      ? `${Number(row.year)}-Q${Number(row.quarter)}`
+      : null,
+    division: String(row.division ?? '').trim() || 'Unmapped',
+    costCenter: normalizeCostCenter(row.cost_center),
+    netCost: Number(row.net_cost) || 0
+  })).filter((row) => row.quarterKey && row.costCenter);
+
+  return buildLegacyFacilityKeyResult(oldRows, rawRows, exactRows, sourceResults);
+}
+
 export async function readDbmDiagnostics() {
   const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig('dbm');
@@ -101,7 +570,9 @@ export async function readDbmDiagnostics() {
     costClassification: null,
     costClassificationError: null,
     costDimensionCoverage: null,
-    costDimensionCoverageError: null
+    costDimensionCoverageError: null,
+    legacyFacilityKey: null,
+    legacyFacilityKeyError: null
   };
 
   if (missing.length > 0) {
@@ -141,6 +612,8 @@ export async function readDbmDiagnostics() {
   let costClassificationError = null;
   let costDimensionCoverage = null;
   let costDimensionCoverageError = null;
+  let legacyFacilityKey = null;
+  let legacyFacilityKeyError = null;
 
   try {
     costClassification = await readCostClassificationDiagnostics();
@@ -156,12 +629,20 @@ export async function readDbmDiagnostics() {
     logError('dbm-diagnostics', 'Cost dimension coverage diagnostics failed to load.', error);
   }
 
+  try {
+    legacyFacilityKey = await readLegacyFacilityKeyDiagnostics(pool);
+  } catch (error) {
+    legacyFacilityKeyError = error.message;
+    logError('dbm-diagnostics', 'Legacy facility-key diagnostics failed to load.', error);
+  }
+
   logDebug('dbm-diagnostics', 'DBM diagnostics completed.', {
     server: config.server,
     database: config.database,
     accessibleTableCount: tables.filter((table) => table.accessible).length,
     costClassificationLoaded: Boolean(costClassification),
     costDimensionCoverageLoaded: Boolean(costDimensionCoverage),
+    legacyFacilityKeyLoaded: Boolean(legacyFacilityKey),
     duration: formatDuration(stopTimer())
   });
 
@@ -181,7 +662,9 @@ export async function readDbmDiagnostics() {
     costClassification,
     costClassificationError,
     costDimensionCoverage,
-    costDimensionCoverageError
+    costDimensionCoverageError,
+    legacyFacilityKey,
+    legacyFacilityKeyError
   };
 }
 
@@ -235,6 +718,85 @@ function summarizeFacilityStatuses(rows) {
   });
 
   return summary;
+}
+
+function renderLegacyFacilityKey(payload, errorMessage) {
+  if (!payload) {
+    return `
+      <section class="panel">
+        <h2>Legacy Facility-Key Test</h2>
+        <p class="error">${escapeHtml(errorMessage || 'Legacy facility-key diagnostics did not load.')}</p>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="panel">
+      <h2>Legacy Facility-Key Test</h2>
+      <p class="note">Diagnostic only. This treats the legacy report's address list as a facility whitelist/key, maps fresh cost centers to candidate physical locations, and keeps only cost centers that resolve to exactly one legacy address. Fresh Exact-GL uses the legacy GL list as a second key; Fresh Raw Non-Labor is shown separately so we can distinguish facility-mapping quality from cost-definition quality.</p>
+
+      <div class="classification-summary coverage-summary">
+        <article class="summary-card"><span>Common Quarters</span><strong>${escapeHtml(payload.commonQuarterKeys.join(', ') || 'None')}</strong></article>
+        <article class="summary-card"><span>Best Mapping Source</span><strong>${escapeHtml(payload.bestSource)}</strong></article>
+        <article class="summary-card"><span>Legacy Addresses Matched</span><strong>${formatCount(payload.bestMatchedAddressCount)} / ${formatCount(payload.legacyAddressCount)}</strong></article>
+        <article class="summary-card"><span>Legacy $ Covered</span><strong>${formatCurrency(payload.bestLegacyCoveredCost)} · ${formatPercent(payload.bestLegacyCoveredShare)}</strong></article>
+        <article class="summary-card"><span>Fresh Exact-GL at Matched Facilities</span><strong>${formatCurrency(payload.bestFreshExactGlCost)}</strong></article>
+        <article class="summary-card"><span>Exact-GL vs Legacy Difference</span><strong>${formatCurrency(payload.bestDifference)}</strong></article>
+      </div>
+
+      <p class="note">Fresh raw non-labor at those same matched facilities: ${formatCurrency(payload.bestFreshRawNonLaborCost)}. If address coverage is high but Exact-GL dollars still diverge, facility mapping is probably good and the remaining problem is the cost population/classification.</p>
+
+      <h3>Using Legacy Addresses as the Facility Key — Source Comparison</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Mapping Source</th><th>Mapped CCs</th><th>Ambiguous CCs</th><th>Legacy Addresses Matched</th><th>Legacy $ Covered</th><th>Legacy Share</th><th>Fresh Exact-GL</th><th>Difference</th><th>Fresh Raw Non-Labor</th><th>Status</th></tr></thead>
+          <tbody>${payload.sourceRows.map((row) => `
+            <tr class="${row.error ? 'review-row' : ''}">
+              <td class="mono">${escapeHtml(row.source)}</td>
+              <td>${formatCount(row.mappedCostCenterCount)}</td>
+              <td>${formatCount(row.ambiguousCostCenterCount)}</td>
+              <td>${formatCount(row.matchedLegacyAddressCount)} / ${formatCount(row.legacyAddressCount)}</td>
+              <td>${formatCurrency(row.legacyCoveredCost)}</td>
+              <td>${formatPercent(row.legacyCoveredShare)}</td>
+              <td>${formatCurrency(row.freshExactGlCost)}</td>
+              <td>${formatCurrency(row.difference)}</td>
+              <td>${formatCurrency(row.freshRawNonLaborCost)}</td>
+              <td>${escapeHtml(row.error ? row.error.slice(0, 160) : 'OK')}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>
+
+      <h3>Facility Alignment — Legacy vs Fresh at the Same Matched Facilities</h3>
+      <p class="note">Sorted by legacy dollar impact. This is the closest apples-to-apples diagnostic we have right now: same legacy address key, same common quarter, and the same legacy GL set in the fresh transaction source.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Legacy Address</th><th>Legacy Cost</th><th>Fresh Exact-GL</th><th>Difference</th><th>Difference %</th><th>Fresh Raw Non-Labor</th><th>Mapped CCs</th><th>Divisions</th><th>Match Quality</th><th>Fresh Location Example</th></tr></thead>
+          <tbody>${payload.alignmentRows.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.address)}</td>
+              <td>${formatCurrency(row.legacyCost)}</td>
+              <td>${formatCurrency(row.freshExactGlCost)}</td>
+              <td>${formatCurrency(row.difference)}</td>
+              <td>${row.differencePct == null ? '—' : formatPercent(row.differencePct)}</td>
+              <td>${formatCurrency(row.freshRawNonLaborCost)}</td>
+              <td>${formatCount(row.costCenterCount)}</td>
+              <td>${escapeHtml(row.divisions.join(', ') || '—')}</td>
+              <td>${formatPercent(row.matchQuality)}</td>
+              <td>${escapeHtml(row.examples.join(' / ') || '—')}</td>
+            </tr>`).join('') || '<tr><td colspan="10">No legacy facilities matched uniquely.</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <h3>Largest Legacy Facilities Still Unmatched</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Legacy Address</th><th>Legacy Cost in Common Quarter</th></tr></thead>
+          <tbody>${payload.unmatchedRows.map((row) => `
+            <tr class="review-row"><td>${escapeHtml(row.address)}</td><td>${formatCurrency(row.legacyCost)}</td></tr>`).join('') || '<tr><td colspan="2">All legacy addresses matched.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
 }
 
 function renderLegacyComparison(legacy) {
@@ -647,6 +1209,8 @@ export function renderDbmDiagnosticsPage(payload) {
         payload.costDimensionCoverageError,
         payload.costClassification?.totalNetCost
       )}
+
+      ${renderLegacyFacilityKey(payload.legacyFacilityKey, payload.legacyFacilityKeyError)}
 
       ${renderCostClassification(payload.costClassification, payload.costClassificationError)}
     </main>

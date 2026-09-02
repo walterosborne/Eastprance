@@ -6,6 +6,11 @@ function text(value, fallback = 'Unmapped') {
   return normalized || fallback;
 }
 
+function optionalText(value) {
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
+}
+
 function number(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
@@ -19,7 +24,36 @@ function monthKey(row) {
   return `${row.year}-${String(row.month).padStart(2, '0')}`;
 }
 
-function summarize(rows, keySelector) {
+function formatMonthKey(value) {
+  const [year, month] = String(value).split('-').map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month)) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC'
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function chooseWaterfallFacility(row) {
+  if (row.employeeMyidFacility) {
+    return { facility: row.employeeMyidFacility, mappingMethod: 'Employee MyID direct' };
+  }
+
+  if (row.rosterLocationFacility) {
+    return { facility: row.rosterLocationFacility, mappingMethod: 'Roster location fallback' };
+  }
+
+  if (row.currentCostCenterFacility) {
+    return { facility: row.currentCostCenterFacility, mappingMethod: 'Cost center → Archibus' };
+  }
+
+  return { facility: 'Unmapped', mappingMethod: 'Unmapped' };
+}
+
+function summarize(rows, keySelector, allMonthKeys = null) {
   const groups = new Map();
 
   rows.forEach((row) => {
@@ -47,48 +81,136 @@ function summarize(rows, keySelector) {
     groups.set(key, group);
   });
 
-  const totalAbsolute = [...groups.values()].reduce((sum, row) => sum + row.absoluteCost, 0);
+  const totalAbsolute = rows.reduce((sum, row) => sum + Math.abs(row.netCost), 0);
 
   return [...groups.values()]
-    .map((group) => ({
-      key: group.key,
-      netCost: round(group.netCost),
-      absoluteCost: round(group.absoluteCost),
-      absoluteShare: totalAbsolute > 0 ? group.absoluteCost / totalAbsolute : 0,
-      transactionRows: group.transactionRows,
-      monthCount: group.months.size,
-      divisionCount: group.divisions.size,
-      businessUnitCount: group.businessUnits.size,
-      facilityCount: group.facilities.size,
-      costCenterCount: group.costCenters.size
-    }))
+    .map((group) => {
+      const missingMonths = allMonthKeys
+        ? [...allMonthKeys].filter((value) => !group.months.has(value)).sort()
+        : [];
+
+      return {
+        key: group.key,
+        netCost: round(group.netCost),
+        absoluteCost: round(group.absoluteCost),
+        absoluteShare: totalAbsolute > 0 ? group.absoluteCost / totalAbsolute : 0,
+        transactionRows: group.transactionRows,
+        monthCount: group.months.size,
+        missingMonths,
+        divisionCount: group.divisions.size,
+        businessUnitCount: group.businessUnits.size,
+        facilityCount: group.facilities.size,
+        costCenterCount: group.costCenters.size
+      };
+    })
     .sort((a, b) => b.absoluteCost - a.absoluteCost || a.key.localeCompare(b.key));
 }
 
-function buildUnmappedCostCenters(rows) {
+function appendMissingMonths(rows) {
+  return rows.map((row) => ({
+    ...row,
+    key: row.missingMonths.length > 0
+      ? `${row.key} · missing ${row.missingMonths.map(formatMonthKey).join(', ')}`
+      : row.key
+  }));
+}
+
+function buildUnmappedCostCenters(rows, allMonthKeys) {
   return summarize(
     rows.filter((row) => row.facility === 'Unmapped'),
-    (row) => row.costCenter
+    (row) => row.costCenter,
+    allMonthKeys
   ).slice(0, 30);
 }
 
+function summarizeMappingMethod(rows, fieldName, label, totalAbsoluteCost) {
+  const mappedRows = rows.filter((row) => row[fieldName]);
+  const mappedAbsoluteCost = mappedRows.reduce((sum, row) => sum + Math.abs(row.netCost), 0);
+
+  return {
+    label,
+    mappedCostCenterCount: new Set(mappedRows.map((row) => row.costCenter)).size,
+    mappedDivisionCount: new Set(mappedRows.map((row) => row.division)).size,
+    mappedBusinessUnitCount: new Set(mappedRows.map((row) => row.businessUnit)).size,
+    mappedMonthCount: new Set(mappedRows.map(monthKey)).size,
+    mappedNetCost: round(mappedRows.reduce((sum, row) => sum + row.netCost, 0)),
+    mappedAbsoluteShare: totalAbsoluteCost > 0 ? mappedAbsoluteCost / totalAbsoluteCost : 0
+  };
+}
+
+function buildMappingMethodRows(methods) {
+  return methods.map((method) => ({
+    key: `MAPPING COVERAGE — ${method.label}`,
+    netCost: method.mappedNetCost,
+    absoluteCost: 0,
+    absoluteShare: method.mappedAbsoluteShare,
+    transactionRows: 0,
+    monthCount: method.mappedMonthCount,
+    divisionCount: method.mappedDivisionCount,
+    businessUnitCount: method.mappedBusinessUnitCount,
+    facilityCount: 0,
+    costCenterCount: method.mappedCostCenterCount,
+    missingMonths: []
+  }));
+}
+
 function buildPayload(sourceRows) {
-  const rows = sourceRows.map((row) => ({
+  const candidateRows = sourceRows.map((row) => ({
     year: number(row.year),
     month: number(row.month),
     division: text(row.division),
     businessUnit: text(row.business_unit),
-    facility: text(row.facility),
     costCenter: text(row.cost_center),
+    currentCostCenterFacility: optionalText(row.current_cost_center_facility),
+    employeeMyidFacility: optionalText(row.employee_myid_facility),
+    rosterLocationFacility: optionalText(row.roster_location_facility),
     transactionRowCount: number(row.transaction_row_count),
     netCost: round(row.net_cost)
   })).filter((row) => Number.isInteger(row.year) && row.month >= 1 && row.month <= 12);
+
+  const rows = candidateRows.map((row) => ({
+    ...row,
+    ...chooseWaterfallFacility(row)
+  }));
 
   const allMonths = new Set(rows.map(monthKey));
   const totalNetCost = round(rows.reduce((sum, row) => sum + row.netCost, 0));
   const totalAbsoluteCost = rows.reduce((sum, row) => sum + Math.abs(row.netCost), 0);
   const unmappedRows = rows.filter((row) => row.facility === 'Unmapped');
   const unmappedAbsoluteCost = unmappedRows.reduce((sum, row) => sum + Math.abs(row.netCost), 0);
+
+  const methodCoverage = [
+    summarizeMappingMethod(
+      rows,
+      'currentCostCenterFacility',
+      'Cost center → Archibus (current card method)',
+      totalAbsoluteCost
+    ),
+    summarizeMappingMethod(
+      rows,
+      'employeeMyidFacility',
+      'Transaction Employee MyID → Archibus',
+      totalAbsoluteCost
+    ),
+    summarizeMappingMethod(
+      rows,
+      'rosterLocationFacility',
+      'Transaction Employee → Roster Location → Archibus',
+      totalAbsoluteCost
+    ),
+    summarizeMappingMethod(
+      rows.map((row) => ({ ...row, combinedFacility: row.facility === 'Unmapped' ? null : row.facility })),
+      'combinedFacility',
+      'Combined waterfall: Employee → Roster Location → Cost Center',
+      totalAbsoluteCost
+    )
+  ];
+
+  const divisions = appendMissingMonths(summarize(rows, (row) => row.division, allMonths));
+  const businessUnits = appendMissingMonths(
+    summarize(rows, (row) => `${row.division} | ${row.businessUnit}`, allMonths)
+  );
+  const finalFacilities = summarize(rows, (row) => row.facility, allMonths).slice(0, 100);
 
   return {
     totalNetCost,
@@ -103,10 +225,14 @@ function buildPayload(sourceRows) {
       netCost: round(unmappedRows.reduce((sum, row) => sum + row.netCost, 0)),
       absoluteShare: totalAbsoluteCost > 0 ? unmappedAbsoluteCost / totalAbsoluteCost : 0
     },
-    divisions: summarize(rows, (row) => row.division),
-    businessUnits: summarize(rows, (row) => `${row.division} | ${row.businessUnit}`),
-    facilities: summarize(rows, (row) => row.facility).slice(0, 100),
-    unmappedCostCenters: buildUnmappedCostCenters(rows)
+    mappingMethods: methodCoverage,
+    divisions,
+    businessUnits,
+    facilities: [
+      ...buildMappingMethodRows(methodCoverage),
+      ...finalFacilities
+    ],
+    unmappedCostCenters: buildUnmappedCostCenters(rows, allMonths)
   };
 }
 

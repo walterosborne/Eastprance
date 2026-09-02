@@ -1,4 +1,5 @@
 import { COST_DIMENSION_COVERAGE_DBM_QUERY } from './dbmQueries/costDimensionCoverageQuery.js';
+import { readControllableCostsData } from './controllableCostsRepository.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
 function text(value, fallback = 'Unmapped') {
@@ -24,6 +25,20 @@ function monthKey(row) {
   return `${row.year}-${String(row.month).padStart(2, '0')}`;
 }
 
+function quarterKeyFromMonth(row) {
+  if (!Number.isInteger(row.year) || !Number.isInteger(row.month) || row.month < 1 || row.month > 12) {
+    return null;
+  }
+
+  return `${row.year}-Q${Math.floor((row.month - 1) / 3) + 1}`;
+}
+
+function legacyQuarterKey(row) {
+  const year = Number(row?.year);
+  const match = /^Q([1-4])$/i.exec(String(row?.quarter ?? '').trim());
+  return Number.isInteger(year) && match ? `${year}-Q${match[1]}` : null;
+}
+
 function formatMonthKey(value) {
   const [year, month] = String(value).split('-').map(Number);
   if (!Number.isInteger(year) || !Number.isInteger(month)) {
@@ -35,6 +50,13 @@ function formatMonthKey(value) {
     year: 'numeric',
     timeZone: 'UTC'
   }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function normalizeLocation(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function chooseWaterfallFacility(row) {
@@ -116,11 +138,12 @@ function appendMissingMonths(rows) {
 }
 
 function formatSapMasterHint(row) {
-  const parts = [];
-  if (row.sapPlant) parts.push(`plant ${row.sapPlant}`);
-  if (row.sapCity) parts.push(`city ${row.sapCity}`);
-  if (row.sapDistrict) parts.push(`district ${row.sapDistrict}`);
-  return parts.join(' · ');
+  const locationParts = [];
+  if (row.sapPlant) locationParts.push(`plant ${row.sapPlant}`);
+  if (row.sapCity) locationParts.push(`city ${row.sapCity}`);
+  if (row.sapDistrict) locationParts.push(`district ${row.sapDistrict}`);
+
+  return `${locationParts.join(' · ') || 'SAP master location blank'} · key matches: KOSTL ${row.sapKostlMatch ? 'yes' : 'no'}, PRCTR ${row.sapPrctrMatch ? 'yes' : 'no'}, ZZORGCODE ${row.sapOrgCodeMatch ? 'yes' : 'no'}`;
 }
 
 function buildUnmappedCostCenters(rows, allMonthKeys) {
@@ -128,9 +151,8 @@ function buildUnmappedCostCenters(rows, allMonthKeys) {
   const hintsByCostCenter = new Map();
 
   unmappedRows.forEach((row) => {
-    const hint = formatSapMasterHint(row);
-    if (hint && !hintsByCostCenter.has(row.costCenter)) {
-      hintsByCostCenter.set(row.costCenter, hint);
+    if (!hintsByCostCenter.has(row.costCenter)) {
+      hintsByCostCenter.set(row.costCenter, formatSapMasterHint(row));
     }
   });
 
@@ -138,7 +160,7 @@ function buildUnmappedCostCenters(rows, allMonthKeys) {
     .slice(0, 30)
     .map((row) => ({
       ...row,
-      key: `${row.key} · ${hintsByCostCenter.get(row.key) || 'SAP master location blank'}`
+      key: `${row.key} · ${hintsByCostCenter.get(row.key)}`
     }));
 }
 
@@ -173,7 +195,115 @@ function buildMappingMethodRows(methods) {
   }));
 }
 
-function buildPayload(sourceRows) {
+function groupLegacyRows(rows, keySelector) {
+  const groups = new Map();
+  const totalAbsolute = rows.reduce((sum, row) => sum + Math.abs(row.cost), 0);
+
+  rows.forEach((row) => {
+    const key = keySelector(row) || '(Blank)';
+    const group = groups.get(key) ?? { key, netCost: 0, absoluteCost: 0, rowCount: 0, quarters: new Set() };
+    group.netCost += row.cost;
+    group.absoluteCost += Math.abs(row.cost);
+    group.rowCount += 1;
+    if (row.quarterKey) group.quarters.add(row.quarterKey);
+    groups.set(key, group);
+  });
+
+  return [...groups.values()]
+    .map((group) => ({
+      key: group.key,
+      netCost: round(group.netCost),
+      absoluteCost: round(group.absoluteCost),
+      absoluteShare: totalAbsolute > 0 ? group.absoluteCost / totalAbsolute : 0,
+      rowCount: group.rowCount,
+      quarters: [...group.quarters].sort()
+    }))
+    .sort((a, b) => b.absoluteCost - a.absoluteCost || a.key.localeCompare(b.key));
+}
+
+function buildLegacyComparison(oldPayload, freshRows) {
+  const legacyRows = (oldPayload?.rows ?? [])
+    .map((row) => ({
+      year: Number(row.year),
+      quarterKey: legacyQuarterKey(row),
+      address: text(row.address, '(Blank)'),
+      costCategory: text(row.cost_category, '(Blank)'),
+      costElement: text(row.cost_element, '(Blank)'),
+      controllable: row.controllable === 'Controllable' ? 'Controllable' : 'Uncontrollable',
+      cost: Number(row.cost)
+    }))
+    .filter((row) => Number.isFinite(row.cost) && row.quarterKey);
+
+  const legacyQuarterKeys = new Set(legacyRows.map((row) => row.quarterKey));
+  const freshQuarterKeys = new Set(freshRows.map(quarterKeyFromMonth).filter(Boolean));
+  const commonQuarterKeys = [...legacyQuarterKeys].filter((key) => freshQuarterKeys.has(key)).sort();
+  const commonQuarterSet = new Set(commonQuarterKeys);
+
+  const quarterRows = [...new Set([...legacyQuarterKeys, ...freshQuarterKeys])]
+    .sort()
+    .map((key) => {
+      const oldCost = legacyRows
+        .filter((row) => row.quarterKey === key)
+        .reduce((sum, row) => sum + row.cost, 0);
+      const freshCost = freshRows
+        .filter((row) => quarterKeyFromMonth(row) === key)
+        .reduce((sum, row) => sum + row.netCost, 0);
+
+      return {
+        quarter: key,
+        oldCost: round(oldCost),
+        freshRawCost: round(freshCost),
+        overlap: legacyQuarterKeys.has(key) && freshQuarterKeys.has(key)
+      };
+    });
+
+  const freshFacilities = summarize(
+    freshRows.filter((row) => row.facility !== 'Unmapped'),
+    (row) => row.facility
+  );
+
+  const topAddresses = groupLegacyRows(legacyRows, (row) => row.address)
+    .slice(0, 30)
+    .map((row) => {
+      const normalizedOld = normalizeLocation(row.key);
+      const match = normalizedOld
+        ? freshFacilities.find((facility) => {
+            const normalizedFresh = normalizeLocation(facility.key);
+            return normalizedFresh.includes(normalizedOld) || normalizedOld.includes(normalizedFresh);
+          })
+        : null;
+
+      return {
+        ...row,
+        freshFacilityMatch: match?.key ?? null,
+        freshMappedNetCost: match?.netCost ?? null
+      };
+    });
+
+  const commonOldRows = legacyRows.filter((row) => commonQuarterSet.has(row.quarterKey));
+  const commonFreshRows = freshRows.filter((row) => commonQuarterSet.has(quarterKeyFromMonth(row)));
+
+  return {
+    source: oldPayload?.source ?? 'unknown',
+    sourceName: oldPayload?.tableName ?? oldPayload?.fileName ?? 'legacy controllable costs',
+    rowCount: legacyRows.length,
+    addressCount: new Set(legacyRows.map((row) => row.address)).size,
+    costElementCount: new Set(legacyRows.map((row) => row.costElement)).size,
+    quarterCount: legacyQuarterKeys.size,
+    quarters: [...legacyQuarterKeys].sort(),
+    totalNetCost: round(legacyRows.reduce((sum, row) => sum + row.cost, 0)),
+    controllableNetCost: round(legacyRows.filter((row) => row.controllable === 'Controllable').reduce((sum, row) => sum + row.cost, 0)),
+    uncontrollableNetCost: round(legacyRows.filter((row) => row.controllable !== 'Controllable').reduce((sum, row) => sum + row.cost, 0)),
+    commonQuarterKeys,
+    commonOldNetCost: round(commonOldRows.reduce((sum, row) => sum + row.cost, 0)),
+    commonFreshRawNetCost: round(commonFreshRows.reduce((sum, row) => sum + row.netCost, 0)),
+    quarterRows,
+    topAddresses,
+    topCategories: groupLegacyRows(legacyRows, (row) => row.costCategory).slice(0, 25)
+  };
+}
+
+function buildPayload(sourceRows, oldPayload) {
   const candidateRows = sourceRows.map((row) => {
     const sapPlant = optionalText(row.sap_plant);
     const sapCity = optionalText(row.sap_city);
@@ -191,7 +321,9 @@ function buildPayload(sourceRows) {
       sapPlant,
       sapCity,
       sapDistrict,
-      sapMasterLocation: [sapPlant, sapCity, sapDistrict].filter(Boolean).join(' | ') || null,
+      sapKostlMatch: number(row.sap_kostl_match) === 1,
+      sapPrctrMatch: number(row.sap_prctr_match) === 1,
+      sapOrgCodeMatch: number(row.sap_orgcode_match) === 1,
       transactionRowCount: number(row.transaction_row_count),
       netCost: round(row.net_cost)
     };
@@ -209,42 +341,22 @@ function buildPayload(sourceRows) {
   const unmappedAbsoluteCost = unmappedRows.reduce((sum, row) => sum + Math.abs(row.netCost), 0);
 
   const methodCoverage = [
-    summarizeMappingMethod(
-      rows,
-      'currentCostCenterFacility',
-      'Cost center → Archibus (current card method)',
-      totalAbsoluteCost
-    ),
-    summarizeMappingMethod(
-      rows,
-      'employeeMyidFacility',
-      'Transaction Employee MyID → Archibus',
-      totalAbsoluteCost
-    ),
-    summarizeMappingMethod(
-      rows,
-      'rosterLocationFacility',
-      'Transaction Employee → Roster Location → Archibus',
-      totalAbsoluteCost
-    ),
+    summarizeMappingMethod(rows, 'currentCostCenterFacility', 'Cost center → Archibus (current card method)', totalAbsoluteCost),
+    summarizeMappingMethod(rows, 'employeeMyidFacility', 'Transaction Employee MyID → Archibus', totalAbsoluteCost),
+    summarizeMappingMethod(rows, 'rosterLocationFacility', 'Transaction Employee → Roster Location → Archibus', totalAbsoluteCost),
     summarizeMappingMethod(
       rows.map((row) => ({ ...row, combinedFacility: row.facility === 'Unmapped' ? null : row.facility })),
       'combinedFacility',
       'Combined waterfall: Employee → Roster Location → Cost Center',
       totalAbsoluteCost
     ),
-    summarizeMappingMethod(
-      rows,
-      'sapMasterLocation',
-      'SAP cost-center master has location fields (diagnostic only)',
-      totalAbsoluteCost
-    )
+    summarizeMappingMethod(rows, 'sapKostlMatch', 'SAP master key overlap: KOSTL', totalAbsoluteCost),
+    summarizeMappingMethod(rows, 'sapPrctrMatch', 'SAP master key overlap: PRCTR', totalAbsoluteCost),
+    summarizeMappingMethod(rows, 'sapOrgCodeMatch', 'SAP master key overlap: ZZORGCODE', totalAbsoluteCost)
   ];
 
   const divisions = appendMissingMonths(summarize(rows, (row) => row.division, allMonths));
-  const businessUnits = appendMissingMonths(
-    summarize(rows, (row) => `${row.division} | ${row.businessUnit}`, allMonths)
-  );
+  const businessUnits = appendMissingMonths(summarize(rows, (row) => `${row.division} | ${row.businessUnit}`, allMonths));
   const finalFacilities = summarize(rows, (row) => row.facility, allMonths).slice(0, 100);
 
   return {
@@ -263,11 +375,9 @@ function buildPayload(sourceRows) {
     mappingMethods: methodCoverage,
     divisions,
     businessUnits,
-    facilities: [
-      ...buildMappingMethodRows(methodCoverage),
-      ...finalFacilities
-    ],
-    unmappedCostCenters: buildUnmappedCostCenters(rows, allMonths)
+    facilities: [...buildMappingMethodRows(methodCoverage), ...finalFacilities],
+    unmappedCostCenters: buildUnmappedCostCenters(rows, allMonths),
+    legacyComparison: buildLegacyComparison(oldPayload, rows)
   };
 }
 
@@ -279,6 +389,10 @@ export async function readCostDimensionCoverageDiagnostics() {
   }
 
   const pool = await getPool(config, 'dbm');
-  const result = await pool.request().query(COST_DIMENSION_COVERAGE_DBM_QUERY);
-  return buildPayload(result.recordset);
+  const [result, oldPayload] = await Promise.all([
+    pool.request().query(COST_DIMENSION_COVERAGE_DBM_QUERY),
+    readControllableCostsData()
+  ]);
+
+  return buildPayload(result.recordset, oldPayload);
 }

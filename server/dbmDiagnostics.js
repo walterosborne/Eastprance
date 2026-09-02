@@ -19,9 +19,7 @@ const DBM_TABLE_CHECKS = [
       FROM [src].[rb_CVG_Transaction_Details_03] AS source
       WHERE TRY_CONVERT(int, source.[GJAHR]) IS NOT NULL
         AND TRY_CONVERT(int, source.[POPER]) BETWEEN 1 AND 12
-      ORDER BY
-        TRY_CONVERT(int, source.[GJAHR]) DESC,
-        TRY_CONVERT(int, source.[POPER]) DESC;
+      ORDER BY TRY_CONVERT(int, source.[GJAHR]) DESC, TRY_CONVERT(int, source.[POPER]) DESC;
     `,
     transactionTable: true
   },
@@ -36,11 +34,7 @@ const DBM_TABLE_CHECKS = [
 ];
 
 function getEmptyTableResults(status = 'Not tested') {
-  return DBM_TABLE_CHECKS.map(({ name }) => ({
-    name,
-    accessible: null,
-    status
-  }));
+  return DBM_TABLE_CHECKS.map(({ name }) => ({ name, accessible: null, status }));
 }
 
 function formatLatestMonth(year, month) {
@@ -103,11 +97,7 @@ export async function readDbmDiagnostics() {
       database: config.database ?? 'Not configured'
     },
     tables: getEmptyTableResults(),
-    latestTransactionPeriod: {
-      year: null,
-      month: null,
-      label: 'None'
-    },
+    latestTransactionPeriod: { year: null, month: null, label: 'None' },
     costClassification: null,
     costClassificationError: null,
     costDimensionCoverage: null,
@@ -123,7 +113,6 @@ export async function readDbmDiagnostics() {
   }
 
   let pool;
-
   try {
     pool = await getPool(config, 'dbm');
   } catch (error) {
@@ -145,12 +134,8 @@ export async function readDbmDiagnostics() {
     };
   }
 
-  const tables = await Promise.all(
-    DBM_TABLE_CHECKS.map((tableCheck) => runTableCheck(pool, tableCheck))
-  );
-  const transactionTable = tables.find(
-    (table) => table.name === 'src.rb_CVG_Transaction_Details_03'
-  );
+  const tables = await Promise.all(DBM_TABLE_CHECKS.map((check) => runTableCheck(pool, check)));
+  const transactionTable = tables.find((table) => table.name === 'src.rb_CVG_Transaction_Details_03');
 
   let costClassification = null;
   let costClassificationError = null;
@@ -187,18 +172,11 @@ export async function readDbmDiagnostics() {
       server: config.server,
       database: config.database
     },
-    tables: tables.map(({ name, accessible, status }) => ({
-      name,
-      accessible,
-      status
-    })),
+    tables: tables.map(({ name, accessible, status }) => ({ name, accessible, status })),
     latestTransactionPeriod: {
       year: transactionTable?.latestYear ?? null,
       month: transactionTable?.latestMonth ?? null,
-      label: formatLatestMonth(
-        transactionTable?.latestYear,
-        transactionTable?.latestMonth
-      )
+      label: formatLatestMonth(transactionTable?.latestYear, transactionTable?.latestMonth)
     },
     costClassification,
     costClassificationError,
@@ -259,6 +237,79 @@ function summarizeFacilityStatuses(rows) {
   return summary;
 }
 
+function renderLegacyComparison(legacy) {
+  if (!legacy) return '';
+
+  return `
+    <h3>Legacy Cost Source Benchmark</h3>
+    <p class="note">Benchmark only. This is the old controllable-cost source, not a definition of truth. Use it to compare expected facility/address mix and quarter totals while we build the new independent logic.</p>
+
+    <div class="classification-summary coverage-summary">
+      <article class="summary-card"><span>Legacy Source</span><strong>${escapeHtml(`${legacy.source}: ${legacy.sourceName}`)}</strong></article>
+      <article class="summary-card"><span>Legacy Rows</span><strong>${formatCount(legacy.rowCount)}</strong></article>
+      <article class="summary-card"><span>Addresses</span><strong>${formatCount(legacy.addressCount)}</strong></article>
+      <article class="summary-card"><span>Cost Elements</span><strong>${formatCount(legacy.costElementCount)}</strong></article>
+      <article class="summary-card"><span>Quarters</span><strong>${formatCount(legacy.quarterCount)}</strong></article>
+      <article class="summary-card"><span>Legacy Net Cost</span><strong>${formatCurrency(legacy.totalNetCost)}</strong></article>
+    </div>
+
+    <p class="note">Common quarters: ${escapeHtml(legacy.commonQuarterKeys.join(', ') || 'None')} · legacy total in common quarters: ${formatCurrency(legacy.commonOldNetCost)} · fresh raw DS indirect non-labor in those quarters: ${formatCurrency(legacy.commonFreshRawNetCost)}. The fresh value is intentionally much broader until facility filtering is finished.</p>
+
+    <h3>Legacy vs Fresh by Quarter</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Quarter</th><th>Legacy Facility Report</th><th>Fresh Raw DS Non-Labor</th><th>Overlap?</th></tr></thead>
+        <tbody>
+          ${legacy.quarterRows.map((row) => `
+            <tr class="${row.overlap ? 'coverage' : ''}">
+              <td>${escapeHtml(row.quarter)}</td>
+              <td>${formatCurrency(row.oldCost)}</td>
+              <td>${formatCurrency(row.freshRawCost)}</td>
+              <td>${row.overlap ? 'Yes' : 'No'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Top Legacy Addresses</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Legacy Address</th><th>Legacy Net Cost</th><th>Abs Share</th><th>Quarters</th><th>Fresh Mapped Facility Match</th><th>Fresh Mapped Net Cost</th></tr></thead>
+        <tbody>
+          ${legacy.topAddresses.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.key)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+              <td>${escapeHtml(row.quarters.join(', '))}</td>
+              <td>${escapeHtml(row.freshFacilityMatch || 'No current match')}</td>
+              <td>${row.freshMappedNetCost == null ? '—' : formatCurrency(row.freshMappedNetCost)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Top Legacy Cost Categories</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Cost Category</th><th>Legacy Net Cost</th><th>Abs Share</th><th>Rows</th></tr></thead>
+        <tbody>
+          ${legacy.topCategories.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.key)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+              <td>${formatCount(row.rowCount)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderCostDimensionCoverage(payload, errorMessage, classificationTotal) {
   if (!payload) {
     return `
@@ -274,7 +325,7 @@ function renderCostDimensionCoverage(payload, errorMessage, classificationTotal)
   return `
     <section class="panel">
       <h2>Cost Dimension Coverage</h2>
-      <p class="note">Same fresh DS indirect non-labor population, rolled up through the exact Division / Business Unit / Archibus facility mapping used by the new cost query. Use this to catch missing organizations, missing months, and weak facility mapping before we trust the cost classification.</p>
+      <p class="note">Fresh DS indirect non-labor population. Division/BU should already be trustworthy; facility mapping is still diagnostic until coverage is good enough.</p>
 
       <div class="classification-summary coverage-summary">
         <article class="summary-card"><span>Divisions</span><strong>${formatCount(payload.divisionCount)}</strong></article>
@@ -291,19 +342,16 @@ function renderCostDimensionCoverage(payload, errorMessage, classificationTotal)
       <div class="table-scroll">
         <table>
           <thead><tr><th>Division</th><th>BUs</th><th>Facilities</th><th>Cost Centers</th><th>Months</th><th>Net Cost</th><th>Abs Share</th></tr></thead>
-          <tbody>
-            ${payload.divisions.map((row) => `
-              <tr>
-                <td>${escapeHtml(row.key)}</td>
-                <td>${formatCount(row.businessUnitCount)}</td>
-                <td>${formatCount(row.facilityCount)}</td>
-                <td>${formatCount(row.costCenterCount)}</td>
-                <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
-                <td>${formatCurrency(row.netCost)}</td>
-                <td>${formatPercent(row.absoluteShare)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
+          <tbody>${payload.divisions.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.key)}</td>
+              <td>${formatCount(row.businessUnitCount)}</td>
+              <td>${formatCount(row.facilityCount)}</td>
+              <td>${formatCount(row.costCenterCount)}</td>
+              <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+            </tr>`).join('')}</tbody>
         </table>
       </div>
 
@@ -311,58 +359,52 @@ function renderCostDimensionCoverage(payload, errorMessage, classificationTotal)
       <div class="table-scroll">
         <table>
           <thead><tr><th>Division | Business Unit</th><th>Facilities</th><th>Cost Centers</th><th>Months</th><th>Net Cost</th><th>Abs Share</th></tr></thead>
-          <tbody>
-            ${payload.businessUnits.map((row) => `
-              <tr>
-                <td>${escapeHtml(row.key)}</td>
-                <td>${formatCount(row.facilityCount)}</td>
-                <td>${formatCount(row.costCenterCount)}</td>
-                <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
-                <td>${formatCurrency(row.netCost)}</td>
-                <td>${formatPercent(row.absoluteShare)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
+          <tbody>${payload.businessUnits.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.key)}</td>
+              <td>${formatCount(row.facilityCount)}</td>
+              <td>${formatCount(row.costCenterCount)}</td>
+              <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+            </tr>`).join('')}</tbody>
         </table>
       </div>
 
-      <h3>Facility Coverage</h3>
-      <p class="note">Top facilities by absolute dollar activity. A facility spanning unexpected divisions/BUs or having fewer months than the population is worth checking.</p>
+      <h3>Facility Coverage + Mapping Tests</h3>
+      <p class="note">The MAPPING COVERAGE rows are diagnostics. The SAP overlap rows test whether transaction RCNTR corresponds to KOSTL, PRCTR, or ZZORGCODE in the SAP cost-center master before we guess another join.</p>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Facility</th><th>Divisions</th><th>BUs</th><th>Cost Centers</th><th>Months</th><th>Net Cost</th><th>Abs Share</th></tr></thead>
-          <tbody>
-            ${payload.facilities.map((row) => `
-              <tr class="${row.key === 'Unmapped' ? 'review-row' : ''}">
-                <td>${escapeHtml(row.key)}</td>
-                <td>${formatCount(row.divisionCount)}</td>
-                <td>${formatCount(row.businessUnitCount)}</td>
-                <td>${formatCount(row.costCenterCount)}</td>
-                <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
-                <td>${formatCurrency(row.netCost)}</td>
-                <td>${formatPercent(row.absoluteShare)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
+          <thead><tr><th>Facility / Test</th><th>Divisions</th><th>BUs</th><th>Cost Centers</th><th>Months</th><th>Net Cost</th><th>Abs Share</th></tr></thead>
+          <tbody>${payload.facilities.map((row) => `
+            <tr class="${row.key === 'Unmapped' ? 'review-row' : ''}">
+              <td>${escapeHtml(row.key)}</td>
+              <td>${formatCount(row.divisionCount)}</td>
+              <td>${formatCount(row.businessUnitCount)}</td>
+              <td>${formatCount(row.costCenterCount)}</td>
+              <td class="${row.monthCount < payload.monthCount ? 'status-needs-review' : ''}">${formatCount(row.monthCount)} / ${formatCount(payload.monthCount)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+            </tr>`).join('')}</tbody>
         </table>
       </div>
 
       <h3>Top Unmapped Facility Cost Centers</h3>
+      <p class="note">Each row now also shows whether that RCNTR exists as KOSTL, PRCTR, or ZZORGCODE in the SAP cost-center master.</p>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Cost Center</th><th>Months</th><th>Net Cost</th><th>Share of Unmapped Activity</th></tr></thead>
-          <tbody>
-            ${payload.unmappedCostCenters.map((row) => `
-              <tr class="review-row">
-                <td class="mono">${escapeHtml(row.key)}</td>
-                <td>${formatCount(row.monthCount)}</td>
-                <td>${formatCurrency(row.netCost)}</td>
-                <td>${formatPercent(row.absoluteShare)}</td>
-              </tr>
-            `).join('') || '<tr><td colspan="4">No unmapped facility cost centers.</td></tr>'}
-          </tbody>
+          <thead><tr><th>Cost Center + SAP Hint</th><th>Months</th><th>Net Cost</th><th>Share of Unmapped Activity</th></tr></thead>
+          <tbody>${payload.unmappedCostCenters.map((row) => `
+            <tr class="review-row">
+              <td class="mono">${escapeHtml(row.key)}</td>
+              <td>${formatCount(row.monthCount)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+            </tr>`).join('') || '<tr><td colspan="4">No unmapped facility cost centers.</td></tr>'}</tbody>
         </table>
       </div>
+
+      ${renderLegacyComparison(payload.legacyComparison)}
     </section>
   `;
 }
@@ -382,14 +424,12 @@ function renderCostClassification(payload, errorMessage) {
     ...classifyFacilityCost(row)
   }));
   const statusSummary = summarizeFacilityStatuses(classifiedRows);
-  const needsReviewRows = classifiedRows.filter(
-    (row) => row.facilityStatus === 'Needs Review'
-  );
+  const needsReviewRows = classifiedRows.filter((row) => row.facilityStatus === 'Needs Review');
 
   return `
     <section class="panel classification-panel">
       <h2>Facility Cost Classification Explorer</h2>
-      <p class="note">Fresh DS DBM non-labor population only. This section intentionally ignores the old Cost Element Key and all existing controllable/uncontrollable assumptions.</p>
+      <p class="note">Fresh DS DBM non-labor population only. This section intentionally ignores the old Cost Element Key and existing controllable/uncontrollable assumptions.</p>
 
       <div class="classification-summary">
         <article class="summary-card"><span>Period</span><strong>${escapeHtml(payload.firstPeriod)} – ${escapeHtml(payload.latestPeriod)}</strong></article>
@@ -400,7 +440,7 @@ function renderCostClassification(payload, errorMessage) {
       </div>
 
       <h3>First-Pass Facility Classification — 95% Coverage Set</h3>
-      <p class="note">Conservative rules only. Nothing here changes the scorecard yet. Ambiguous rows stay in Needs Review instead of being guessed.</p>
+      <p class="note">Conservative rules only. Nothing here changes the scorecard yet.</p>
       <div class="classification-summary status-summary">
         <article class="summary-card"><span>Facility</span><strong>${formatCount(statusSummary.Facility.rowCount)} rows · ${formatCurrency(statusSummary.Facility.netCost)}</strong></article>
         <article class="summary-card"><span>Not Facility</span><strong>${formatCount(statusSummary['Not Facility'].rowCount)} rows · ${formatCurrency(statusSummary['Not Facility'].netCost)}</strong></article>
@@ -408,23 +448,19 @@ function renderCostClassification(payload, errorMessage) {
       </div>
 
       <h3>Needs Review</h3>
-      <p class="note">This is the next working set. Send screenshots of this table only; once these rows are resolved, we can build the actual facility-cost population.</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th>#</th><th>Cost Element</th><th>Description</th><th>Level 3</th><th>Net Cost</th><th>Abs Share</th><th>Reason</th></tr></thead>
-          <tbody>
-            ${needsReviewRows.map((row) => `
-              <tr class="review-row">
-                <td>${row.rank}</td>
-                <td class="mono">${escapeHtml(row.costElement)}</td>
-                <td>${escapeHtml(row.costElementDescription)}</td>
-                <td>${escapeHtml(row.level3Category)}</td>
-                <td>${formatCurrency(row.netCost)}</td>
-                <td>${formatPercent(row.absoluteShare)}</td>
-                <td>${escapeHtml(row.facilityReason)}</td>
-              </tr>
-            `).join('') || '<tr><td colspan="7">No rows need review in the visible coverage set.</td></tr>'}
-          </tbody>
+          <tbody>${needsReviewRows.map((row) => `
+            <tr class="review-row">
+              <td>${row.rank}</td>
+              <td class="mono">${escapeHtml(row.costElement)}</td>
+              <td>${escapeHtml(row.costElementDescription)}</td>
+              <td>${escapeHtml(row.level3Category)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+              <td>${escapeHtml(row.facilityReason)}</td>
+            </tr>`).join('') || '<tr><td colspan="7">No rows need review in the visible coverage set.</td></tr>'}</tbody>
         </table>
       </div>
 
@@ -432,42 +468,35 @@ function renderCostClassification(payload, errorMessage) {
       <div class="table-scroll">
         <table>
           <thead><tr><th>#</th><th>Level 3</th><th>Level 4</th><th>GL Combos</th><th>Net Cost</th><th>Abs Share</th><th>Cumulative</th></tr></thead>
-          <tbody>
-            ${payload.categoryRows.map((row) => `
-              <tr>
-                <td>${row.rank}</td>
-                <td>${escapeHtml(row.level3Category)}</td>
-                <td>${escapeHtml(row.level4Category)}</td>
-                <td>${formatCount(row.costElementCount)}</td>
-                <td>${formatCurrency(row.netCost)}</td>
-                <td>${formatPercent(row.absoluteShare)}</td>
-                <td>${formatPercent(row.cumulativeShare)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
+          <tbody>${payload.categoryRows.map((row) => `
+            <tr>
+              <td>${row.rank}</td>
+              <td>${escapeHtml(row.level3Category)}</td>
+              <td>${escapeHtml(row.level4Category)}</td>
+              <td>${formatCount(row.costElementCount)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+              <td>${formatPercent(row.cumulativeShare)}</td>
+            </tr>`).join('')}</tbody>
         </table>
       </div>
 
       <h3>Cost Elements Ranked by Dollar Impact</h3>
-      <p class="note">Showing ${formatCount(payload.visibleRowCount)} rows. Status is the conservative first-pass facility classification.</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th>#</th><th>Cost Element</th><th>Description</th><th>Level 3</th><th>Status</th><th>Net Cost</th><th>Abs Share</th><th>Cumulative</th><th>Txn Rows</th></tr></thead>
-          <tbody>
-            ${classifiedRows.map((row) => `
-              <tr class="${row.cumulativeShare <= 0.95 ? 'coverage' : ''}">
-                <td>${row.rank}</td>
-                <td class="mono">${escapeHtml(row.costElement)}</td>
-                <td>${escapeHtml(row.costElementDescription)}</td>
-                <td>${escapeHtml(row.level3Category)}</td>
-                <td class="status-${row.facilityStatus.toLowerCase().replaceAll(' ', '-')}">${escapeHtml(row.facilityStatus)}</td>
-                <td>${formatCurrency(row.netCost)}</td>
-                <td>${formatPercent(row.absoluteShare)}</td>
-                <td>${formatPercent(row.cumulativeShare)}</td>
-                <td>${formatCount(row.transactionRowCount)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
+          <tbody>${classifiedRows.map((row) => `
+            <tr class="${row.cumulativeShare <= 0.95 ? 'coverage' : ''}">
+              <td>${row.rank}</td>
+              <td class="mono">${escapeHtml(row.costElement)}</td>
+              <td>${escapeHtml(row.costElementDescription)}</td>
+              <td>${escapeHtml(row.level3Category)}</td>
+              <td class="status-${row.facilityStatus.toLowerCase().replaceAll(' ', '-')}">${escapeHtml(row.facilityStatus)}</td>
+              <td>${formatCurrency(row.netCost)}</td>
+              <td>${formatPercent(row.absoluteShare)}</td>
+              <td>${formatPercent(row.cumulativeShare)}</td>
+              <td>${formatCount(row.transactionRowCount)}</td>
+            </tr>`).join('')}</tbody>
         </table>
       </div>
     </section>
@@ -541,17 +570,10 @@ export function renderDbmDiagnosticsPage(payload) {
         <h2>Table Accessibility</h2>
         <table>
           <thead><tr><th>Table</th><th>Status</th></tr></thead>
-          <tbody>
-            ${payload.tables.map((table) => {
-              const statusClass = table.accessible === true
-                ? 'accessible'
-                : table.accessible === false
-                  ? 'unavailable'
-                  : 'not-tested';
-
-              return `<tr><th>${escapeHtml(table.name)}</th><td class="${statusClass}">${escapeHtml(table.status)}</td></tr>`;
-            }).join('')}
-          </tbody>
+          <tbody>${payload.tables.map((table) => {
+            const statusClass = table.accessible === true ? 'accessible' : table.accessible === false ? 'unavailable' : 'not-tested';
+            return `<tr><th>${escapeHtml(table.name)}</th><td class="${statusClass}">${escapeHtml(table.status)}</td></tr>`;
+          }).join('')}</tbody>
         </table>
       </section>
 

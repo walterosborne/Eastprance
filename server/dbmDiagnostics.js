@@ -259,16 +259,13 @@ function renderLegacyComparison(legacy) {
     <div class="table-scroll">
       <table>
         <thead><tr><th>Quarter</th><th>Legacy Facility Report</th><th>Fresh Raw DS Non-Labor</th><th>Overlap?</th></tr></thead>
-        <tbody>
-          ${legacy.quarterRows.map((row) => `
-            <tr class="${row.overlap ? 'coverage' : ''}">
-              <td>${escapeHtml(row.quarter)}</td>
-              <td>${formatCurrency(row.oldCost)}</td>
-              <td>${formatCurrency(row.freshRawCost)}</td>
-              <td>${row.overlap ? 'Yes' : 'No'}</td>
-            </tr>
-          `).join('')}
-        </tbody>
+        <tbody>${legacy.quarterRows.map((row) => `
+          <tr class="${row.overlap ? 'coverage' : ''}">
+            <td>${escapeHtml(row.quarter)}</td>
+            <td>${formatCurrency(row.oldCost)}</td>
+            <td>${formatCurrency(row.freshRawCost)}</td>
+            <td>${row.overlap ? 'Yes' : 'No'}</td>
+          </tr>`).join('')}</tbody>
       </table>
     </div>
 
@@ -276,18 +273,15 @@ function renderLegacyComparison(legacy) {
     <div class="table-scroll">
       <table>
         <thead><tr><th>Legacy Address</th><th>Legacy Net Cost</th><th>Abs Share</th><th>Quarters</th><th>Fresh Mapped Facility Match</th><th>Fresh Mapped Net Cost</th></tr></thead>
-        <tbody>
-          ${legacy.topAddresses.map((row) => `
-            <tr>
-              <td>${escapeHtml(row.key)}</td>
-              <td>${formatCurrency(row.netCost)}</td>
-              <td>${formatPercent(row.absoluteShare)}</td>
-              <td>${escapeHtml(row.quarters.join(', '))}</td>
-              <td>${escapeHtml(row.freshFacilityMatch || 'No current match')}</td>
-              <td>${row.freshMappedNetCost == null ? '—' : formatCurrency(row.freshMappedNetCost)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
+        <tbody>${legacy.topAddresses.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.key)}</td>
+            <td>${formatCurrency(row.netCost)}</td>
+            <td>${formatPercent(row.absoluteShare)}</td>
+            <td>${escapeHtml(row.quarters.join(', '))}</td>
+            <td>${escapeHtml(row.freshFacilityMatch || 'No current match')}</td>
+            <td>${row.freshMappedNetCost == null ? '—' : formatCurrency(row.freshMappedNetCost)}</td>
+          </tr>`).join('')}</tbody>
       </table>
     </div>
 
@@ -295,16 +289,85 @@ function renderLegacyComparison(legacy) {
     <div class="table-scroll">
       <table>
         <thead><tr><th>Cost Category</th><th>Legacy Net Cost</th><th>Abs Share</th><th>Rows</th></tr></thead>
-        <tbody>
-          ${legacy.topCategories.map((row) => `
-            <tr>
-              <td>${escapeHtml(row.key)}</td>
-              <td>${formatCurrency(row.netCost)}</td>
-              <td>${formatPercent(row.absoluteShare)}</td>
-              <td>${formatCount(row.rowCount)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
+        <tbody>${legacy.topCategories.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.key)}</td>
+            <td>${formatCurrency(row.netCost)}</td>
+            <td>${formatPercent(row.absoluteShare)}</td>
+            <td>${formatCount(row.rowCount)}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderLegacyGlOverlap(overlap) {
+  if (!overlap) return '';
+
+  return `
+    <h3>Legacy GL Overlap — Exact Cost Elements in Fresh Source</h3>
+    <p class="note">This ignores the old Cost Element Key for filtering. It takes the cost elements that actually appeared in the legacy report and finds those exact RACCTs in the fresh DS transaction source across every account hierarchy, including labor.</p>
+
+    <div class="classification-summary coverage-summary">
+      <article class="summary-card"><span>Common Quarters</span><strong>${escapeHtml(overlap.commonQuarterKeys.join(', ') || 'None')}</strong></article>
+      <article class="summary-card"><span>Legacy Elements</span><strong>${formatCount(overlap.legacyElementCount)}</strong></article>
+      <article class="summary-card"><span>Fresh Matched Elements</span><strong>${formatCount(overlap.freshMatchedElementCount)}</strong></article>
+      <article class="summary-card"><span>Legacy Cost</span><strong>${formatCurrency(overlap.oldNetCost)}</strong></article>
+      <article class="summary-card"><span>Fresh Exact-GL Cost</span><strong>${formatCurrency(overlap.freshExactGlNetCost)}</strong></article>
+      <article class="summary-card"><span>Difference</span><strong>${formatCurrency(overlap.difference)}</strong></article>
+    </div>
+
+    <h3>Legacy Category vs Fresh Exact-GL</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Legacy Category</th><th>Legacy Cost</th><th>Fresh Exact-GL Cost</th><th>Difference</th><th>Elements Old / Fresh</th><th>Fresh Account Hierarchy</th></tr></thead>
+        <tbody>${overlap.categoryRows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.category)}</td>
+            <td>${formatCurrency(row.oldCost)}</td>
+            <td>${formatCurrency(row.freshExactGlCost)}</td>
+            <td>${formatCurrency(row.difference)}</td>
+            <td>${formatCount(row.legacyElementCount)} / ${formatCount(row.freshMatchedElementCount)}</td>
+            <td>${escapeHtml(row.freshHierarchy)}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>
+
+    <h3>Largest Legacy-vs-Fresh GL Differences</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Cost Element</th><th>Legacy Category</th><th>Description</th><th>Legacy</th><th>Fresh</th><th>Difference</th><th>Fresh Level 1</th><th>Fresh Level 2</th><th>Fresh Level 3</th></tr></thead>
+        <tbody>${overlap.elementRows.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.costElement)}</td>
+            <td>${escapeHtml(row.legacyCategory)}</td>
+            <td>${escapeHtml(row.description)}</td>
+            <td>${formatCurrency(row.oldCost)}</td>
+            <td>${formatCurrency(row.freshExactGlCost)}</td>
+            <td>${formatCurrency(row.difference)}</td>
+            <td>${escapeHtml(row.level1)}</td>
+            <td>${escapeHtml(row.level2)}</td>
+            <td>${escapeHtml(row.level3)}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderFacilityMappingCandidates(candidates = []) {
+  return `
+    <h3>DBM Facility-Mapping Candidate Objects</h3>
+    <p class="note">Metadata-only discovery: DBM tables/views containing at least one cost-center-like column and at least one facility/location/address-like column. These are candidates for a real KOSTL → physical facility join; nothing here changes the card.</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Object</th><th>Type</th><th>Cost Center Columns</th><th>Facility / Location Columns</th></tr></thead>
+        <tbody>${candidates.map((row) => `
+          <tr>
+            <td class="mono">${escapeHtml(row.objectName)}</td>
+            <td>${escapeHtml(row.tableType)}</td>
+            <td>${escapeHtml(row.costCenterColumns.join(', '))}</td>
+            <td>${escapeHtml(row.locationColumns.join(', '))}</td>
+          </tr>`).join('') || '<tr><td colspan="4">No metadata candidates found.</td></tr>'}</tbody>
       </table>
     </div>
   `;
@@ -390,7 +453,7 @@ function renderCostDimensionCoverage(payload, errorMessage, classificationTotal)
       </div>
 
       <h3>Top Unmapped Facility Cost Centers</h3>
-      <p class="note">Each row now also shows whether that RCNTR exists as KOSTL, PRCTR, or ZZORGCODE in the SAP cost-center master.</p>
+      <p class="note">Each row also shows whether that RCNTR exists as KOSTL, PRCTR, or ZZORGCODE in the SAP cost-center master.</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th>Cost Center + SAP Hint</th><th>Months</th><th>Net Cost</th><th>Share of Unmapped Activity</th></tr></thead>
@@ -405,6 +468,8 @@ function renderCostDimensionCoverage(payload, errorMessage, classificationTotal)
       </div>
 
       ${renderLegacyComparison(payload.legacyComparison)}
+      ${renderLegacyGlOverlap(payload.legacyGlOverlap)}
+      ${renderFacilityMappingCandidates(payload.facilityMappingCandidates)}
     </section>
   `;
 }

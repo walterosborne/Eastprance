@@ -126,7 +126,7 @@ async function readCostElementKeys() {
 
   if (missing.length > 0) {
     throw new Error(
-      `Cannot filter new controllable costs without database configuration: ${missing.join(', ')}`
+      `Cannot classify new controllable costs without database configuration: ${missing.join(', ')}`
     );
   }
 
@@ -215,7 +215,7 @@ export function normalizeControllableCostsNewRow(row) {
     cost_type: normalizeText(source.cost_type),
     facility_type: normalizeText(source.facility_type),
     cost,
-    controllable: null
+    controllable: 'Unclassified'
   };
 }
 
@@ -234,14 +234,15 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
   const normalizedRows = sourceRows.map(normalizeControllableCostsNewRow).filter(Boolean);
   const costElementKeys = await readCostElementKeys();
   const rows = [];
-  const excludedRows = [];
+  const unmatchedRows = [];
   const selectedKeyMatches = [];
 
   normalizedRows.forEach((row) => {
     const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
 
     if (!matchedKey) {
-      excludedRows.push(row);
+      unmatchedRows.push(row);
+      rows.push(row);
       return;
     }
 
@@ -271,7 +272,7 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     sourceRows,
     normalizedRows,
     rows,
-    excludedRows,
+    unmatchedRows,
     selectedKeyMatches,
     costElementKeys
   };
@@ -328,7 +329,7 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     sourceRows,
     normalizedRows,
     rows,
-    excludedRows,
+    unmatchedRows,
     costElementKeys
   } = pipeline;
   const years = Array.from(new Set(rows.map((row) => row.year)).values()).sort(
@@ -338,7 +339,12 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
   const controllableRowCount = rows.filter(
     (row) => row.controllable === 'Controllable'
   ).length;
-  const uncontrollableRowCount = rows.length - controllableRowCount;
+  const uncontrollableRowCount = rows.filter(
+    (row) => row.controllable === 'Uncontrollable'
+  ).length;
+  const unclassifiedRowCount = rows.filter(
+    (row) => row.controllable === 'Unclassified'
+  ).length;
 
   return {
     source: fallbackReason ? 'excel-fallback' : source,
@@ -350,7 +356,8 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     sourceRowCount: sourceRows.length,
     rowCount: rows.length,
     invalidRowCount: sourceRows.length - normalizedRows.length,
-    excludedByCostElementKeyCount: excludedRows.length,
+    excludedByCostElementKeyCount: 0,
+    unclassifiedByCostElementKeyCount: unmatchedRows.length,
     costElementKeyTableName: costElementKeys.tableName,
     costElementKeyRowCount: costElementKeys.rowCount,
     validCostElementCount: costElementKeys.valuesByIdentifier.size,
@@ -358,6 +365,7 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     totalCost,
     controllableRowCount,
     uncontrollableRowCount,
+    unclassifiedRowCount,
     rows
   };
 }
@@ -374,6 +382,7 @@ function logControllableCostsNewPayload(payload, stopTimer) {
     rowCount: payload.rowCount,
     invalidRowCount: payload.invalidRowCount,
     excludedByCostElementKeyCount: payload.excludedByCostElementKeyCount,
+    unclassifiedByCostElementKeyCount: payload.unclassifiedByCostElementKeyCount,
     costElementKeyRowCount: payload.costElementKeyRowCount,
     validCostElementCount: payload.validCostElementCount,
     costElementKeyTableName: payload.costElementKeyTableName,
@@ -381,6 +390,7 @@ function logControllableCostsNewPayload(payload, stopTimer) {
     totalCost: payload.totalCost,
     controllableRowCount: payload.controllableRowCount,
     uncontrollableRowCount: payload.uncontrollableRowCount,
+    unclassifiedRowCount: payload.unclassifiedRowCount,
     duration: formatDuration(stopTimer())
   });
 }

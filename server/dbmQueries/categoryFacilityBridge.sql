@@ -5,7 +5,13 @@ Conclusion: GL matching cannot define the report. The legacy report was mostly f
 This diagnostic therefore compares the complete old Q1 category totals to the upstream validation table's
 Cost Summary Categories without requiring a Cost Element.
 
-Run Query 16 first, then 17, 18, and 19.
+IMPORTANT FIX:
+- Cost centers are reused outside Defense Systems.
+- The hierarchy must be filtered to LEV02 = NGRBT BEFORE ROW_NUMBER/deduping.
+- Without that filter, many valid C2/SDS/HQ cost centers were being assigned to a non-DS hierarchy row and then
+  dropped from #DSQ1. That is why the prior category bridge misleadingly came back almost entirely Weapon Systems.
+
+Run Query 16 first, then the DSQ1 build, 17A, 17, 18, and 19.
 */
 
 SET NOCOUNT ON;
@@ -34,8 +40,9 @@ ORDER BY LEGACY_Q1_COST DESC;
 
 /* ============================================================
    Shared DS Q1 population from the upstream validation table.
-   IMPORTANT: we identify DS from the CURRENT cost-center hierarchy's four
-   known DS divisions, not the validation table's LEV02 value.
+   CRITICAL: restrict hierarchy rows to Defense Systems BEFORE choosing the
+   latest row per cost center. Otherwise reused cost centers can resolve to
+   another sector/division and disappear from the DS population.
    ============================================================ */
 IF OBJECT_ID('tempdb..#DSQ1') IS NOT NULL DROP TABLE #DSQ1;
 
@@ -49,6 +56,7 @@ WITH CurrentHierarchy AS (
             ORDER BY last_modified_date DESC, created_date DESC, id DESC
         ) AS RN
     FROM rpt.rb_load_cost_center_hierarchy
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 )
 SELECT
     H.DIVISION,
@@ -76,8 +84,22 @@ WHERE LTRIM(RTRIM(V.Period)) IN ('202601','202602','202603')
 
 
 /* ============================================================
+   QUERY 17A — DS population sanity check after hierarchy fix
+   Send ALL rows (should be four divisions).
+   ============================================================ */
+SELECT
+    DIVISION,
+    COUNT(DISTINCT COST_CENTER) AS COST_CENTER_COUNT,
+    SUM(DOLLARS) AS NET_DOLLARS,
+    SUM(ABS(DOLLARS)) AS ABS_DOLLARS
+FROM #DSQ1
+GROUP BY DIVISION
+ORDER BY ABS(SUM(DOLLARS)) DESC;
+
+
+/* ============================================================
    QUERY 17 — Upstream DS taxonomy by Cost Summary Category
-   This is the main discovery table. Send first ~60 rows.
+   Send first ~60 rows. After the fix this should include more than WS.
    ============================================================ */
 SELECT TOP (250)
     DIVISION,

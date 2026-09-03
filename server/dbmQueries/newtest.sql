@@ -1,11 +1,24 @@
 SELECT
-    TABLE_SCHEMA,
-    TABLE_NAME,
-    ORDINAL_POSITION,
-    COLUMN_NAME,
-    DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE
-    TABLE_NAME LIKE '%Actuals%CC%Summary%'
-    OR TABLE_NAME LIKE '%Actuals%SAP%Transformation%'
-ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;
+    COUNT(*) AS TOTAL_ROWS,
+    COUNT(DISTINCT [Year]) AS YEAR_VALUES,
+    COUNT(DISTINCT [Quarter]) AS QUARTER_VALUES
+FROM ecosystem_source.qmi.controllable_costs;
+
+SELECT
+    [Year],
+    [Quarter],
+    COUNT(*) AS ROWS,
+    SUM(TRY_CONVERT(DECIMAL(18,2), [Cost])) AS COST
+FROM ecosystem_source.qmi.controllable_costs
+GROUP BY [Year], [Quarter]
+ORDER BY [Year], [Quarter];
+
+SELECT TOP (10)
+    [Cost Category],
+    [Address],
+    [Cost Element],
+    [Cost Element Description],
+    [Cost],
+    [Quarter],
+    [Year]
+FROM ecosystem_source.qmi.controllable_costs;

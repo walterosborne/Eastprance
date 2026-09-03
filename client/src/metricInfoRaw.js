@@ -6,9 +6,9 @@ const METRIC_INFO = {
   controllableCosts: 'Compares controllable and uncontrollable costs over time.',
   controllableCostsNew: [
     'Validation view of the replacement DBM cost dataset; this is not yet the final facility-cost metric.',
-    'Organization is mapped from each transaction posting cost center (RCNTR) through the current cost-center hierarchy. This confirms Weapon Systems data exists in the fresh source.',
-    'Physical facility mapping is still unresolved. Employee/Archibus locations did not reliably represent the posting cost center, so this card now shows the posting cost center as unmapped instead of assigning a physical facility.',
-    'Controllability is still provisional. In the Q1 2026 legacy comparison, only about $8.4M of $74.6M (~11%) was on rows with a populated Cost Element, so the current GL/cost-element-key subset cannot reproduce the full legacy metric.'
+    'All current DS indirect non-labor rows are retained. Organization is mapped from each transaction posting cost center (RCNTR) through the current cost-center hierarchy, so Weapon Systems can be viewed directly.',
+    'Physical facility mapping is still unresolved. Employee/Archibus locations did not reliably represent the posting cost center, so the card shows the posting cost center as unmapped instead of assigning a physical facility.',
+    'Controllability is still provisional. Rows matching the current Cost Element key are classified; unmatched rows are retained as Unclassified instead of being dropped. In the Q1 2026 legacy comparison, only about $8.4M of $74.6M (~11%) was on rows with a populated Cost Element.'
   ],
   controllableCostsHana: 'Shows total HANA costs over time by organization.',
   sif: 'Counts significant injuries or fatalities over time.',

@@ -13,46 +13,6 @@ WITH CostCenterHierarchy AS (
         ) AS rn
     FROM rpt.rb_load_cost_center_hierarchy
     WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-),
-
-FacilityCounts AS (
-    SELECT
-        LTRIM(RTRIM(employee_cost_center)) AS Cost_Center,
-        NULLIF(
-            CONCAT_WS(
-                ' | ',
-                NULLIF(LTRIM(RTRIM(address_1)), ''),
-                NULLIF(LTRIM(RTRIM(city)), ''),
-                NULLIF(LTRIM(RTRIM(state)), '')
-            ),
-            ''
-        ) AS Facility,
-        COUNT(DISTINCT employee_my_id) AS Employee_Count
-    FROM rpt.rb_archibus
-    WHERE NULLIF(LTRIM(RTRIM(employee_cost_center)), '') IS NOT NULL
-    GROUP BY
-        LTRIM(RTRIM(employee_cost_center)),
-        NULLIF(
-            CONCAT_WS(
-                ' | ',
-                NULLIF(LTRIM(RTRIM(address_1)), ''),
-                NULLIF(LTRIM(RTRIM(city)), ''),
-                NULLIF(LTRIM(RTRIM(state)), '')
-            ),
-            ''
-        )
-),
-
-Facility AS (
-    SELECT
-        Cost_Center,
-        Facility,
-        ROW_NUMBER() OVER (
-            PARTITION BY Cost_Center
-            ORDER BY Employee_Count DESC, Facility
-        ) AS rn
-    FROM FacilityCounts
-    WHERE Facility IS NOT NULL
 )
 
 SELECT
@@ -61,7 +21,7 @@ SELECT
 
     h.Division AS division,
     h.Business_Unit AS business_unit,
-    COALESCE(f.Facility, 'Unmapped') AS facility,
+    CONCAT('Unmapped (CC ', LTRIM(RTRIM(t.RCNTR)), ')') AS facility,
 
     LTRIM(RTRIM(t.RCNTR)) AS cost_center,
 
@@ -85,10 +45,6 @@ JOIN CostCenterHierarchy h
     ON LTRIM(RTRIM(t.RCNTR)) = h.Cost_Center
    AND h.rn = 1
 
-LEFT JOIN Facility f
-    ON LTRIM(RTRIM(t.RCNTR)) = f.Cost_Center
-   AND f.rn = 1
-
 WHERE
     TRY_CONVERT(INT, t.GJAHR) >= 2025
     AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 12
@@ -100,7 +56,6 @@ GROUP BY
     TRY_CONVERT(INT, t.POPER),
     h.Division,
     h.Business_Unit,
-    COALESCE(f.Facility, 'Unmapped'),
     LTRIM(RTRIM(t.RCNTR)),
     COALESCE(
         CONVERT(VARCHAR(50), TRY_CONVERT(BIGINT, LTRIM(RTRIM(t.RACCT)))),

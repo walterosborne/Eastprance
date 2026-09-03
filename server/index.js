@@ -25,6 +25,10 @@ import {
   readDbmDiagnostics,
   renderDbmDiagnosticsPage
 } from './dbmDiagnostics.js';
+import {
+  readDbmDiagnosticsFast,
+  renderDbmDiagnosticsFastPage
+} from './dbmDiagnosticsFast.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
@@ -424,6 +428,28 @@ app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response
 
 app.get(['/dbm-diagnostics', '/api/dbm-diagnostics'], async (request, response) => {
   try {
+    const payload = await readDbmDiagnosticsFast();
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    if (wantsJson) {
+      response.json(payload);
+      return;
+    }
+
+    response.type('text/html').send(renderDbmDiagnosticsFastPage(payload));
+  } catch (error) {
+    logError('dbm-diagnostics-fast', 'Unable to render fast DBM diagnostics.', error);
+    response.status(500).json({
+      message: 'Unable to render fast DBM diagnostics.',
+      error: error.message
+    });
+  }
+});
+
+app.get(['/dbm-diagnostics-full', '/api/dbm-diagnostics-full'], async (request, response) => {
+  try {
     const payload = await readDbmDiagnostics();
     const wantsJson = request.path.startsWith('/api/')
       || String(request.query.format || '').toLowerCase() === 'json'
@@ -436,9 +462,10 @@ app.get(['/dbm-diagnostics', '/api/dbm-diagnostics'], async (request, response) 
 
     response.type('text/html').send(renderDbmDiagnosticsPage(payload));
   } catch (error) {
-    logError('dbm-diagnostics', 'Unable to render DBM diagnostics.', error);
+    logError('dbm-diagnostics-full', 'Unable to render full DBM diagnostics.', error);
     response.status(500).json({
-      message: 'Unable to render DBM diagnostics.'
+      message: 'Unable to render full DBM diagnostics.',
+      error: error.message
     });
   }
 });

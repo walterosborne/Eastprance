@@ -1,15 +1,12 @@
 /*
-Fixed replacement for Query 14.
+Direct legacy-vs-validation benchmark.
 
-Why the original failed:
-- The SSMS connection is in DTO_Business_Management / DBM.
-- The legacy controllable_costs table is used by the app's old-data connection and
-  is not in the current DBM database, so an unqualified FROM controllable_costs fails.
+The first version found the legacy table but converted zero cost elements because
+its Cost Element values are stored in a numeric-looking text form that does not
+convert directly to BIGINT (for example values with a .0 suffix).
 
-This script first searches every database on the current SQL Server that the user
-can access for a table named controllable_costs. If found, it loads the Q1 2026
-legacy GL/category set into #LegacyElement, then benchmarks those exact GLs against
-rpt.rb_Actuals_CP_CC_Summary_Validation.
+This version normalizes through DECIMAL first, then BIGINT, and shows a small raw
+sample so the conversion is visible before the benchmark runs.
 */
 
 SET NOCOUNT ON;
@@ -48,7 +45,6 @@ BEGIN
         EXEC sys.sp_executesql @findSql;
     END TRY
     BEGIN CATCH
-        -- Ignore databases visible in sys.databases but not readable enough for metadata.
     END CATCH;
 
     FETCH NEXT FROM db_cursor INTO @db;
@@ -63,7 +59,7 @@ ORDER BY DatabaseName, SchemaName;
 
 IF NOT EXISTS (SELECT 1 FROM #LegacySources)
 BEGIN
-    THROW 50001, 'controllable_costs was not found in any database accessible from this DBM SQL Server. The old app source is probably on a different server/connection. Send this message back; do not keep troubleshooting.', 1;
+    THROW 50001, 'controllable_costs was not found in any database accessible from this DBM SQL Server.', 1;
 END;
 
 DECLARE @legacyDb sysname;
@@ -72,10 +68,23 @@ SELECT TOP (1)
     @legacyDb = DatabaseName,
     @legacySchema = SchemaName
 FROM #LegacySources
-ORDER BY
-    CASE WHEN SchemaName = 'dbo' THEN 0 ELSE 1 END,
-    DatabaseName,
-    SchemaName;
+ORDER BY CASE WHEN SchemaName = 'dbo' THEN 0 ELSE 1 END, DatabaseName, SchemaName;
+
+/* Show the actual legacy Cost Element format and the corrected normalization. */
+DECLARE @sampleSql nvarchar(max) = N'
+SELECT TOP (20)
+    CONVERT(nvarchar(100), [Cost Element]) AS RAW_COST_ELEMENT,
+    TRY_CONVERT(DECIMAL(38,6), REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), [Cost Element]))), '','', '''')) AS DECIMAL_COST_ELEMENT,
+    TRY_CONVERT(BIGINT,
+        TRY_CONVERT(DECIMAL(38,6), REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), [Cost Element]))), '','', ''''))
+    ) AS NORMALIZED_COST_ELEMENT,
+    [Cost Category],
+    [Cost Element Description]
+FROM ' + QUOTENAME(@legacyDb) + N'.' + QUOTENAME(@legacySchema) + N'.[controllable_costs]
+WHERE TRY_CONVERT(INT, [Year]) = 2026
+  AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = ''Q1''
+  AND NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), [Cost Element]))), '''') IS NOT NULL;';
+EXEC sys.sp_executesql @sampleSql;
 
 CREATE TABLE #LegacyElement (
     COST_ELEMENT bigint NOT NULL,
@@ -84,19 +93,25 @@ CREATE TABLE #LegacyElement (
 );
 
 DECLARE @loadLegacySql nvarchar(max) = N'
-WITH LegacyByElementCategory AS (
+WITH Normalized AS (
     SELECT
-        TRY_CONVERT(BIGINT, [Cost Element]) AS COST_ELEMENT,
+        TRY_CONVERT(BIGINT,
+            TRY_CONVERT(DECIMAL(38,6), REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), [Cost Element]))), '','', ''''))
+        ) AS COST_ELEMENT,
         LTRIM(RTRIM(CONVERT(nvarchar(4000), [Cost Category]))) AS LEGACY_CATEGORY,
-        SUM(TRY_CONVERT(DECIMAL(38,2), [Cost])) AS LEGACY_COST,
-        SUM(ABS(TRY_CONVERT(DECIMAL(38,2), [Cost]))) AS LEGACY_ABS_COST
+        TRY_CONVERT(DECIMAL(38,2), [Cost]) AS COST
     FROM ' + QUOTENAME(@legacyDb) + N'.' + QUOTENAME(@legacySchema) + N'.[controllable_costs]
     WHERE TRY_CONVERT(INT, [Year]) = 2026
       AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = ''Q1''
-      AND TRY_CONVERT(BIGINT, [Cost Element]) IS NOT NULL
-    GROUP BY
-        TRY_CONVERT(BIGINT, [Cost Element]),
-        LTRIM(RTRIM(CONVERT(nvarchar(4000), [Cost Category])))
+), LegacyByElementCategory AS (
+    SELECT
+        COST_ELEMENT,
+        LEGACY_CATEGORY,
+        SUM(COST) AS LEGACY_COST,
+        SUM(ABS(COST)) AS LEGACY_ABS_COST
+    FROM Normalized
+    WHERE COST_ELEMENT IS NOT NULL
+    GROUP BY COST_ELEMENT, LEGACY_CATEGORY
 ), Ranked AS (
     SELECT *,
         ROW_NUMBER() OVER (
@@ -112,13 +127,36 @@ WHERE RN = 1;';
 INSERT INTO #LegacyElement (COST_ELEMENT, LEGACY_CATEGORY, LEGACY_COST)
 EXEC sys.sp_executesql @loadLegacySql;
 
--- Small sanity check: should be about the same legacy-element count we saw on the page.
+DECLARE @legacyTotalsSql nvarchar(max) = N'
+SELECT
+    COUNT(*) AS LEGACY_Q1_ROWS,
+    SUM(CASE WHEN NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), [Cost Element]))), '''') IS NOT NULL THEN 1 ELSE 0 END) AS LEGACY_Q1_ROWS_WITH_ELEMENT,
+    COUNT(DISTINCT TRY_CONVERT(BIGINT,
+        TRY_CONVERT(DECIMAL(38,6), REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), [Cost Element]))), '','', ''''))
+    )) AS LEGACY_DISTINCT_ELEMENTS,
+    SUM(TRY_CONVERT(DECIMAL(38,2), [Cost])) AS LEGACY_Q1_COST,
+    SUM(CASE WHEN TRY_CONVERT(BIGINT,
+        TRY_CONVERT(DECIMAL(38,6), REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), [Cost Element]))), '','', ''''))
+    ) IS NOT NULL THEN TRY_CONVERT(DECIMAL(38,2), [Cost]) ELSE 0 END) AS LEGACY_Q1_COST_WITH_ELEMENT
+FROM ' + QUOTENAME(@legacyDb) + N'.' + QUOTENAME(@legacySchema) + N'.[controllable_costs]
+WHERE TRY_CONVERT(INT, [Year]) = 2026
+  AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = ''Q1'';';
+EXEC sys.sp_executesql @legacyTotalsSql;
+
 SELECT
     @legacyDb AS LEGACY_DATABASE,
     @legacySchema AS LEGACY_SCHEMA,
     COUNT(*) AS LEGACY_ELEMENT_COUNT,
-    SUM(LEGACY_COST) AS LEGACY_Q1_COST
+    SUM(LEGACY_COST) AS LEGACY_Q1_COST_WITH_DISTINCT_ELEMENTS
 FROM #LegacyElement;
+
+SELECT
+    LEGACY_CATEGORY,
+    COUNT(*) AS LEGACY_ELEMENTS,
+    SUM(LEGACY_COST) AS LEGACY_Q1_COST
+FROM #LegacyElement
+GROUP BY LEGACY_CATEGORY
+ORDER BY ABS(SUM(LEGACY_COST)) DESC;
 
 WITH CurrentHierarchy AS (
     SELECT
@@ -142,7 +180,9 @@ WITH CurrentHierarchy AS (
         TRY_CONVERT(DECIMAL(38,2), V.Dollars) AS DOLLARS
     FROM rpt.rb_Actuals_CP_CC_Summary_Validation V
     JOIN #LegacyElement L
-      ON TRY_CONVERT(BIGINT, V.ACCT_ID) = L.COST_ELEMENT
+      ON TRY_CONVERT(BIGINT,
+          TRY_CONVERT(DECIMAL(38,6), REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), V.ACCT_ID))), ',', ''))
+      ) = L.COST_ELEMENT
     LEFT JOIN CurrentHierarchy H
       ON H.COST_CENTER = UPPER(LTRIM(RTRIM(V.COST_CENTER)))
      AND H.RN = 1
@@ -176,7 +216,9 @@ WITH CurrentHierarchy AS (
         TRY_CONVERT(DECIMAL(38,2), V.Dollars) AS DOLLARS
     FROM rpt.rb_Actuals_CP_CC_Summary_Validation V
     JOIN #LegacyElement L
-      ON TRY_CONVERT(BIGINT, V.ACCT_ID) = L.COST_ELEMENT
+      ON TRY_CONVERT(BIGINT,
+          TRY_CONVERT(DECIMAL(38,6), REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), V.ACCT_ID))), ',', ''))
+      ) = L.COST_ELEMENT
     LEFT JOIN CurrentHierarchy H
       ON H.COST_CENTER = UPPER(LTRIM(RTRIM(V.COST_CENTER)))
      AND H.RN = 1

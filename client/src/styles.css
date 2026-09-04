@@ -1064,9 +1064,9 @@ a.branding-banner-main:hover {
 .metric-info-legend {
   display: grid;
   gap: 0.35rem;
-  margin-top: 0.65rem;
-  padding-top: 0.55rem;
-  border-top: 1px solid var(--border);
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .metric-info-legend-title {
@@ -1372,10 +1372,6 @@ h1 {
 }
 
 .metric-overview-band {
-  display: grid;
-  grid-template-columns: minmax(0, 68fr) minmax(0, 27fr);
-  column-gap: 5%;
-  align-items: center;
   width: 100%;
   height: 72px;
   min-height: 72px;
@@ -1386,22 +1382,20 @@ h1 {
   color: var(--text-primary);
 }
 
-.metric-overview-band--without-legend {
-  grid-template-columns: minmax(0, 1fr);
-  column-gap: 0;
-}
-
 .metric-overview-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(3.6rem, 0.75fr);
+  grid-template-columns: minmax(0, 1.8fr) minmax(3.6rem, 0.72fr) minmax(3.2rem, 0.62fr);
   align-items: center;
   gap: 0.45rem;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   padding-right: 0;
 }
 
 .metric-overview-primary,
-.metric-overview-forecast {
+.metric-overview-forecast,
+.metric-overview-goal-success {
   display: grid;
   align-content: center;
   min-width: 0;
@@ -1416,10 +1410,17 @@ h1 {
   justify-items: start;
 }
 
+.metric-overview-goal-success {
+  gap: 0.18rem;
+  justify-items: start;
+}
+
 .metric-overview-value,
 .metric-overview-label,
 .metric-overview-forecast-value,
-.metric-overview-forecast-label {
+.metric-overview-forecast-label,
+.metric-overview-goal-success-value,
+.metric-overview-goal-success-label {
   margin: 0;
 }
 
@@ -1445,7 +1446,8 @@ h1 {
   white-space: nowrap;
 }
 
-.metric-overview-forecast-value {
+.metric-overview-forecast-value,
+.metric-overview-goal-success-value {
   overflow: hidden;
   color: var(--text-primary);
   font-size: 0.82rem;
@@ -1455,7 +1457,8 @@ h1 {
   white-space: nowrap;
 }
 
-.metric-overview-forecast-label {
+.metric-overview-forecast-label,
+.metric-overview-goal-success-label {
   max-width: 5.2rem;
   color: var(--text-secondary);
   font-size: 0.48rem;
@@ -1463,38 +1466,6 @@ h1 {
   letter-spacing: 0.05em;
   line-height: 1.1;
   text-transform: uppercase;
-}
-
-.metric-overview-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: center;
-  align-items: center;
-  justify-content: flex-start;
-  justify-self: stretch;
-  gap: 0.24rem 0.3rem;
-  min-width: 0;
-}
-
-.metric-overview-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex: 0 0 100%;
-  min-width: 0;
-  color: var(--text-secondary);
-  font-size: 0.59rem;
-  font-weight: 650;
-  line-height: 1.1;
-  overflow-wrap: anywhere;
-  white-space: normal;
-}
-
-.metric-overview-legend-swatch {
-  width: 0.9rem;
-  height: 0.2rem;
-  border-radius: 999px;
-  flex: 0 0 auto;
 }
 
 .visual-column {

@@ -889,6 +889,34 @@ function formatForecastValue(calculation, valueFormatter) {
   return Number.isFinite(forecastValue) ? valueFormatter(forecastValue) : '--';
 }
 
+const LOWER_IS_BETTER_GOAL_METRICS = new Set([
+  'controllableCosts',
+  'controllableCostsNew',
+  'controllableCostsHana',
+  'sif',
+  'potentialSif',
+  'nmfr'
+]);
+
+function formatGoalSuccessRate(metricKey, timeline, seriesValues) {
+  const goalLine = getMetricGoalLine(metricKey, timeline);
+  const goalValue = Number(goalLine?.value);
+  const numericValues = seriesValues
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+
+  if (!Number.isFinite(goalValue) || numericValues.length === 0) {
+    return '--';
+  }
+
+  const lowerIsBetter = LOWER_IS_BETTER_GOAL_METRICS.has(metricKey);
+  const successfulCount = numericValues.filter((value) =>
+    lowerIsBetter ? value <= goalValue : value >= goalValue
+  ).length;
+
+  return `${Math.floor((successfulCount / numericValues.length) * 100)}%`;
+}
+
 function formatPercentAxis(value) {
   return `${numberFormatter.format(Number(value ?? 0) * 100)}%`;
 }
@@ -3129,6 +3157,10 @@ function buildTooltipLegend(title, series) {
   };
 }
 
+function buildCardTooltipLegend(paletteLegend, chartLegendItems) {
+  return paletteLegend ?? buildTooltipLegend('Chart legend', chartLegendItems);
+}
+
 function ParetoMetricChart({
   width,
   height,
@@ -3749,10 +3781,9 @@ function CardHeader({ title, info, tooltipLegend = null }) {
           ?
         </button>
         <div className="card-info-tooltip" role="tooltip">
-          {renderMetricInfoContent(metricInfo)}
           {tooltipLegend?.items?.length > 0 && (
             <div className="metric-info-legend">
-              <p className="metric-info-legend-title">{tooltipLegend.title || 'Color legend'}</p>
+              <p className="metric-info-legend-title">{tooltipLegend.title || 'Chart legend'}</p>
               <div className="metric-info-legend-list">
                 {tooltipLegend.items.map((item) => (
                   <div key={`${item.label}-${item.color}`} className="metric-info-legend-item">
@@ -3767,6 +3798,7 @@ function CardHeader({ title, info, tooltipLegend = null }) {
               </div>
             </div>
           )}
+          {renderMetricInfoContent(metricInfo)}
         </div>
       </div>
     </div>
@@ -3777,14 +3809,12 @@ function MetricOverviewBand({
   value,
   label,
   forecastValue = '--',
-  legendItems = [],
+  goalSuccessValue = '--',
   ariaLabel = ''
 }) {
   return (
     <section
-      className={`metric-overview-band${
-        legendItems.length === 0 ? ' metric-overview-band--without-legend' : ''
-      }`}
+      className="metric-overview-band"
       aria-label={ariaLabel || undefined}
     >
       <div className="metric-overview-summary">
@@ -3796,18 +3826,10 @@ function MetricOverviewBand({
           <p className="metric-overview-forecast-value">{forecastValue}</p>
           <p className="metric-overview-forecast-label">Next Month Forecast</p>
         </div>
-      </div>
-      <div className="metric-overview-legend" aria-label="Chart legend">
-        {legendItems.map((item) => (
-          <div key={`${item.label}-${item.color}`} className="metric-overview-legend-item">
-            <span
-              aria-hidden="true"
-              className="metric-overview-legend-swatch"
-              style={{ backgroundColor: item.color }}
-            />
-            <span>{item.label}</span>
-          </div>
-        ))}
+        <div className="metric-overview-goal-success">
+          <p className="metric-overview-goal-success-value">{goalSuccessValue}</p>
+          <p className="metric-overview-goal-success-label">Goal Met</p>
+        </div>
       </div>
     </section>
   );
@@ -6560,6 +6582,84 @@ export default function App() {
         paretoCumulativeLegendItem
       ]
       : [{ label: 'Direct labor share', color: 'var(--chart-line)' }];
+  const controllableCostsCardTooltipLegend = buildCardTooltipLegend(
+    controllableCostsTooltipLegend,
+    controllableCostsOverviewLegend
+  );
+  const controllableCostsNewCardTooltipLegend = buildCardTooltipLegend(
+    controllableCostsNewTooltipLegend,
+    controllableCostsNewOverviewLegend
+  );
+  const controllableCostsHanaCardTooltipLegend = buildCardTooltipLegend(
+    controllableCostsHanaTooltipLegend,
+    controllableCostsHanaOverviewLegend
+  );
+  const sifCardTooltipLegend = buildCardTooltipLegend(sifTooltipLegend, sifOverviewLegend);
+  const potentialSifCardTooltipLegend = buildCardTooltipLegend(
+    potentialSifTooltipLegend,
+    potentialSifOverviewLegend
+  );
+  const nmfrCardTooltipLegend = buildCardTooltipLegend(nmfrTooltipLegend, nmfrOverviewLegend);
+  const otdCardTooltipLegend = buildCardTooltipLegend(otdTooltipLegend, otdOverviewLegend);
+  const laborCardTooltipLegend = buildCardTooltipLegend(laborTooltipLegend, laborOverviewLegend);
+  const laborNewCardTooltipLegend = buildCardTooltipLegend(
+    laborNewTooltipLegend,
+    laborNewOverviewLegend
+  );
+  const laborHanaCardTooltipLegend = buildCardTooltipLegend(
+    laborHanaTooltipLegend,
+    laborHanaOverviewLegend
+  );
+  const controllableCostsGoalSuccessValue = formatGoalSuccessRate(
+    'controllableCosts',
+    controllableCostsViewMode,
+    controllableCostsChartData.total
+  );
+  const controllableCostsNewGoalSuccessValue = formatGoalSuccessRate(
+    'controllableCostsNew',
+    controllableCostsNewViewMode,
+    controllableCostsNewChartData.total
+  );
+  const controllableCostsHanaGoalSuccessValue = formatGoalSuccessRate(
+    'controllableCostsHana',
+    controllableCostsHanaViewMode,
+    controllableCostsHanaChartData.total
+  );
+  const sifGoalSuccessValue = formatGoalSuccessRate(
+    'sif',
+    sifViewMode,
+    sifChartData.map((bucket) => bucket.total)
+  );
+  const potentialSifGoalSuccessValue = formatGoalSuccessRate(
+    'potentialSif',
+    potentialSifViewMode,
+    potentialSifChartData.map((bucket) => bucket.total)
+  );
+  const nmfrGoalSuccessValue = formatGoalSuccessRate(
+    'nmfr',
+    nmfrViewMode,
+    nmfrGoalForecastSeriesValues
+  );
+  const otdGoalSuccessValue = formatGoalSuccessRate(
+    'otd',
+    otdViewMode,
+    otdGoalForecastSeriesValues
+  );
+  const laborGoalSuccessValue = formatGoalSuccessRate(
+    'labor',
+    laborViewMode,
+    laborGoalForecastSeriesValues
+  );
+  const laborNewGoalSuccessValue = formatGoalSuccessRate(
+    'laborNew',
+    laborNewViewMode,
+    laborNewGoalForecastSeriesValues
+  );
+  const laborHanaGoalSuccessValue = formatGoalSuccessRate(
+    'laborHana',
+    laborHanaViewMode,
+    laborHanaGoalForecastSeriesValues
+  );
   const controllableCostsGoalLine = labelGoalLineValue(
     isControllableCostsPareto || isControllableCostsPalette
       ? null
@@ -7711,7 +7811,7 @@ export default function App() {
                 <CardHeader
                   title="Controllable Costs"
                   info={controllableCostsMetricInfo}
-                  tooltipLegend={controllableCostsTooltipLegend}
+                  tooltipLegend={controllableCostsCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -7727,7 +7827,7 @@ export default function App() {
                         controllableCostsGoalCalculation,
                         formatOverviewCurrency
                       )}
-                      legendItems={controllableCostsOverviewLegend}
+                      goalSuccessValue={controllableCostsGoalSuccessValue}
                       ariaLabel="Controllable costs overview"
                     />
                     <div ref={controllableCostsChartHostRef} className="chart-host">
@@ -7923,7 +8023,7 @@ export default function App() {
                 <CardHeader
                   title="Controllable Costs — New Data"
                   info={controllableCostsNewMetricInfo}
-                  tooltipLegend={controllableCostsNewTooltipLegend}
+                  tooltipLegend={controllableCostsNewCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -7939,7 +8039,7 @@ export default function App() {
                         controllableCostsNewGoalCalculation,
                         formatOverviewCurrency
                       )}
-                      legendItems={controllableCostsNewOverviewLegend}
+                      goalSuccessValue={controllableCostsNewGoalSuccessValue}
                       ariaLabel="New controllable costs dataset overview"
                     />
                     <div ref={controllableCostsNewChartHostRef} className="chart-host">
@@ -8142,7 +8242,7 @@ export default function App() {
                 <CardHeader
                   title="Controllable Costs HANA"
                   info={controllableCostsHanaMetricInfo}
-                  tooltipLegend={controllableCostsHanaTooltipLegend}
+                  tooltipLegend={controllableCostsHanaCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -8158,7 +8258,7 @@ export default function App() {
                         controllableCostsHanaGoalCalculation,
                         formatOverviewCurrency
                       )}
-                      legendItems={controllableCostsHanaOverviewLegend}
+                      goalSuccessValue={controllableCostsHanaGoalSuccessValue}
                       ariaLabel="HANA controllable costs overview"
                     />
                     <div ref={controllableCostsHanaChartHostRef} className="chart-host">
@@ -8348,7 +8448,7 @@ export default function App() {
                 <CardHeader
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
-                  tooltipLegend={sifTooltipLegend}
+                  tooltipLegend={sifCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -8360,7 +8460,7 @@ export default function App() {
                         sifForecastCalculation,
                         formatIncidentCount
                       )}
-                      legendItems={sifOverviewLegend}
+                      goalSuccessValue={sifGoalSuccessValue}
                       ariaLabel="SIF incidents overview"
                     />
                     <div ref={sifChartHostRef} className="chart-host">
@@ -8539,7 +8639,7 @@ export default function App() {
                 <CardHeader
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
-                  tooltipLegend={potentialSifTooltipLegend}
+                  tooltipLegend={potentialSifCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -8555,7 +8655,7 @@ export default function App() {
                         potentialSifForecastCalculation,
                         formatIncidentCount
                       )}
-                      legendItems={potentialSifOverviewLegend}
+                      goalSuccessValue={potentialSifGoalSuccessValue}
                       ariaLabel="Potential SIF incidents overview"
                     />
                     <div ref={potentialSifChartHostRef} className="chart-host">
@@ -8738,7 +8838,7 @@ export default function App() {
                 <CardHeader
                   title="Near Miss Frequency Rate"
                   info={nmfrMetricInfo}
-                  tooltipLegend={nmfrTooltipLegend}
+                  tooltipLegend={nmfrCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -8747,7 +8847,7 @@ export default function App() {
                       value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
                       label="NMFR"
                       forecastValue={formatForecastValue(nmfrGoalCalculation, formatNumber)}
-                      legendItems={nmfrOverviewLegend}
+                      goalSuccessValue={nmfrGoalSuccessValue}
                       ariaLabel="Near miss frequency rate overview"
                     />
                     <div ref={nmfrChartHostRef} className="chart-host">
@@ -8926,7 +9026,7 @@ export default function App() {
                 <CardHeader
                   title="On Time Delivery (OTD)"
                   info={otdMetricInfo}
-                  tooltipLegend={otdTooltipLegend}
+                  tooltipLegend={otdCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -8938,7 +9038,7 @@ export default function App() {
                         otdGoalCalculation,
                         formatPercentValue
                       )}
-                      legendItems={otdOverviewLegend}
+                      goalSuccessValue={otdGoalSuccessValue}
                       ariaLabel="On time delivery overview"
                     />
                     <div ref={otdChartHostRef} className="chart-host">
@@ -9138,7 +9238,7 @@ export default function App() {
                 <CardHeader
                   title="Direct Labor Utilization"
                   info={laborMetricInfo}
-                  tooltipLegend={laborTooltipLegend}
+                  tooltipLegend={laborCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -9150,7 +9250,7 @@ export default function App() {
                         laborGoalCalculation,
                         formatPercentValue
                       )}
-                      legendItems={laborOverviewLegend}
+                      goalSuccessValue={laborGoalSuccessValue}
                       ariaLabel="Direct labor utilization overview"
                     />
                     <div ref={laborChartHostRef} className="chart-host">
@@ -9332,7 +9432,7 @@ export default function App() {
                 <CardHeader
                   title="Labor Utilization — New Data"
                   info={laborNewMetricInfo}
-                  tooltipLegend={laborNewTooltipLegend}
+                  tooltipLegend={laborNewCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -9348,7 +9448,7 @@ export default function App() {
                         laborNewGoalCalculation,
                         formatPercentValue
                       )}
-                      legendItems={laborNewOverviewLegend}
+                      goalSuccessValue={laborNewGoalSuccessValue}
                       ariaLabel="New labor utilization dataset overview"
                     />
                     <div ref={laborNewChartHostRef} className="chart-host">
@@ -9539,7 +9639,7 @@ export default function App() {
                 <CardHeader
                   title="Labor Utilization HANA"
                   info={laborHanaMetricInfo}
-                  tooltipLegend={laborHanaTooltipLegend}
+                  tooltipLegend={laborHanaCardTooltipLegend}
                 />
 
                 <div className="dashboard-grid">
@@ -9555,7 +9655,7 @@ export default function App() {
                         laborHanaGoalCalculation,
                         formatPercentValue
                       )}
-                      legendItems={laborHanaOverviewLegend}
+                      goalSuccessValue={laborHanaGoalSuccessValue}
                       ariaLabel="HANA direct labor utilization overview"
                     />
                     <div

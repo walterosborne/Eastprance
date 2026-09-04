@@ -26,9 +26,10 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
+          import re
 
-          path = Path('client/src/App.jsx')
-          text = path.read_text()
+          app_path = Path('client/src/App.jsx')
+          text = app_path.read_text()
 
           def replace_once(old, new, label):
               global text
@@ -80,99 +81,35 @@ jobs:
           'goal success helper')
 
           replace_once(
-          '''        <div className="card-info-tooltip" role="tooltip">
-                  {renderMetricInfoContent(metricInfo)}
-                  {tooltipLegend?.items?.length > 0 && (
-                    <div className="metric-info-legend">
-                      <p className="metric-info-legend-title">{tooltipLegend.title || 'Color legend'}</p>
-                      <div className="metric-info-legend-list">
-                        {tooltipLegend.items.map((item) => (
-                          <div key={`${item.label}-${item.color}`} className="metric-info-legend-item">
-                            <span
-                              aria-hidden="true"
-                              className="metric-info-legend-swatch"
-                              style={{ backgroundColor: item.color }}
-                            />
-                            <span>{item.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>''',
-          '''        <div className="card-info-tooltip" role="tooltip">
-                  {tooltipLegend?.items?.length > 0 && (
-                    <div
-                      className="metric-info-legend"
-                      style={{
-                        marginTop: 0,
-                        paddingTop: 0,
-                        borderTop: 0,
-                        marginBottom: '0.65rem',
-                        paddingBottom: '0.55rem',
-                        borderBottom: '1px solid var(--border)'
-                      }}
-                    >
-                      <p className="metric-info-legend-title">{tooltipLegend.title || 'Legend'}</p>
-                      <div className="metric-info-legend-list">
-                        {tooltipLegend.items.map((item) => (
-                          <div key={`${item.label}-${item.color}`} className="metric-info-legend-item">
-                            <span
-                              aria-hidden="true"
-                              className="metric-info-legend-swatch"
-                              style={{ backgroundColor: item.color }}
-                            />
-                            <span>{item.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {renderMetricInfoContent(metricInfo)}
-                </div>''',
-          'help tooltip legend order')
-
+              '          {renderMetricInfoContent(metricInfo)}\n          {tooltipLegend?.items?.length > 0 && (',
+              '          {tooltipLegend?.items?.length > 0 && (',
+              'move tooltip legend before info'
+          )
           replace_once(
-          '''function MetricOverviewBand({
-            value,
-            label,
-            forecastValue = '--',
-            legendItems = [],
-            ariaLabel = ''
-          }) {
-            return (
-              <section
-                className={`metric-overview-band${
-                  legendItems.length === 0 ? ' metric-overview-band--without-legend' : ''
-                }`}
-                aria-label={ariaLabel || undefined}
-              >
-                <div className="metric-overview-summary">
-                  <div className="metric-overview-primary">
-                    <p className="metric-overview-value">{value}</p>
-                    <p className="metric-overview-label">{label}</p>
-                  </div>
-                  <div className="metric-overview-forecast">
-                    <p className="metric-overview-forecast-value">{forecastValue}</p>
-                    <p className="metric-overview-forecast-label">Next Month Forecast</p>
-                  </div>
+          '''          )}
                 </div>
-                <div className="metric-overview-legend" aria-label="Chart legend">
-                  {legendItems.map((item) => (
-                    <div key={`${item.label}-${item.color}`} className="metric-overview-legend-item">
-                      <span
-                        aria-hidden="true"
-                        className="metric-overview-legend-swatch"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span>{item.label}</span>
-                    </div>
-                  ))}
+              </div>
+            </div>
+          );
+          }
+
+          function MetricOverviewBand''',
+          '''          )}
+                  {renderMetricInfoContent(metricInfo)}
                 </div>
-              </section>
-            );
-          }''',
-          '''function MetricOverviewBand({
+              </div>
+            </div>
+          );
+          }
+
+          function MetricOverviewBand''',
+          'put tooltip info after legend')
+
+          overview_pattern = re.compile(
+              r'function MetricOverviewBand\(\{.*?\n\}\n\nfunction OtdChartTooltip',
+              re.S
+          )
+          overview_replacement = '''function MetricOverviewBand({
             value,
             label,
             forecastValue = '--',
@@ -206,8 +143,12 @@ jobs:
                 </div>
               </section>
             );
-          }''',
-          'overview band')
+          }
+
+          function OtdChartTooltip'''
+          text, count = overview_pattern.subn(overview_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'overview band: expected 1 match, found {count}')
 
           tooltip_legends = {
               'tooltipLegend={controllableCostsTooltipLegend}': "tooltipLegend={controllableCostsTooltipLegend ?? buildTooltipLegend('Legend', controllableCostsOverviewLegend)}",
@@ -225,61 +166,61 @@ jobs:
               replace_once(old, new, old)
 
           success_values = {
-              '                      ariaLabel="Controllable costs overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="Controllable costs overview"': '''successValue={formatGoalSuccessRate(
                         'controllableCosts',
                         controllableCostsViewMode,
                         controllableCostsChartData.total
                       )}
                       ariaLabel="Controllable costs overview"''',
-              '                      ariaLabel="New controllable costs dataset overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="New controllable costs dataset overview"': '''successValue={formatGoalSuccessRate(
                         'controllableCostsNew',
                         controllableCostsNewViewMode,
                         controllableCostsNewChartData.total
                       )}
                       ariaLabel="New controllable costs dataset overview"''',
-              '                      ariaLabel="HANA controllable costs overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="HANA controllable costs overview"': '''successValue={formatGoalSuccessRate(
                         'controllableCostsHana',
                         controllableCostsHanaViewMode,
                         controllableCostsHanaChartData.total
                       )}
                       ariaLabel="HANA controllable costs overview"''',
-              '                      ariaLabel="SIF incidents overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="SIF incidents overview"': '''successValue={formatGoalSuccessRate(
                         'sif',
                         sifViewMode,
                         sifChartData.map((bucket) => bucket.total)
                       )}
                       ariaLabel="SIF incidents overview"''',
-              '                      ariaLabel="Potential SIF incidents overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="Potential SIF incidents overview"': '''successValue={formatGoalSuccessRate(
                         'potentialSif',
                         potentialSifViewMode,
                         potentialSifChartData.map((bucket) => bucket.total)
                       )}
                       ariaLabel="Potential SIF incidents overview"''',
-              '                      ariaLabel="Near miss frequency rate overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="Near miss frequency rate overview"': '''successValue={formatGoalSuccessRate(
                         'nmfr',
                         nmfrViewMode,
                         nmfrChartData.map((bucket) => bucket.total)
                       )}
                       ariaLabel="Near miss frequency rate overview"''',
-              '                      ariaLabel="On time delivery overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="On time delivery overview"': '''successValue={formatGoalSuccessRate(
                         'otd',
                         otdViewMode,
                         otdGoalForecastSeriesValues
                       )}
                       ariaLabel="On time delivery overview"''',
-              '                      ariaLabel="Direct labor utilization overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="Direct labor utilization overview"': '''successValue={formatGoalSuccessRate(
                         'labor',
                         laborViewMode,
                         laborGoalForecastSeriesValues
                       )}
                       ariaLabel="Direct labor utilization overview"''',
-              '                      ariaLabel="New labor utilization dataset overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="New labor utilization dataset overview"': '''successValue={formatGoalSuccessRate(
                         'laborNew',
                         laborNewViewMode,
                         laborNewGoalForecastSeriesValues
                       )}
                       ariaLabel="New labor utilization dataset overview"''',
-              '                      ariaLabel="HANA direct labor utilization overview"': '''                      successValue={formatGoalSuccessRate(
+              'ariaLabel="HANA direct labor utilization overview"': '''successValue={formatGoalSuccessRate(
                         'laborHana',
                         laborHanaViewMode,
                         laborHanaGoalForecastSeriesValues
@@ -287,9 +228,29 @@ jobs:
                       ariaLabel="HANA direct labor utilization overview"''',
           }
           for old, new in success_values.items():
-              replace_once(old, new, old.strip())
+              replace_once(old, new, old)
 
-          path.write_text(text)
+          app_path.write_text(text)
+
+          styles_path = Path('client/src/styles.css')
+          styles = styles_path.read_text()
+          old_style = '''.metric-info-legend {
+            display: grid;
+            gap: 0.35rem;
+            margin-top: 0.65rem;
+            padding-top: 0.55rem;
+            border-top: 1px solid var(--border);
+          }'''
+          new_style = '''.metric-info-legend {
+            display: grid;
+            gap: 0.35rem;
+            margin-bottom: 0.65rem;
+            padding-bottom: 0.55rem;
+            border-bottom: 1px solid var(--border);
+          }'''
+          if styles.count(old_style) != 1:
+              raise SystemExit(f'legend css: expected 1 match, found {styles.count(old_style)}')
+          styles_path.write_text(styles.replace(old_style, new_style, 1))
           PY
       - name: Install dependencies
         run: npm ci
@@ -300,6 +261,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add client/src/App.jsx
+          git add client/src/App.jsx client/src/styles.css
           git commit -m "Move legends to help and add goal success rate"
           git push origin HEAD:entraid

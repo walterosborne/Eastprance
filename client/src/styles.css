@@ -1437,9 +1437,12 @@ h1 {
 
 .metric-overview-status {
   display: flex;
+  flex-direction: row-reverse;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.38rem;
   min-width: 0;
+  text-align: right;
 }
 
 .metric-overview-status-dot {
@@ -1477,7 +1480,9 @@ h1 {
 
 .metric-overview-status-copy {
   display: grid;
+  flex: 1 1 auto;
   gap: 0.08rem;
+  justify-items: end;
   min-width: 0;
 }
 

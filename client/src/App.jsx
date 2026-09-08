@@ -591,13 +591,25 @@ const OTD_PERCENT_Y_AXIS = [
 const CONTROLLABLE_COSTS_Y_AXIS = [
   {
     width: 66,
-    valueFormatter: formatCompactCurrency,
+    valueFormatter: formatMillionsCurrencyAxis,
     tickLabelStyle: { fontSize: 11 }
   }
 ];
 const SIF_Y_AXIS = [
   {
     width: 44,
+    valueFormatter: formatIncidentCount,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+const POTENTIAL_SIF_Y_AXIS = [
+  {
+    width: 44,
+    min: 0,
+    max: 5,
+    tickNumber: 6,
+    tickMinStep: 1,
+    tickMaxStep: 1,
     valueFormatter: formatIncidentCount,
     tickLabelStyle: { fontSize: 11 }
   }
@@ -848,6 +860,17 @@ function formatCompactCurrency(value) {
   return currencyFormatter.format(numericValue);
 }
 
+function formatMillionsCurrencyAxis(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return '';
+  }
+
+  const sign = numericValue < 0 ? '-' : '';
+  return `${sign}$${numberFormatter.format(Math.abs(numericValue) / 1000000)}M`;
+}
+
 function formatCompactWholeNumber(value) {
   const roundedValue = Math.round(Number(value ?? 0));
   const sign = roundedValue < 0 ? '-' : '';
@@ -898,23 +921,150 @@ const LOWER_IS_BETTER_GOAL_METRICS = new Set([
   'nmfr'
 ]);
 
-function formatGoalSuccessRate(metricKey, timeline, seriesValues) {
-  const goalLine = getMetricGoalLine(metricKey, timeline);
-  const goalValue = Number(goalLine?.value);
+const PERFORMANCE_STATUS_LABELS = {
+  historical: 'Hist. Performance to Target (past 12 mo.)',
+  estimated: 'Est. Performance to Target (next mo.)'
+};
+
+function doesMetricMeetGoal(metricKey, value, goalValue) {
+  return LOWER_IS_BETTER_GOAL_METRICS.has(metricKey)
+    ? value <= goalValue
+    : value >= goalValue;
+}
+
+function getHistoricalPerformanceStatus(metricKey, seriesValues) {
+  const goalValue = Number(getMetricGoalLine(metricKey, 'monthly')?.value);
   const numericValues = seriesValues
     .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value));
+    .filter((value) => Number.isFinite(value))
+    .slice(-12);
 
   if (!Number.isFinite(goalValue) || numericValues.length === 0) {
-    return '--';
+    return {
+      tone: 'unavailable',
+      toneLabel: 'Unavailable',
+      detail: 'No monthly data',
+      metCount: 0,
+      pointCount: numericValues.length,
+      goalValue: Number.isFinite(goalValue) ? goalValue : null
+    };
   }
 
-  const lowerIsBetter = LOWER_IS_BETTER_GOAL_METRICS.has(metricKey);
-  const successfulCount = numericValues.filter((value) =>
-    lowerIsBetter ? value <= goalValue : value >= goalValue
+  const metCount = numericValues.filter((value) =>
+    doesMetricMeetGoal(metricKey, value, goalValue)
   ).length;
+  let tone = 'dark-red';
+  let toneLabel = 'Dark red';
 
-  return `${Math.floor((successfulCount / numericValues.length) * 100)}%`;
+  if (metCount >= 9) {
+    tone = 'dark-green';
+    toneLabel = 'Dark green';
+  } else if (metCount >= 6) {
+    tone = 'light-green';
+    toneLabel = 'Light green';
+  } else if (metCount >= 3) {
+    tone = 'yellow';
+    toneLabel = 'Yellow';
+  } else if (metCount >= 1) {
+    tone = 'light-red';
+    toneLabel = 'Light red';
+  }
+
+  return {
+    tone,
+    toneLabel,
+    detail: `${metCount}/${numericValues.length} mo. met`,
+    metCount,
+    pointCount: numericValues.length,
+    goalValue
+  };
+}
+
+function getEstimatedPerformanceStatus(metricKey, timeline, calculation, valueFormatter) {
+  const goalValue = Number(getMetricGoalLine(metricKey, timeline)?.value);
+  const forecastValue = Number(calculation?.goalLine?.expectedValue);
+
+  if (!Number.isFinite(goalValue) || !Number.isFinite(forecastValue)) {
+    return {
+      tone: 'unavailable',
+      toneLabel: 'Unavailable',
+      detail: '--',
+      forecastValue: Number.isFinite(forecastValue) ? forecastValue : null,
+      goalValue: Number.isFinite(goalValue) ? goalValue : null
+    };
+  }
+
+  if (doesMetricMeetGoal(metricKey, forecastValue, goalValue)) {
+    return {
+      tone: 'dark-green',
+      toneLabel: 'Dark green',
+      detail: valueFormatter(forecastValue),
+      forecastValue,
+      goalValue
+    };
+  }
+
+  const targetMagnitude = Math.max(Math.abs(goalValue), 1);
+  const unfavorableDifference = LOWER_IS_BETTER_GOAL_METRICS.has(metricKey)
+    ? forecastValue - goalValue
+    : goalValue - forecastValue;
+  const unfavorableRatio = Math.max(0, unfavorableDifference / targetMagnitude);
+  let tone = 'dark-red';
+  let toneLabel = 'Dark red';
+
+  if (unfavorableRatio <= 0.05) {
+    tone = 'light-green';
+    toneLabel = 'Light green';
+  } else if (unfavorableRatio <= 0.1) {
+    tone = 'yellow';
+    toneLabel = 'Yellow';
+  } else if (unfavorableRatio <= 0.2) {
+    tone = 'light-red';
+    toneLabel = 'Light red';
+  }
+
+  return {
+    tone,
+    toneLabel,
+    detail: valueFormatter(forecastValue),
+    forecastValue,
+    goalValue
+  };
+}
+
+function buildMetricPerformanceStatus({
+  metricKey,
+  timeline,
+  timelineLabel,
+  monthlyValues,
+  forecastCalculation,
+  valueFormatter
+}) {
+  const historical = getHistoricalPerformanceStatus(metricKey, monthlyValues);
+  const estimated = getEstimatedPerformanceStatus(
+    metricKey,
+    timeline,
+    forecastCalculation,
+    valueFormatter
+  );
+  const directionLabel = LOWER_IS_BETTER_GOAL_METRICS.has(metricKey)
+    ? 'at or below'
+    : 'at or above';
+  const historicalTarget = Number(historical.goalValue);
+  const estimatedTarget = Number(estimated.goalValue);
+
+  return {
+    historical,
+    estimated,
+    historicalTargetText: Number.isFinite(historicalTarget)
+      ? `${directionLabel} ${valueFormatter(historicalTarget)} per month`
+      : 'Unavailable',
+    estimatedTargetText: Number.isFinite(estimatedTarget)
+      ? `${directionLabel} ${valueFormatter(estimatedTarget)} for the selected ${String(
+        timelineLabel ?? timeline
+      ).toLowerCase()} view`
+      : 'Unavailable'
+  };
 }
 
 function formatPercentAxis(value) {
@@ -3764,7 +3914,38 @@ function renderMetricInfoContent(info) {
   );
 }
 
-function CardHeader({ title, info, tooltipLegend = null }) {
+function PerformanceIndicatorTooltipSection({ performanceStatus }) {
+  if (!performanceStatus) {
+    return null;
+  }
+
+  return (
+    <div className="metric-performance-info">
+      <p className="metric-performance-info-title">Performance to target</p>
+      <p>
+        <strong>{PERFORMANCE_STATUS_LABELS.historical}</strong> compares the latest 12 valid
+        monthly points with the hardcoded monthly target. Dark green = 9+ months met; light green
+        = 6–8; yellow = 3–5; light red = 1–2; dark red = 0.
+      </p>
+      <p>
+        Historical target: <strong>{performanceStatus.historicalTargetText}</strong>. Current
+        status: <strong>{performanceStatus.historical.detail}</strong>.
+      </p>
+      <p>
+        <strong>{PERFORMANCE_STATUS_LABELS.estimated}</strong> compares the existing forecast
+        model&apos;s next value with the hardcoded target. Dark green meets target; light green is
+        within 5%; yellow is within 10%; light red is within 20%; dark red is more than 20% from
+        target.
+      </p>
+      <p>
+        Estimated target: <strong>{performanceStatus.estimatedTargetText}</strong>. Forecast:
+        {' '}<strong>{performanceStatus.estimated.detail}</strong>.
+      </p>
+    </div>
+  );
+}
+
+function CardHeader({ title, info, tooltipLegend = null, performanceStatus = null }) {
   const metricInfo = info || DEFAULT_METRIC_INFO;
 
   return (
@@ -3781,6 +3962,7 @@ function CardHeader({ title, info, tooltipLegend = null }) {
           ?
         </button>
         <div className="card-info-tooltip" role="tooltip">
+          <PerformanceIndicatorTooltipSection performanceStatus={performanceStatus} />
           {tooltipLegend?.items?.length > 0 && (
             <div className="metric-info-legend">
               <p className="metric-info-legend-title">{tooltipLegend.title || 'Chart legend'}</p>
@@ -3808,10 +3990,22 @@ function CardHeader({ title, info, tooltipLegend = null }) {
 function MetricOverviewBand({
   value,
   label,
-  forecastValue = '--',
-  goalSuccessValue = '--',
+  performanceStatus = null,
   ariaLabel = ''
 }) {
+  const indicators = [
+    {
+      key: 'historical',
+      label: PERFORMANCE_STATUS_LABELS.historical,
+      status: performanceStatus?.historical
+    },
+    {
+      key: 'estimated',
+      label: PERFORMANCE_STATUS_LABELS.estimated,
+      status: performanceStatus?.estimated
+    }
+  ];
+
   return (
     <section
       className="metric-overview-band"
@@ -3822,13 +4016,26 @@ function MetricOverviewBand({
           <p className="metric-overview-value">{value}</p>
           <p className="metric-overview-label">{label}</p>
         </div>
-        <div className="metric-overview-forecast">
-          <p className="metric-overview-forecast-value">{forecastValue}</p>
-          <p className="metric-overview-forecast-label">Next Month Forecast</p>
-        </div>
-        <div className="metric-overview-goal-success">
-          <p className="metric-overview-goal-success-value">{goalSuccessValue}</p>
-          <p className="metric-overview-goal-success-label">Goal Met</p>
+        <div className="metric-overview-status-list">
+          {indicators.map(({ key, label: indicatorLabel, status }) => (
+            <div
+              key={key}
+              className="metric-overview-status"
+              aria-label={`${indicatorLabel}: ${status?.toneLabel ?? 'Unavailable'}; ${
+                status?.detail ?? '--'
+              }`}
+              title={`${status?.toneLabel ?? 'Unavailable'}: ${status?.detail ?? '--'}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`metric-overview-status-dot performance-${status?.tone ?? 'unavailable'}`}
+              />
+              <span className="metric-overview-status-copy">
+                <span className="metric-overview-status-label">{indicatorLabel}</span>
+                <span className="metric-overview-status-detail">{status?.detail ?? '--'}</span>
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -6664,7 +6871,7 @@ export default function App() {
     isControllableCostsPareto || isControllableCostsPalette
       ? null
       : getMetricGoalLine('controllableCosts', controllableCostsViewMode),
-    formatCompactCurrency
+    formatMillionsCurrencyAxis
   );
   const controllableCostsMetricInfo = buildControllableCostsMetricInfo(
     METRIC_INFO.controllableCosts,
@@ -6692,7 +6899,7 @@ export default function App() {
     isControllableCostsNewPareto || isControllableCostsNewPalette
       ? null
       : getMetricGoalLine('controllableCostsNew', controllableCostsNewViewMode),
-    formatCompactCurrency
+    formatMillionsCurrencyAxis
   );
   const controllableCostsNewMetricInfo = buildControllableCostsMetricInfo(
     METRIC_INFO.controllableCostsNew,
@@ -6720,7 +6927,7 @@ export default function App() {
     isControllableCostsHanaPareto || isControllableCostsHanaPalette
       ? null
       : getMetricGoalLine('controllableCostsHana', controllableCostsHanaViewMode),
-    formatCompactCurrency
+    formatMillionsCurrencyAxis
   );
   const controllableCostsHanaMetricInfo = buildControllableCostsMetricInfo(
     METRIC_INFO.controllableCostsHana,
@@ -8704,7 +8911,7 @@ export default function App() {
                               cumulativeShares={potentialSifParetoChartData.cumulativeShares}
                               barLabel="Potential SIF Incidents"
                               barColor="var(--chart-line)"
-                              barAxis={SIF_Y_AXIS}
+                              barAxis={POTENTIAL_SIF_Y_AXIS}
                               barValueFormatter={formatIncidentCount}
                               goalLine={potentialSifGoalLine}
                               sx={sharedChartSx}
@@ -8715,7 +8922,7 @@ export default function App() {
                               height={INCIDENT_CHART_HEIGHT}
                               margin={INCIDENT_CHART_MARGIN}
                               labels={potentialSifPaletteChartData.labels}
-                              yAxis={SIF_Y_AXIS}
+                              yAxis={POTENTIAL_SIF_Y_AXIS}
                               series={potentialSifPaletteChartData.series.map((seriesItem) => ({
                                 ...seriesItem,
                                 valueFormatter: formatIncidentCount
@@ -8731,7 +8938,7 @@ export default function App() {
                               margin={INCIDENT_CHART_MARGIN}
                               labels={potentialSifChartData.map((bucket) => bucket.label)}
                               xAxisHeight={INCIDENT_X_AXIS_HEIGHT}
-                              yAxis={SIF_Y_AXIS}
+                              yAxis={POTENTIAL_SIF_Y_AXIS}
                               series={[
                                 {
                                   data: potentialSifChartData.map((bucket) => bucket.total),

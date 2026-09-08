@@ -1384,7 +1384,7 @@ h1 {
 
 .metric-overview-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(7.25rem, 1fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
   align-items: center;
   gap: 0.45rem;
   width: 100%;

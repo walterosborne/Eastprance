@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faAsterisk,
@@ -663,6 +663,11 @@ const overviewNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 1
 });
+const overviewWholeNumberFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0
+});
 const percentFormatter = new Intl.NumberFormat('en-US', {
   style: 'percent',
   minimumFractionDigits: 1,
@@ -904,6 +909,53 @@ function formatPercentOfTotal(value, total) {
 
 function formatPercentValue(value) {
   return percentFormatter.format(Number(value ?? 0));
+}
+
+function getPrimaryKpiValueCandidates(value) {
+  const originalValue = String(value ?? '--');
+  const match = originalValue.match(/^(-?)(\$?)([\d,]+(?:\.\d+)?)([KMBT%]?)$/i);
+
+  if (!match) {
+    return [originalValue];
+  }
+
+  const [, sign, currencySymbol, numberText, suffix] = match;
+  const unsignedValue = Number(numberText.replaceAll(',', ''));
+
+  if (!Number.isFinite(unsignedValue)) {
+    return [originalValue];
+  }
+
+  const signedValue = sign === '-' ? -unsignedValue : unsignedValue;
+  const prefix = `${sign}${currencySymbol}`;
+  const candidates = [originalValue];
+  const addCandidate = (candidate) => {
+    if (candidate && !candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  };
+
+  if (suffix) {
+    if (numberText.includes('.')) {
+      addCandidate(`${prefix}${unsignedValue.toFixed(1).replace(/\.0$/, '')}${suffix}`);
+    }
+
+    addCandidate(`${prefix}${Math.round(unsignedValue)}${suffix}`);
+  } else if (Math.abs(signedValue) >= 1000) {
+    const compactSign = signedValue < 0 ? '-' : '';
+    const absoluteValue = Math.abs(signedValue);
+    addCandidate(
+      `${compactSign}${currencySymbol}${overviewNumberFormatter.format(absoluteValue)}`
+    );
+    addCandidate(
+      `${compactSign}${currencySymbol}${overviewWholeNumberFormatter.format(absoluteValue)}`
+    );
+  } else if (numberText.includes('.')) {
+    addCandidate(`${prefix}${unsignedValue.toFixed(1).replace(/\.0$/, '')}`);
+    addCandidate(`${prefix}${Math.round(unsignedValue)}`);
+  }
+
+  return candidates;
 }
 
 const LOWER_IS_BETTER_GOAL_METRICS = new Set([
@@ -3985,6 +4037,71 @@ function CardHeader({ title, info, tooltipLegend = null, performanceStatus = nul
   );
 }
 
+function ResponsivePrimaryKpiValue({ value }) {
+  const valueRef = useRef(null);
+  const fullValue = String(value ?? '--');
+  const [displayValue, setDisplayValue] = useState(fullValue);
+
+  useEffect(() => {
+    const valueElement = valueRef.current;
+
+    if (!valueElement) {
+      return undefined;
+    }
+
+    const candidates = getPrimaryKpiValueCandidates(fullValue);
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    const updateDisplayValue = () => {
+      if (!context || valueElement.clientWidth <= 0) {
+        setDisplayValue(candidates[0]);
+        return;
+      }
+
+      const computedStyle = window.getComputedStyle(valueElement);
+      const letterSpacing = Number.parseFloat(computedStyle.letterSpacing) || 0;
+      context.font = [
+        computedStyle.fontStyle,
+        computedStyle.fontWeight,
+        computedStyle.fontSize,
+        computedStyle.fontFamily
+      ].join(' ');
+
+      const fittingValue = candidates.find((candidate) => {
+        const measuredWidth = context.measureText(candidate).width
+          + Math.max(candidate.length - 1, 0) * letterSpacing;
+
+        return measuredWidth <= valueElement.clientWidth;
+      });
+
+      setDisplayValue(fittingValue ?? candidates.at(-1));
+    };
+
+    updateDisplayValue();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return undefined;
+    }
+
+    const resizeObserver = new ResizeObserver(updateDisplayValue);
+    resizeObserver.observe(valueElement);
+
+    return () => resizeObserver.disconnect();
+  }, [fullValue]);
+
+  return (
+    <p
+      ref={valueRef}
+      className="metric-overview-value"
+      aria-label={fullValue}
+      title={displayValue === fullValue ? undefined : fullValue}
+    >
+      {displayValue}
+    </p>
+  );
+}
+
 function MetricOverviewBand({
   value,
   label,
@@ -4011,7 +4128,7 @@ function MetricOverviewBand({
     >
       <div className="metric-overview-summary">
         <div className="metric-overview-primary">
-          <p className="metric-overview-value">{value}</p>
+          <ResponsivePrimaryKpiValue value={value} />
           <p className="metric-overview-label">{label}</p>
         </div>
         <div className="metric-overview-status-list">

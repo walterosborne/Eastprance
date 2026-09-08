@@ -906,12 +906,6 @@ function formatPercentValue(value) {
   return percentFormatter.format(Number(value ?? 0));
 }
 
-function formatForecastValue(calculation, valueFormatter) {
-  const forecastValue = Number(calculation?.goalLine?.expectedValue);
-
-  return Number.isFinite(forecastValue) ? valueFormatter(forecastValue) : '--';
-}
-
 const LOWER_IS_BETTER_GOAL_METRICS = new Set([
   'controllableCosts',
   'controllableCostsNew',
@@ -1050,16 +1044,20 @@ function buildMetricPerformanceStatus({
   const directionLabel = LOWER_IS_BETTER_GOAL_METRICS.has(metricKey)
     ? 'at or below'
     : 'at or above';
-  const historicalTarget = Number(historical.goalValue);
-  const estimatedTarget = Number(estimated.goalValue);
+  const historicalTarget = historical.goalValue == null
+    ? null
+    : Number(historical.goalValue);
+  const estimatedTarget = estimated.goalValue == null
+    ? null
+    : Number(estimated.goalValue);
 
   return {
     historical,
     estimated,
-    historicalTargetText: Number.isFinite(historicalTarget)
+    historicalTargetText: historicalTarget != null && Number.isFinite(historicalTarget)
       ? `${directionLabel} ${valueFormatter(historicalTarget)} per month`
       : 'Unavailable',
-    estimatedTargetText: Number.isFinite(estimatedTarget)
+    estimatedTargetText: estimatedTarget != null && Number.isFinite(estimatedTarget)
       ? `${directionLabel} ${valueFormatter(estimatedTarget)} for the selected ${String(
         timelineLabel ?? timeline
       ).toLowerCase()} view`
@@ -3924,8 +3922,8 @@ function PerformanceIndicatorTooltipSection({ performanceStatus }) {
       <p className="metric-performance-info-title">Performance to target</p>
       <p>
         <strong>{PERFORMANCE_STATUS_LABELS.historical}</strong> compares the latest 12 valid
-        monthly points with the hardcoded monthly target. Dark green = 9+ months met; light green
-        = 6–8; yellow = 3–5; light red = 1–2; dark red = 0.
+        completed monthly points with the hardcoded monthly target. Dark green = 9+ months met;
+        light green = 6–8; yellow = 3–5; light red = 1–2; dark red = 0.
       </p>
       <p>
         Historical target: <strong>{performanceStatus.historicalTargetText}</strong>. Current
@@ -3933,9 +3931,9 @@ function PerformanceIndicatorTooltipSection({ performanceStatus }) {
       </p>
       <p>
         <strong>{PERFORMANCE_STATUS_LABELS.estimated}</strong> compares the existing forecast
-        model&apos;s next value with the hardcoded target. Dark green meets target; light green is
-        within 5%; yellow is within 10%; light red is within 20%; dark red is more than 20% from
-        target.
+        model&apos;s next-month estimate with the hardcoded target. Dark green meets target; light
+        green is within 5%; yellow is within 10%; light red is within 20%; dark red is more than
+        20% from target.
       </p>
       <p>
         Estimated target: <strong>{performanceStatus.estimatedTargetText}</strong>. Forecast:
@@ -5649,6 +5647,18 @@ export default function App() {
         endStamp: availableTimelineStamps[activeDateRangeIndices[1]]
       }
       : null;
+  const currentPerformanceMonth = new Date();
+  const lastCompletedPerformanceMonthStamp = Date.UTC(
+    currentPerformanceMonth.getUTCFullYear(),
+    currentPerformanceMonth.getUTCMonth() - 1,
+    1
+  );
+  const historicalPerformanceDateRange = selectedDateRange
+    ? {
+      startStamp: selectedDateRange.startStamp,
+      endStamp: Math.min(selectedDateRange.endStamp, lastCompletedPerformanceMonthStamp)
+    }
+    : null;
   const dateSliderMarks =
     availableTimelineStamps.length > 1
       ? [
@@ -5769,6 +5779,11 @@ export default function App() {
     controllableCostsViewMode,
     selectedDateRange
   );
+  const controllableCostsMonthlyPerformanceData = buildControllableCostsChartData(
+    filteredControllableCostsRows,
+    'monthly',
+    historicalPerformanceDateRange
+  );
   const controllableCostsGoalCalculation = useCalculatedMetricGoalLine({
     metricKey: 'controllable-costs',
     timeline: controllableCostsViewMode,
@@ -5855,6 +5870,11 @@ export default function App() {
     filteredControllableCostsNewRows,
     controllableCostsNewViewMode,
     selectedDateRange
+  );
+  const controllableCostsNewMonthlyPerformanceData = buildControllableCostsChartData(
+    filteredControllableCostsNewRows,
+    'monthly',
+    historicalPerformanceDateRange
   );
   const controllableCostsNewGoalCalculation = useCalculatedMetricGoalLine({
     metricKey: 'controllable-costs-new',
@@ -5950,6 +5970,11 @@ export default function App() {
     controllableCostsHanaViewMode,
     selectedDateRange
   );
+  const controllableCostsHanaMonthlyPerformanceData = buildControllableCostsChartData(
+    filteredControllableCostsHanaRows,
+    'monthly',
+    historicalPerformanceDateRange
+  );
   const controllableCostsHanaGoalCalculation = useCalculatedMetricGoalLine({
     metricKey: 'controllable-costs-hana',
     timeline: controllableCostsHanaViewMode,
@@ -6034,6 +6059,13 @@ export default function App() {
     sifViewMode,
     selectedDateRange
   );
+  const sifMonthlyPerformanceData = buildIncidentChartData(
+    filteredSifRows,
+    SIF_KPI_ID,
+    INCIDENT_ORG_UNIT_NAME,
+    'monthly',
+    historicalPerformanceDateRange
+  );
   const sifForecastCalculation = useCalculatedMetricGoalLine({
     metricKey: 'sif-forecast',
     timeline: sifViewMode,
@@ -6114,6 +6146,13 @@ export default function App() {
     potentialSifViewMode,
     selectedDateRange
   );
+  const potentialSifMonthlyPerformanceData = buildIncidentChartData(
+    filteredPotentialSifRows,
+    POTENTIAL_SIF_KPI_ID,
+    INCIDENT_ORG_UNIT_NAME,
+    'monthly',
+    historicalPerformanceDateRange
+  );
   const potentialSifForecastCalculation = useCalculatedMetricGoalLine({
     metricKey: 'potential-sif-forecast',
     timeline: potentialSifViewMode,
@@ -6191,6 +6230,13 @@ export default function App() {
     INCIDENT_ORG_UNIT_NAME,
     nmfrViewMode,
     selectedDateRange
+  );
+  const nmfrMonthlyPerformanceData = buildNmfrChartData(
+    filteredNmfrRows,
+    NMFR_KPI_ID,
+    INCIDENT_ORG_UNIT_NAME,
+    'monthly',
+    historicalPerformanceDateRange
   );
   const nmfrGoalForecastSeries = nmfrChartData;
   const nmfrGoalForecastSeriesValues = nmfrGoalForecastSeries.map((bucket) => bucket.total);
@@ -6272,6 +6318,11 @@ export default function App() {
     filteredOtdRows,
     'monthly',
     selectedDateRange
+  );
+  const otdMonthlyPerformanceData = buildOtdChartData(
+    filteredOtdRows,
+    'monthly',
+    historicalPerformanceDateRange
   );
   const otdGoalForecastData = otdChartData;
   const currentOtdMonthStamp = getMonthStartStamp(new Date());
@@ -6425,6 +6476,11 @@ export default function App() {
     laborViewMode,
     selectedDateRange
   );
+  const laborMonthlyPerformanceData = buildLaborUtilizationChartData(
+    filteredLaborRows,
+    'monthly',
+    historicalPerformanceDateRange
+  );
   const laborOverallHours = sumNumericValues(laborChartData.totals);
   const laborOverallDirectHours = sumNumericValues(laborChartData.direct);
   const laborSummaryValue = laborOverallHours > 0
@@ -6515,6 +6571,11 @@ export default function App() {
     laborNewViewMode,
     selectedDateRange
   );
+  const laborNewMonthlyPerformanceData = buildLaborUtilizationNewChartData(
+    filteredLaborNewRows,
+    'monthly',
+    historicalPerformanceDateRange
+  );
   const laborNewOverallHours = sumNumericValues(laborNewChartData.totals);
   const laborNewOverallDirectHours = sumNumericValues(laborNewChartData.direct);
   const laborNewSummaryValue = laborNewOverallHours > 0
@@ -6603,6 +6664,11 @@ export default function App() {
     filteredLaborHanaRows,
     laborHanaViewMode,
     selectedDateRange
+  );
+  const laborHanaMonthlyPerformanceData = buildLaborUtilizationChartData(
+    filteredLaborHanaRows,
+    'monthly',
+    historicalPerformanceDateRange
   );
   const laborHanaOverallHours = sumNumericValues(laborHanaChartData.totals);
   const laborHanaOverallDirectHours = sumNumericValues(laborHanaChartData.direct);
@@ -6817,56 +6883,94 @@ export default function App() {
     laborHanaTooltipLegend,
     laborHanaOverviewLegend
   );
-  const controllableCostsGoalSuccessValue = formatGoalSuccessRate(
-    'controllableCosts',
-    controllableCostsViewMode,
-    controllableCostsChartData.total
-  );
-  const controllableCostsNewGoalSuccessValue = formatGoalSuccessRate(
-    'controllableCostsNew',
-    controllableCostsNewViewMode,
-    controllableCostsNewChartData.total
-  );
-  const controllableCostsHanaGoalSuccessValue = formatGoalSuccessRate(
-    'controllableCostsHana',
-    controllableCostsHanaViewMode,
-    controllableCostsHanaChartData.total
-  );
-  const sifGoalSuccessValue = formatGoalSuccessRate(
-    'sif',
-    sifViewMode,
-    sifChartData.map((bucket) => bucket.total)
-  );
-  const potentialSifGoalSuccessValue = formatGoalSuccessRate(
-    'potentialSif',
-    potentialSifViewMode,
-    potentialSifChartData.map((bucket) => bucket.total)
-  );
-  const nmfrGoalSuccessValue = formatGoalSuccessRate(
-    'nmfr',
-    nmfrViewMode,
-    nmfrGoalForecastSeriesValues
-  );
-  const otdGoalSuccessValue = formatGoalSuccessRate(
-    'otd',
-    otdViewMode,
-    otdGoalForecastSeriesValues
-  );
-  const laborGoalSuccessValue = formatGoalSuccessRate(
-    'labor',
-    laborViewMode,
-    laborGoalForecastSeriesValues
-  );
-  const laborNewGoalSuccessValue = formatGoalSuccessRate(
-    'laborNew',
-    laborNewViewMode,
-    laborNewGoalForecastSeriesValues
-  );
-  const laborHanaGoalSuccessValue = formatGoalSuccessRate(
-    'laborHana',
-    laborHanaViewMode,
-    laborHanaGoalForecastSeriesValues
-  );
+  const controllableCostsPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'controllableCosts',
+    timeline: controllableCostsViewMode,
+    timelineLabel: CONTROLLABLE_COSTS_VIEW_CONFIG[controllableCostsViewMode]?.label,
+    monthlyValues: controllableCostsMonthlyPerformanceData.total,
+    forecastCalculation: controllableCostsGoalCalculation,
+    valueFormatter: formatOverviewCurrency
+  });
+  const controllableCostsNewPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'controllableCostsNew',
+    timeline: controllableCostsNewViewMode,
+    timelineLabel: CONTROLLABLE_COSTS_NEW_VIEW_CONFIG[controllableCostsNewViewMode]?.label,
+    monthlyValues: controllableCostsNewMonthlyPerformanceData.total,
+    forecastCalculation: controllableCostsNewGoalCalculation,
+    valueFormatter: formatOverviewCurrency
+  });
+  const controllableCostsHanaPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'controllableCostsHana',
+    timeline: controllableCostsHanaViewMode,
+    timelineLabel: CONTROLLABLE_COSTS_HANA_VIEW_CONFIG[controllableCostsHanaViewMode]?.label,
+    monthlyValues: controllableCostsHanaMonthlyPerformanceData.total,
+    forecastCalculation: controllableCostsHanaGoalCalculation,
+    valueFormatter: formatOverviewCurrency
+  });
+  const sifPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'sif',
+    timeline: sifViewMode,
+    timelineLabel: INCIDENT_VIEW_CONFIG[sifViewMode]?.label,
+    monthlyValues: sifMonthlyPerformanceData.map((bucket) => bucket.total),
+    forecastCalculation: sifForecastCalculation,
+    valueFormatter: formatIncidentCount
+  });
+  const potentialSifPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'potentialSif',
+    timeline: potentialSifViewMode,
+    timelineLabel: INCIDENT_VIEW_CONFIG[potentialSifViewMode]?.label,
+    monthlyValues: potentialSifMonthlyPerformanceData.map((bucket) => bucket.total),
+    forecastCalculation: potentialSifForecastCalculation,
+    valueFormatter: formatIncidentCount
+  });
+  const nmfrPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'nmfr',
+    timeline: nmfrViewMode,
+    timelineLabel: INCIDENT_VIEW_CONFIG[nmfrViewMode]?.label,
+    monthlyValues: nmfrMonthlyPerformanceData.map((bucket) => bucket.total),
+    forecastCalculation: nmfrGoalCalculation,
+    valueFormatter: formatNumber
+  });
+  const otdPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'otd',
+    timeline: otdViewMode,
+    timelineLabel: OTD_VIEW_CONFIG[otdViewMode]?.label,
+    monthlyValues: otdMonthlyPerformanceData.deliveredPercent.filter(
+      (_value, index) => otdMonthlyPerformanceData.contract[index] > 0
+    ),
+    forecastCalculation: otdGoalCalculation,
+    valueFormatter: formatPercentValue
+  });
+  const laborPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'labor',
+    timeline: laborViewMode,
+    timelineLabel: LABOR_VIEW_CONFIG[laborViewMode]?.label,
+    monthlyValues: laborMonthlyPerformanceData.directShare.filter(
+      (_value, index) => laborMonthlyPerformanceData.totals[index] > 0
+    ),
+    forecastCalculation: laborGoalCalculation,
+    valueFormatter: formatPercentValue
+  });
+  const laborNewPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'laborNew',
+    timeline: laborNewViewMode,
+    timelineLabel: LABOR_VIEW_CONFIG[laborNewViewMode]?.label,
+    monthlyValues: laborNewMonthlyPerformanceData.directShare.filter(
+      (_value, index) => laborNewMonthlyPerformanceData.totals[index] > 0
+    ),
+    forecastCalculation: laborNewGoalCalculation,
+    valueFormatter: formatPercentValue
+  });
+  const laborHanaPerformanceStatus = buildMetricPerformanceStatus({
+    metricKey: 'laborHana',
+    timeline: laborHanaViewMode,
+    timelineLabel: LABOR_VIEW_CONFIG[laborHanaViewMode]?.label,
+    monthlyValues: laborHanaMonthlyPerformanceData.directShare.filter(
+      (_value, index) => laborHanaMonthlyPerformanceData.totals[index] > 0
+    ),
+    forecastCalculation: laborHanaGoalCalculation,
+    valueFormatter: formatPercentValue
+  });
   const controllableCostsGoalLine = labelGoalLineValue(
     isControllableCostsPareto || isControllableCostsPalette
       ? null
@@ -8019,6 +8123,7 @@ export default function App() {
                   title="Controllable Costs"
                   info={controllableCostsMetricInfo}
                   tooltipLegend={controllableCostsCardTooltipLegend}
+                  performanceStatus={controllableCostsPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -8030,11 +8135,7 @@ export default function App() {
                           : controllableCostsSummaryValue
                       }
                       label="Total Cost"
-                      forecastValue={formatForecastValue(
-                        controllableCostsGoalCalculation,
-                        formatOverviewCurrency
-                      )}
-                      goalSuccessValue={controllableCostsGoalSuccessValue}
+                      performanceStatus={controllableCostsPerformanceStatus}
                       ariaLabel="Controllable costs overview"
                     />
                     <div ref={controllableCostsChartHostRef} className="chart-host">
@@ -8231,6 +8332,7 @@ export default function App() {
                   title="Controllable Costs — New Data"
                   info={controllableCostsNewMetricInfo}
                   tooltipLegend={controllableCostsNewCardTooltipLegend}
+                  performanceStatus={controllableCostsNewPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -8242,11 +8344,7 @@ export default function App() {
                           : controllableCostsNewSummaryValue
                       }
                       label="Total Cost"
-                      forecastValue={formatForecastValue(
-                        controllableCostsNewGoalCalculation,
-                        formatOverviewCurrency
-                      )}
-                      goalSuccessValue={controllableCostsNewGoalSuccessValue}
+                      performanceStatus={controllableCostsNewPerformanceStatus}
                       ariaLabel="New controllable costs dataset overview"
                     />
                     <div ref={controllableCostsNewChartHostRef} className="chart-host">
@@ -8450,6 +8548,7 @@ export default function App() {
                   title="Controllable Costs HANA"
                   info={controllableCostsHanaMetricInfo}
                   tooltipLegend={controllableCostsHanaCardTooltipLegend}
+                  performanceStatus={controllableCostsHanaPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -8461,11 +8560,7 @@ export default function App() {
                           : controllableCostsHanaSummaryValue
                       }
                       label="Total Cost"
-                      forecastValue={formatForecastValue(
-                        controllableCostsHanaGoalCalculation,
-                        formatOverviewCurrency
-                      )}
-                      goalSuccessValue={controllableCostsHanaGoalSuccessValue}
+                      performanceStatus={controllableCostsHanaPerformanceStatus}
                       ariaLabel="HANA controllable costs overview"
                     />
                     <div ref={controllableCostsHanaChartHostRef} className="chart-host">
@@ -8656,6 +8751,7 @@ export default function App() {
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
                   tooltipLegend={sifCardTooltipLegend}
+                  performanceStatus={sifPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -8663,11 +8759,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
                       label="SIF Incidents"
-                      forecastValue={formatForecastValue(
-                        sifForecastCalculation,
-                        formatIncidentCount
-                      )}
-                      goalSuccessValue={sifGoalSuccessValue}
+                      performanceStatus={sifPerformanceStatus}
                       ariaLabel="SIF incidents overview"
                     />
                     <div ref={sifChartHostRef} className="chart-host">
@@ -8847,6 +8939,7 @@ export default function App() {
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
                   tooltipLegend={potentialSifCardTooltipLegend}
+                  performanceStatus={potentialSifPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -8858,11 +8951,7 @@ export default function App() {
                           : potentialSifSummaryValue
                       }
                       label="Potential SIFs"
-                      forecastValue={formatForecastValue(
-                        potentialSifForecastCalculation,
-                        formatIncidentCount
-                      )}
-                      goalSuccessValue={potentialSifGoalSuccessValue}
+                      performanceStatus={potentialSifPerformanceStatus}
                       ariaLabel="Potential SIF incidents overview"
                     />
                     <div ref={potentialSifChartHostRef} className="chart-host">
@@ -9046,6 +9135,7 @@ export default function App() {
                   title="Near Miss Frequency Rate"
                   info={nmfrMetricInfo}
                   tooltipLegend={nmfrCardTooltipLegend}
+                  performanceStatus={nmfrPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -9053,8 +9143,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
                       label="NMFR"
-                      forecastValue={formatForecastValue(nmfrGoalCalculation, formatNumber)}
-                      goalSuccessValue={nmfrGoalSuccessValue}
+                      performanceStatus={nmfrPerformanceStatus}
                       ariaLabel="Near miss frequency rate overview"
                     />
                     <div ref={nmfrChartHostRef} className="chart-host">
@@ -9234,6 +9323,7 @@ export default function App() {
                   title="On Time Delivery (OTD)"
                   info={otdMetricInfo}
                   tooltipLegend={otdCardTooltipLegend}
+                  performanceStatus={otdPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -9241,11 +9331,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={otdState.loading || otdState.error ? '--' : otdSummaryValue}
                       label="Percent Delivered"
-                      forecastValue={formatForecastValue(
-                        otdGoalCalculation,
-                        formatPercentValue
-                      )}
-                      goalSuccessValue={otdGoalSuccessValue}
+                      performanceStatus={otdPerformanceStatus}
                       ariaLabel="On time delivery overview"
                     />
                     <div ref={otdChartHostRef} className="chart-host">
@@ -9446,6 +9532,7 @@ export default function App() {
                   title="Direct Labor Utilization"
                   info={laborMetricInfo}
                   tooltipLegend={laborCardTooltipLegend}
+                  performanceStatus={laborPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -9453,11 +9540,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={laborState.loading || laborState.error ? '--' : laborSummaryValue}
                       label="Direct Labor"
-                      forecastValue={formatForecastValue(
-                        laborGoalCalculation,
-                        formatPercentValue
-                      )}
-                      goalSuccessValue={laborGoalSuccessValue}
+                      performanceStatus={laborPerformanceStatus}
                       ariaLabel="Direct labor utilization overview"
                     />
                     <div ref={laborChartHostRef} className="chart-host">
@@ -9640,6 +9723,7 @@ export default function App() {
                   title="Labor Utilization — New Data"
                   info={laborNewMetricInfo}
                   tooltipLegend={laborNewCardTooltipLegend}
+                  performanceStatus={laborNewPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -9651,11 +9735,7 @@ export default function App() {
                           : laborNewSummaryValue
                       }
                       label="Direct Labor"
-                      forecastValue={formatForecastValue(
-                        laborNewGoalCalculation,
-                        formatPercentValue
-                      )}
-                      goalSuccessValue={laborNewGoalSuccessValue}
+                      performanceStatus={laborNewPerformanceStatus}
                       ariaLabel="New labor utilization dataset overview"
                     />
                     <div ref={laborNewChartHostRef} className="chart-host">
@@ -9847,6 +9927,7 @@ export default function App() {
                   title="Labor Utilization HANA"
                   info={laborHanaMetricInfo}
                   tooltipLegend={laborHanaCardTooltipLegend}
+                  performanceStatus={laborHanaPerformanceStatus}
                 />
 
                 <div className="dashboard-grid">
@@ -9858,11 +9939,7 @@ export default function App() {
                           : laborHanaSummaryValue
                       }
                       label="Direct Labor"
-                      forecastValue={formatForecastValue(
-                        laborHanaGoalCalculation,
-                        formatPercentValue
-                      )}
-                      goalSuccessValue={laborHanaGoalSuccessValue}
+                      performanceStatus={laborHanaPerformanceStatus}
                       ariaLabel="HANA direct labor utilization overview"
                     />
                     <div

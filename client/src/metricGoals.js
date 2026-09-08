@@ -2,6 +2,7 @@ const DEFAULT_GOAL_LABEL = 'Goal';
 
 const METRIC_GOALS = {
   controllableCosts: {
+    monthly: 500000,
     quarterly: 1500000,
     yearly: 6000000
   },

@@ -1375,7 +1375,7 @@ h1 {
   width: 100%;
   height: 72px;
   min-height: 72px;
-  padding: 0.55rem 0.75rem;
+  padding: 0.4rem 0.75rem;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--surface-muted);
@@ -1384,7 +1384,7 @@ h1 {
 
 .metric-overview-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(3.6rem, 0.72fr) minmax(3.2rem, 0.62fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(7.25rem, 1fr);
   align-items: center;
   gap: 0.45rem;
   width: 100%;
@@ -1394,8 +1394,7 @@ h1 {
 }
 
 .metric-overview-primary,
-.metric-overview-forecast,
-.metric-overview-goal-success {
+.metric-overview-status-list {
   display: grid;
   align-content: center;
   min-width: 0;
@@ -1405,22 +1404,8 @@ h1 {
   gap: 0.22rem;
 }
 
-.metric-overview-forecast {
-  gap: 0.18rem;
-  justify-items: start;
-}
-
-.metric-overview-goal-success {
-  gap: 0.18rem;
-  justify-items: start;
-}
-
 .metric-overview-value,
-.metric-overview-label,
-.metric-overview-forecast-value,
-.metric-overview-forecast-label,
-.metric-overview-goal-success-value,
-.metric-overview-goal-success-label {
+.metric-overview-label {
   margin: 0;
 }
 
@@ -1446,25 +1431,90 @@ h1 {
   white-space: nowrap;
 }
 
-.metric-overview-forecast-value,
-.metric-overview-goal-success-value {
+.metric-overview-status-list {
+  gap: 0.3rem;
+}
+
+.metric-overview-status {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.metric-overview-status-dot {
+  width: 0.52rem;
+  height: 0.52rem;
+  border: 1px solid rgb(255 255 255 / 45%);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgb(17 24 39 / 12%);
+  flex: 0 0 auto;
+}
+
+.performance-dark-green {
+  background: #166534;
+}
+
+.performance-light-green {
+  background: #84cc16;
+}
+
+.performance-yellow {
+  background: #eab308;
+}
+
+.performance-light-red {
+  background: #f87171;
+}
+
+.performance-dark-red {
+  background: #991b1b;
+}
+
+.performance-unavailable {
+  background: #94a3b8;
+}
+
+.metric-overview-status-copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.metric-overview-status-label {
+  color: var(--text-secondary);
+  font-size: 0.46rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  line-height: 1.05;
+}
+
+.metric-overview-status-detail {
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 0.82rem;
+  font-size: 0.64rem;
   font-weight: 750;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.metric-overview-forecast-label,
-.metric-overview-goal-success-label {
-  max-width: 5.2rem;
-  color: var(--text-secondary);
-  font-size: 0.48rem;
+.metric-performance-info {
+  display: grid;
+  gap: 0.32rem;
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.metric-performance-info p {
+  margin: 0;
+}
+
+.metric-performance-info-title {
+  font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  line-height: 1.1;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 

@@ -1,0 +1,28 @@
+SELECT
+    "L1_ORG_SEG_ID",
+    "L1_ORG_NAME",
+    "L2_ORG_SEG_ID",
+    "L2_ORG_NAME",
+    "L3_ORG_SEG_ID",
+    "L3_ORG_NAME",
+    COUNT(*) AS "ROW_COUNT",
+    SUM("AMT") AS "AMT"
+FROM "_SYS_BIC"."ngc.DWH.SectorContent.NGSS.SP_COSTPOINT.Restricted/CVG_CP_GL_DETL_RESTRICTED"
+(
+    'PLACEHOLDER' = ('$$IP_FY_PD_NO_TO$$', '202608'),
+    'PLACEHOLDER' = ('$$IP_ACCT_ID$$', '*'),
+    'PLACEHOLDER' = ('$$IP_ORG_ID$$', '*'),
+    'PLACEHOLDER' = ('$$IP_L1_PROJ_SEG_ID$$', '*'),
+    'PLACEHOLDER' = ('$$IP_FY_PD_NO_FROM$$', '202601'),
+    'PLACEHOLDER' = ('$$IP_INCL_ITD_PD_NO$$', 'Y'),
+    'PLACEHOLDER' = ('$$IP_INCL_ALL_HDR$$', 'N')
+)
+WHERE "CP_INSTANCE" = 'CPENT'
+GROUP BY
+    "L1_ORG_SEG_ID",
+    "L1_ORG_NAME",
+    "L2_ORG_SEG_ID",
+    "L2_ORG_NAME",
+    "L3_ORG_SEG_ID",
+    "L3_ORG_NAME"
+ORDER BY ABS(SUM("AMT")) DESC;

@@ -1,12 +1,7 @@
 SELECT
+    "FY_PD_NO_CD",
+    "L1_ORG_SEG_ID",
     "L1_ORG_NAME",
-    "S_PROJ_RPT_DC",
-    "DET_FL",
-    "LVL_NO",
-    "S_ACCT_TYPE_CD",
-    "TC_ACCT_TYPE_CD",
-    "JOURNAL_TYPE",
-    "IS_INTERCO_ACCTID",
     COUNT(*) AS "ROW_COUNT",
     SUM("AMT") AS "AMT"
 
@@ -25,13 +20,10 @@ WHERE "CP_INSTANCE" = 'CPENT'
   AND "L3_ORG_NAME" = 'ARMAMENT SYSTEMS'
 
 GROUP BY
-    "L1_ORG_NAME",
-    "S_PROJ_RPT_DC",
-    "DET_FL",
-    "LVL_NO",
-    "S_ACCT_TYPE_CD",
-    "TC_ACCT_TYPE_CD",
-    "JOURNAL_TYPE",
-    "IS_INTERCO_ACCTID"
+    "FY_PD_NO_CD",
+    "L1_ORG_SEG_ID",
+    "L1_ORG_NAME"
 
-ORDER BY "L1_ORG_NAME", "AMT" DESC;
+ORDER BY
+    "FY_PD_NO_CD",
+    "L1_ORG_NAME";

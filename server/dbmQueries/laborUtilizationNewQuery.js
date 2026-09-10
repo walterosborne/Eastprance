@@ -1,122 +1,11 @@
 export const LABOR_UTILIZATION_NEW_DBM_QUERY = `
-WITH Roster AS (
+WITH CostCenterHierarchy AS (
     SELECT
-        LTRIM(RTRIM(Employee_MyID)) AS MyID,
-        NULLIF(LTRIM(RTRIM(Location_Code)), '') AS Location_Code,
-        ROW_NUMBER() OVER (
-            PARTITION BY LTRIM(RTRIM(Employee_MyID))
-            ORDER BY
-                last_modified_date DESC,
-                created_date DESC,
-                id DESC
-        ) AS rn
-    FROM rpt.rb_load_roster
-    WHERE NULLIF(LTRIM(RTRIM(Employee_MyID)), '') IS NOT NULL
-),
-
-ArchibusFacilityCounts AS (
-    SELECT
-        LTRIM(RTRIM(employee_my_id)) AS MyID,
-        NULLIF(
-            CONCAT_WS(
-                ' | ',
-                NULLIF(LTRIM(RTRIM(address_1)), ''),
-                NULLIF(LTRIM(RTRIM(city)), ''),
-                NULLIF(LTRIM(RTRIM(state)), '')
-            ),
-            ''
-        ) AS Facility,
-        COUNT(*) AS Facility_Row_Count
-    FROM rpt.rb_archibus
-    WHERE NULLIF(LTRIM(RTRIM(employee_my_id)), '') IS NOT NULL
-    GROUP BY
-        LTRIM(RTRIM(employee_my_id)),
-        NULLIF(
-            CONCAT_WS(
-                ' | ',
-                NULLIF(LTRIM(RTRIM(address_1)), ''),
-                NULLIF(LTRIM(RTRIM(city)), ''),
-                NULLIF(LTRIM(RTRIM(state)), '')
-            ),
-            ''
-        )
-),
-
-ArchibusEmployee AS (
-    SELECT
-        MyID,
-        Facility,
-        ROW_NUMBER() OVER (
-            PARTITION BY MyID
-            ORDER BY
-                Facility_Row_Count DESC,
-                Facility
-        ) AS rn
-    FROM ArchibusFacilityCounts
-    WHERE Facility IS NOT NULL
-),
-
-LocationFacilityCounts AS (
-    SELECT
-        r.Location_Code,
-        a.Facility,
-        COUNT(DISTINCT r.MyID) AS Employee_Count
-    FROM Roster r
-    JOIN ArchibusEmployee a
-        ON r.MyID = a.MyID
-       AND a.rn = 1
-    WHERE
-        r.rn = 1
-        AND r.Location_Code IS NOT NULL
-    GROUP BY
-        r.Location_Code,
-        a.Facility
-),
-
-LocationTotals AS (
-    SELECT
-        r.Location_Code,
-        COUNT(DISTINCT r.MyID) AS Total_Employees
-    FROM Roster r
-    JOIN ArchibusEmployee a
-        ON r.MyID = a.MyID
-       AND a.rn = 1
-    WHERE
-        r.rn = 1
-        AND r.Location_Code IS NOT NULL
-    GROUP BY
-        r.Location_Code
-),
-
-LocationFallback AS (
-    SELECT
-        c.Location_Code,
-        c.Facility,
-        c.Employee_Count,
-        t.Total_Employees,
-        CAST(
-            c.Employee_Count * 1.0
-            / NULLIF(t.Total_Employees, 0)
-            AS DECIMAL(8,4)
-        ) AS Facility_Share,
-        ROW_NUMBER() OVER (
-            PARTITION BY c.Location_Code
-            ORDER BY
-                c.Employee_Count DESC,
-                c.Facility
-        ) AS rn
-    FROM LocationFacilityCounts c
-    JOIN LocationTotals t
-        ON c.Location_Code = t.Location_Code
-),
-
-CostCenterHierarchy AS (
-    SELECT
-        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS Cost_Center,
         NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS Division,
         NULLIF(LTRIM(RTRIM(LEV04_DESC)), '') AS Business_Unit,
         ROW_NUMBER() OVER (
-            PARTITION BY LTRIM(RTRIM(COST_CENTER))
+            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
             ORDER BY
                 last_modified_date DESC,
                 created_date DESC,
@@ -136,8 +25,7 @@ Actuals AS (
             INT,
             LEFT(LTRIM(RTRIM([Period])), 2)
         ) AS [month],
-        LTRIM(RTRIM(Cost_Center)) AS Cost_Center,
-        LTRIM(RTRIM(MyID)) AS MyID,
+        UPPER(LTRIM(RTRIM(Cost_Center))) AS Cost_Center,
         CASE
             WHEN LOWER(LTRIM(RTRIM(Labor_Category))) LIKE '%indirect%'
                 THEN 'Labor Indirect'
@@ -148,7 +36,7 @@ Actuals AS (
         TRY_CONVERT(DECIMAL(18,2), Hours) AS Entered_Hours
     FROM rpt.rb_Actuals_RM_Load_Table
     WHERE
-        NULLIF(LTRIM(RTRIM(MyID)), '') IS NOT NULL
+        NULLIF(LTRIM(RTRIM(Cost_Center)), '') IS NOT NULL
         AND TRY_CONVERT(DECIMAL(18,2), Hours) IS NOT NULL
 ),
 
@@ -158,20 +46,10 @@ EnrichedActuals AS (
         a.[month],
         COALESCE(h.Division, 'Unmapped') AS Division,
         COALESCE(h.Business_Unit, 'Unmapped') AS Business_Unit,
-        COALESCE(ae.Facility, lf.Facility, 'Unmapped') AS Facility,
+        a.Cost_Center,
         a.Labor_Category,
         a.Entered_Hours
     FROM Actuals a
-    LEFT JOIN Roster r
-        ON a.MyID = r.MyID
-       AND r.rn = 1
-    LEFT JOIN ArchibusEmployee ae
-        ON a.MyID = ae.MyID
-       AND ae.rn = 1
-    LEFT JOIN LocationFallback lf
-        ON r.Location_Code = lf.Location_Code
-       AND lf.rn = 1
-       AND lf.Facility_Share >= 0.90
     JOIN CostCenterHierarchy h
         ON a.Cost_Center = h.Cost_Center
        AND h.rn = 1
@@ -185,7 +63,7 @@ SELECT
     [month] AS month,
     Division AS division,
     Business_Unit AS business_unit,
-    Facility AS facility,
+    Cost_Center AS cost_center,
     Labor_Category AS labor_category,
     SUM(Entered_Hours) AS entered_hours
 FROM EnrichedActuals
@@ -194,13 +72,13 @@ GROUP BY
     [month],
     Division,
     Business_Unit,
-    Facility,
+    Cost_Center,
     Labor_Category
 ORDER BY
     [year],
     [month],
     Division,
     Business_Unit,
-    Facility,
+    Cost_Center,
     Labor_Category;
 `;

@@ -8,6 +8,10 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import {
+  normalizeCostCenter,
+  readCostCenterFacilityKey
+} from './costCenterFacilityKey.js';
 import { LABOR_UTILIZATION_NEW_DBM_QUERY } from './dbmQueries/laborUtilizationNewQuery.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
@@ -22,7 +26,6 @@ const REQUIRED_COLUMNS = [
   'month',
   'division',
   'business_unit',
-  'facility',
   'labor_category',
   'entered_hours'
 ];
@@ -68,11 +71,14 @@ function classifyLaborCategory(value) {
   return 'other';
 }
 
-export function normalizeLaborUtilizationNewRow(row) {
+export function normalizeLaborUtilizationNewRow(row, facilityKey = null) {
   const source = getNormalizedSourceRow(row);
   const year = normalizeNumber(source.year);
   const month = normalizeNumber(source.month);
   const enteredHours = normalizeNumber(source.entered_hours);
+  const costCenter = normalizeCostCenter(source.cost_center);
+  const facilityMapping = costCenter ? facilityKey?.lookup?.get(costCenter) : null;
+  const legacyFacility = normalizeText(source.facility);
 
   if (
     !Number.isInteger(year)
@@ -89,17 +95,22 @@ export function normalizeLaborUtilizationNewRow(row) {
     month,
     division: normalizeText(source.division),
     business_unit: normalizeText(source.business_unit),
-    facility: normalizeText(source.facility),
+    cost_center: costCenter,
+    facility: facilityMapping?.facility || (!costCenter && legacyFacility) || 'Unmapped',
+    facility_state: facilityMapping?.state || '',
     labor_category: normalizeText(source.labor_category),
     entered_hours: enteredHours
   };
 }
 
-function validateSourceColumns(sourceRows, sourceLabel) {
+function validateSourceColumns(sourceRows, sourceLabel, requireCostCenter = false) {
   const availableColumns = new Set(
     Object.keys(sourceRows[0] ?? {}).map(normalizeHeader)
   );
-  const missingColumns = REQUIRED_COLUMNS.filter(
+  const requiredColumns = requireCostCenter
+    ? [...REQUIRED_COLUMNS, 'cost_center']
+    : REQUIRED_COLUMNS;
+  const missingColumns = requiredColumns.filter(
     (columnName) => !availableColumns.has(columnName)
   );
 
@@ -110,10 +121,20 @@ function validateSourceColumns(sourceRows, sourceLabel) {
   }
 }
 
-function buildLaborUtilizationPayload(sourceRows, metadata) {
-  validateSourceColumns(sourceRows, metadata.sourceLabel);
+function buildLaborUtilizationPayload(sourceRows, metadata, facilityKey) {
+  validateSourceColumns(sourceRows, metadata.sourceLabel, metadata.requireCostCenter);
 
-  const rows = sourceRows.map(normalizeLaborUtilizationNewRow).filter(Boolean);
+  const rows = sourceRows
+    .map((row) => normalizeLaborUtilizationNewRow(row, facilityKey))
+    .filter(Boolean);
+  const normalizedSourceRows = sourceRows.map(getNormalizedSourceRow);
+  const costCenterRowCount = normalizedSourceRows.filter(
+    (row) => normalizeCostCenter(row.cost_center)
+  ).length;
+  const mappedFacilityRowCount = normalizedSourceRows.filter((row) => {
+    const costCenter = normalizeCostCenter(row.cost_center);
+    return costCenter && facilityKey?.lookup?.has(costCenter);
+  }).length;
   const years = Array.from(new Set(rows.map((row) => row.year))).sort(
     (left, right) => left - right
   );
@@ -140,8 +161,37 @@ function buildLaborUtilizationPayload(sourceRows, metadata) {
     years,
     totalEnteredHours,
     laborCategoryCounts: categoryCounts,
+    facilityMapping: {
+      source: facilityKey?.fileName ?? null,
+      sheetName: facilityKey?.sheetName ?? null,
+      mappedCostCenterCount: facilityKey?.mappedCostCenterCount ?? 0,
+      eligibleRowCount: costCenterRowCount,
+      mappedRowCount: mappedFacilityRowCount,
+      unmappedRowCount: costCenterRowCount - mappedFacilityRowCount,
+      error: facilityKey?.error ?? null
+    },
     rows
   };
+}
+
+async function readLaborFacilityKey() {
+  try {
+    return await readCostCenterFacilityKey();
+  } catch (error) {
+    logError(
+      'labor-new',
+      'Labor data will use Unmapped where cost centers cannot be resolved.',
+      error
+    );
+
+    return {
+      lookup: new Map(),
+      fileName: null,
+      sheetName: null,
+      mappedCostCenterCount: 0,
+      error: error.message
+    };
+  }
 }
 
 async function readLaborUtilizationNewExcelFallback(fallbackReason) {
@@ -166,13 +216,14 @@ async function readLaborUtilizationNewExcelFallback(fallbackReason) {
       defval: null,
       raw: true
     });
+    const facilityKey = await readLaborFacilityKey();
     const payload = buildLaborUtilizationPayload(sourceRows, {
       source: 'excel-fallback',
       sourceLabel: 'The new labor utilization workbook',
       fileName: path.basename(LABOR_UTILIZATION_NEW_FILE_PATH),
       sheetName,
       fallbackReason
-    });
+    }, facilityKey);
 
     logDebug('labor-new', 'New labor utilization loaded from Excel fallback.', {
       source: payload.source,
@@ -185,6 +236,7 @@ async function readLaborUtilizationNewExcelFallback(fallbackReason) {
       years: payload.years,
       totalEnteredHours: payload.totalEnteredHours,
       laborCategoryCounts: payload.laborCategoryCounts,
+      facilityMapping: payload.facilityMapping,
       duration: formatDuration(stopTimer())
     });
 
@@ -216,10 +268,12 @@ async function readLaborUtilizationNewDbmData(config) {
   });
 
   const result = await pool.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY);
+  const facilityKey = await readLaborFacilityKey();
   const payload = buildLaborUtilizationPayload(result.recordset, {
     source: 'dbm-sql',
-    sourceLabel: 'The DBM labor utilization query'
-  });
+    sourceLabel: 'The DBM labor utilization query',
+    requireCostCenter: true
+  }, facilityKey);
 
   logDebug('labor-new', 'New labor utilization loaded from DBM SQL.', {
     source: payload.source,
@@ -232,6 +286,7 @@ async function readLaborUtilizationNewDbmData(config) {
     years: payload.years,
     totalEnteredHours: payload.totalEnteredHours,
     laborCategoryCounts: payload.laborCategoryCounts,
+    facilityMapping: payload.facilityMapping,
     duration: formatDuration(stopTimer())
   });
 

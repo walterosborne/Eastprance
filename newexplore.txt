@@ -1,8 +1,39 @@
 SELECT
-    "ACCT_ID",
-    "ACCT_NAME",
-    "L2_ACCT_NAME",
-    "L3_ACCT_NAME",
+    "FY_PD_NO_CD",
+
+    CASE
+        WHEN "ACCT_ID" = '60-80-5720'
+            THEN 'Depreciation & LHI'
+
+        WHEN "ACCT_ID" IN ('60-80-5412', '60-80-5414')
+            THEN 'Rent - Land & Building'
+
+        WHEN "ACCT_ID" = '60-80-5655'
+            THEN 'Property Taxes'
+
+        WHEN "ACCT_ID" = '60-80-5310'
+            THEN 'Insurance'
+
+        WHEN "ACCT_ID" IN (
+            '60-80-3265',
+            '60-80-5470',
+            '60-80-5475',
+            '60-80-5480',
+            '60-80-5482',
+            '60-80-5483',
+            '60-80-5485',
+            '60-80-5490'
+        )
+            THEN 'Maintenance & Repairs'
+
+        WHEN "ACCT_ID" IN (
+            '60-80-5800',
+            '60-80-5805',
+            '60-80-5810'
+        )
+            THEN 'Utilities'
+    END AS "COST_CATEGORY",
+
     COUNT(*) AS "ROW_COUNT",
     SUM("AMT") AS "AMT"
 
@@ -28,24 +59,39 @@ WHERE "CP_INSTANCE" = 'CPENT'
       'PROPULSION SYSTEMS',
       'WS TPS'
   )
-  AND (
-      UPPER("ACCT_NAME") LIKE '%PROPERTY TAX%'
-      OR UPPER("ACCT_NAME") LIKE '%UTILIT%'
-      OR UPPER("ACCT_NAME") LIKE '%LIGHT/POWER%'
-      OR UPPER("ACCT_NAME") LIKE '%HEATING FUEL%'
-      OR UPPER("ACCT_NAME") LIKE '%MAINT%'
-      OR UPPER("ACCT_NAME") LIKE '%REPAIR%'
-      OR UPPER("ACCT_NAME") LIKE '%INSUR%'
-      OR UPPER("ACCT_NAME") LIKE '%LEASE EXP%'
-      OR UPPER("ACCT_NAME") LIKE '%RENT%'
-      OR UPPER("ACCT_NAME") LIKE '%DEPR%'
-      OR UPPER("ACCT_NAME") LIKE '%LEASEHOLD IMPROV%'
+  AND "ACCT_ID" IN (
+      '60-80-5720',
+      '60-80-5412',
+      '60-80-5414',
+      '60-80-5655',
+      '60-80-5310',
+      '60-80-3265',
+      '60-80-5470',
+      '60-80-5475',
+      '60-80-5480',
+      '60-80-5482',
+      '60-80-5483',
+      '60-80-5485',
+      '60-80-5490',
+      '60-80-5800',
+      '60-80-5805',
+      '60-80-5810'
   )
 
 GROUP BY
-    "ACCT_ID",
-    "ACCT_NAME",
-    "L2_ACCT_NAME",
-    "L3_ACCT_NAME"
+    "FY_PD_NO_CD",
+    CASE
+        WHEN "ACCT_ID" = '60-80-5720' THEN 'Depreciation & LHI'
+        WHEN "ACCT_ID" IN ('60-80-5412', '60-80-5414') THEN 'Rent - Land & Building'
+        WHEN "ACCT_ID" = '60-80-5655' THEN 'Property Taxes'
+        WHEN "ACCT_ID" = '60-80-5310' THEN 'Insurance'
+        WHEN "ACCT_ID" IN (
+            '60-80-3265','60-80-5470','60-80-5475','60-80-5480',
+            '60-80-5482','60-80-5483','60-80-5485','60-80-5490'
+        ) THEN 'Maintenance & Repairs'
+        WHEN "ACCT_ID" IN ('60-80-5800','60-80-5805','60-80-5810') THEN 'Utilities'
+    END
 
-ORDER BY "AMT" DESC;
+ORDER BY
+    "FY_PD_NO_CD",
+    "COST_CATEGORY";

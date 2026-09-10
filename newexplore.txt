@@ -1,95 +1,47 @@
 SELECT
-    "L2_ORG_NAME",
-    "L3_ORG_NAME",
-    "COST_CATEGORY",
+    "ACCT_ID",
+    "ACCT_NAME",
+    "L1_ACCT_NAME",
+    "L2_ACCT_NAME",
+    "L3_ACCT_NAME",
+    COUNT(*) AS "ROW_COUNT",
     SUM("AMT") AS "Q1_AMT"
-FROM
+
+FROM "_SYS_BIC"."ngc.DWH.SectorContent.NGSS.SP_COSTPOINT.Restricted/CVG_CP_GL_DETL_RESTRICTED"
 (
-    SELECT
-        "L2_ORG_NAME",
-        "L3_ORG_NAME",
-        "AMT",
+    'PLACEHOLDER' = ('$$IP_FY_PD_NO_TO$$', '202603'),
+    'PLACEHOLDER' = ('$$IP_ACCT_ID$$', '''*'''),
+    'PLACEHOLDER' = ('$$IP_ORG_ID$$', '''*'''),
+    'PLACEHOLDER' = ('$$IP_L1_PROJ_SEG_ID$$', '''*'''),
+    'PLACEHOLDER' = ('$$IP_FY_PD_NO_FROM$$', '202601'),
+    'PLACEHOLDER' = ('$$IP_INCL_ITD_PD_NO$$', 'Y'),
+    'PLACEHOLDER' = ('$$IP_INCL_ALL_HDR$$', 'N')
+)
 
-        CASE
-            WHEN "ACCT_ID" = '60-80-5720'
-                THEN 'Depreciation & LHI'
-
-            WHEN "ACCT_ID" IN ('60-80-5412', '60-80-5414')
-                THEN 'Rent - Land & Building'
-
-            WHEN "ACCT_ID" = '60-80-5655'
-                THEN 'Property Taxes'
-
-            WHEN "ACCT_ID" = '60-80-5310'
-                THEN 'Insurance'
-
-            WHEN "ACCT_ID" IN (
-                '60-80-3265',
-                '60-80-5470',
-                '60-80-5475',
-                '60-80-5480',
-                '60-80-5482',
-                '60-80-5483',
-                '60-80-5485',
-                '60-80-5490'
-            )
-                THEN 'Maintenance & Repairs'
-
-            WHEN "ACCT_ID" IN (
-                '60-80-5800',
-                '60-80-5805',
-                '60-80-5810'
-            )
-                THEN 'Utilities'
-        END AS "COST_CATEGORY"
-
-    FROM "_SYS_BIC"."ngc.DWH.SectorContent.NGSS.SP_COSTPOINT.Restricted/CVG_CP_GL_DETL_RESTRICTED"
-    (
-        'PLACEHOLDER' = ('$$IP_FY_PD_NO_TO$$', '202603'),
-        'PLACEHOLDER' = ('$$IP_ACCT_ID$$', '''*'''),
-        'PLACEHOLDER' = ('$$IP_ORG_ID$$', '''*'''),
-        'PLACEHOLDER' = ('$$IP_L1_PROJ_SEG_ID$$', '''*'''),
-        'PLACEHOLDER' = ('$$IP_FY_PD_NO_FROM$$', '202601'),
-        'PLACEHOLDER' = ('$$IP_INCL_ITD_PD_NO$$', 'Y'),
-        'PLACEHOLDER' = ('$$IP_INCL_ALL_HDR$$', 'N')
-    )
-
-    WHERE "CP_INSTANCE" = 'CPENT'
-      AND "L1_ORG_NAME" = 'MSG'
-      AND "L3_ORG_NAME" IN (
-          'ARMAMENT SYSTEMS',
-          'Advanced Weapons',
-          'ROCKET CENTER (ABL)',
-          'ELKTON',
-          'NRE',
-          'PROPULSION SYSTEMS',
-          'WS TPS'
-      )
-      AND "ACCT_ID" IN (
-          '60-80-5720',
-          '60-80-5412',
-          '60-80-5414',
-          '60-80-5655',
-          '60-80-5310',
-          '60-80-3265',
-          '60-80-5470',
-          '60-80-5475',
-          '60-80-5480',
-          '60-80-5482',
-          '60-80-5483',
-          '60-80-5485',
-          '60-80-5490',
-          '60-80-5800',
-          '60-80-5805',
-          '60-80-5810'
-      )
-) X
+WHERE "CP_INSTANCE" = 'CPENT'
+  AND "L1_ORG_NAME" = 'MSG'
+  AND "L3_ORG_NAME" = 'ROCKET CENTER (ABL)'
+  AND (
+       UPPER("ACCT_NAME") LIKE '%RENT%'
+    OR UPPER("ACCT_NAME") LIKE '%LEASE%'
+    OR UPPER("ACCT_NAME") LIKE '%DEPR%'
+    OR UPPER("ACCT_NAME") LIKE '%PROPERTY TAX%'
+    OR UPPER("ACCT_NAME") LIKE '%INSUR%'
+    OR UPPER("ACCT_NAME") LIKE '%MAINT%'
+    OR UPPER("ACCT_NAME") LIKE '%REPAIR%'
+    OR UPPER("ACCT_NAME") LIKE '%UTILIT%'
+    OR UPPER("ACCT_NAME") LIKE '%ELECTRIC%'
+    OR UPPER("ACCT_NAME") LIKE '%POWER%'
+    OR UPPER("ACCT_NAME") LIKE '%FUEL%'
+    OR UPPER("ACCT_NAME") LIKE '%CUSTOD%'
+    OR UPPER("ACCT_NAME") LIKE '%GROUND%'
+  )
 
 GROUP BY
-    "L2_ORG_NAME",
-    "L3_ORG_NAME",
-    "COST_CATEGORY"
+    "ACCT_ID",
+    "ACCT_NAME",
+    "L1_ACCT_NAME",
+    "L2_ACCT_NAME",
+    "L3_ACCT_NAME"
 
-ORDER BY
-    "L3_ORG_NAME",
-    "COST_CATEGORY";
+ORDER BY "Q1_AMT" DESC;

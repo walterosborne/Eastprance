@@ -1,20 +1,42 @@
 SELECT
-    "ACCT_ID",
-    "ACCT_NAME",
-    "L1_ACCT_SEG_ID",
-    "L1_ACCT_NAME",
-    "L2_ACCT_SEG_ID",
-    "L2_ACCT_NAME",
-    "L3_ACCT_SEG_ID",
-    "L3_ACCT_NAME",
-    "L4_ACCT_SEG_ID",
-    "L4_ACCT_NAME",
-    "L5_ACCT_SEG_ID",
-    "L5_ACCT_NAME",
-    "L6_ACCT_SEG_ID",
-    "L6_ACCT_NAME",
-    "L7_ACCT_SEG_ID",
-    "L7_ACCT_NAME",
+    "FY_PD_NO_CD",
+
+    CASE
+        WHEN UPPER("ACCT_NAME") LIKE '%PROPERTY TAX%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%PROPERTY TAX%'
+            THEN 'Property Taxes'
+
+        WHEN UPPER("ACCT_NAME") LIKE '%UTILIT%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%UTILIT%'
+          OR UPPER("ACCT_NAME") LIKE '%LIGHT/POWER%'
+          OR UPPER("ACCT_NAME") LIKE '%HEATING FUEL%'
+            THEN 'Utilities'
+
+        WHEN UPPER("ACCT_NAME") LIKE '%MAINT%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%MAINT%'
+          OR UPPER("ACCT_NAME") LIKE '%REPAIR%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%REPAIR%'
+            THEN 'Maintenance & Repairs'
+
+        WHEN UPPER("ACCT_NAME") LIKE '%INSUR%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%INSUR%'
+            THEN 'Insurance'
+
+        WHEN UPPER("ACCT_NAME") LIKE '%LEASE EXP%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%LEASE EXP%'
+          OR UPPER("ACCT_NAME") LIKE '%RENT%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%RENT%'
+            THEN 'Rent - Land & Building'
+
+        WHEN UPPER("ACCT_NAME") LIKE '%DEPR%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%DEPR%'
+          OR UPPER("ACCT_NAME") LIKE '%LEASEHOLD IMPROV%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%LEASEHOLD IMPROV%'
+            THEN 'Depreciation & LHI'
+
+        ELSE 'Other'
+    END AS "COST_CATEGORY",
+
     COUNT(*) AS "ROW_COUNT",
     SUM("AMT") AS "AMT"
 
@@ -41,22 +63,61 @@ WHERE "CP_INSTANCE" = 'CPENT'
       'WS TPS'
   )
 
-GROUP BY
-    "ACCT_ID",
-    "ACCT_NAME",
-    "L1_ACCT_SEG_ID",
-    "L1_ACCT_NAME",
-    "L2_ACCT_SEG_ID",
-    "L2_ACCT_NAME",
-    "L3_ACCT_SEG_ID",
-    "L3_ACCT_NAME",
-    "L4_ACCT_SEG_ID",
-    "L4_ACCT_NAME",
-    "L5_ACCT_SEG_ID",
-    "L5_ACCT_NAME",
-    "L6_ACCT_SEG_ID",
-    "L6_ACCT_NAME",
-    "L7_ACCT_SEG_ID",
-    "L7_ACCT_NAME"
+  AND (
+      UPPER("ACCT_NAME") LIKE '%PROPERTY TAX%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%PROPERTY TAX%'
+      OR UPPER("ACCT_NAME") LIKE '%UTILIT%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%UTILIT%'
+      OR UPPER("ACCT_NAME") LIKE '%LIGHT/POWER%'
+      OR UPPER("ACCT_NAME") LIKE '%HEATING FUEL%'
+      OR UPPER("ACCT_NAME") LIKE '%MAINT%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%MAINT%'
+      OR UPPER("ACCT_NAME") LIKE '%REPAIR%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%REPAIR%'
+      OR UPPER("ACCT_NAME") LIKE '%INSUR%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%INSUR%'
+      OR UPPER("ACCT_NAME") LIKE '%LEASE EXP%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%LEASE EXP%'
+      OR UPPER("ACCT_NAME") LIKE '%RENT%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%RENT%'
+      OR UPPER("ACCT_NAME") LIKE '%DEPR%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%DEPR%'
+      OR UPPER("ACCT_NAME") LIKE '%LEASEHOLD IMPROV%'
+      OR UPPER("L3_ACCT_NAME") LIKE '%LEASEHOLD IMPROV%'
+  )
 
-ORDER BY "AMT" DESC;
+GROUP BY
+    "FY_PD_NO_CD",
+    CASE
+        WHEN UPPER("ACCT_NAME") LIKE '%PROPERTY TAX%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%PROPERTY TAX%'
+            THEN 'Property Taxes'
+        WHEN UPPER("ACCT_NAME") LIKE '%UTILIT%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%UTILIT%'
+          OR UPPER("ACCT_NAME") LIKE '%LIGHT/POWER%'
+          OR UPPER("ACCT_NAME") LIKE '%HEATING FUEL%'
+            THEN 'Utilities'
+        WHEN UPPER("ACCT_NAME") LIKE '%MAINT%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%MAINT%'
+          OR UPPER("ACCT_NAME") LIKE '%REPAIR%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%REPAIR%'
+            THEN 'Maintenance & Repairs'
+        WHEN UPPER("ACCT_NAME") LIKE '%INSUR%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%INSUR%'
+            THEN 'Insurance'
+        WHEN UPPER("ACCT_NAME") LIKE '%LEASE EXP%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%LEASE EXP%'
+          OR UPPER("ACCT_NAME") LIKE '%RENT%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%RENT%'
+            THEN 'Rent - Land & Building'
+        WHEN UPPER("ACCT_NAME") LIKE '%DEPR%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%DEPR%'
+          OR UPPER("ACCT_NAME") LIKE '%LEASEHOLD IMPROV%'
+          OR UPPER("L3_ACCT_NAME") LIKE '%LEASEHOLD IMPROV%'
+            THEN 'Depreciation & LHI'
+        ELSE 'Other'
+    END
+
+ORDER BY
+    "FY_PD_NO_CD",
+    "COST_CATEGORY";

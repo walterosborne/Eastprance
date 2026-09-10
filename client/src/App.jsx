@@ -1026,93 +1026,37 @@ function getHistoricalPerformanceStatus(metricKey, seriesValues) {
   };
 }
 
-function getEstimatedPerformanceStatus(metricKey, timeline, calculation, valueFormatter) {
-  const goalValue = Number(getMetricGoalLine(metricKey, timeline)?.value);
+function getEstimatedPerformanceStatus(calculation, valueFormatter) {
   const forecastValue = Number(calculation?.goalLine?.expectedValue);
 
-  if (!Number.isFinite(goalValue) || !Number.isFinite(forecastValue)) {
-    return {
-      tone: 'unavailable',
-      toneLabel: 'Unavailable',
-      detail: '--',
-      forecastValue: Number.isFinite(forecastValue) ? forecastValue : null,
-      goalValue: Number.isFinite(goalValue) ? goalValue : null
-    };
-  }
-
-  if (doesMetricMeetGoal(metricKey, forecastValue, goalValue)) {
-    return {
-      tone: 'dark-green',
-      toneLabel: 'Dark green',
-      detail: valueFormatter(forecastValue),
-      forecastValue,
-      goalValue
-    };
-  }
-
-  const targetMagnitude = Math.max(Math.abs(goalValue), 1);
-  const unfavorableDifference = LOWER_IS_BETTER_GOAL_METRICS.has(metricKey)
-    ? forecastValue - goalValue
-    : goalValue - forecastValue;
-  const unfavorableRatio = Math.max(0, unfavorableDifference / targetMagnitude);
-  let tone = 'dark-red';
-  let toneLabel = 'Dark red';
-
-  if (unfavorableRatio <= 0.05) {
-    tone = 'light-green';
-    toneLabel = 'Light green';
-  } else if (unfavorableRatio <= 0.1) {
-    tone = 'yellow';
-    toneLabel = 'Yellow';
-  } else if (unfavorableRatio <= 0.2) {
-    tone = 'light-red';
-    toneLabel = 'Light red';
-  }
-
   return {
-    tone,
-    toneLabel,
-    detail: valueFormatter(forecastValue),
-    forecastValue,
-    goalValue
+    tone: 'neutral',
+    toneLabel: 'Not scored',
+    detail: Number.isFinite(forecastValue) ? valueFormatter(forecastValue) : '--',
+    forecastValue: Number.isFinite(forecastValue) ? forecastValue : null
   };
 }
 
 function buildMetricPerformanceStatus({
   metricKey,
-  timeline,
-  timelineLabel,
   monthlyValues,
   forecastCalculation,
   valueFormatter
 }) {
   const historical = getHistoricalPerformanceStatus(metricKey, monthlyValues);
-  const estimated = getEstimatedPerformanceStatus(
-    metricKey,
-    timeline,
-    forecastCalculation,
-    valueFormatter
-  );
+  const estimated = getEstimatedPerformanceStatus(forecastCalculation, valueFormatter);
   const directionLabel = LOWER_IS_BETTER_GOAL_METRICS.has(metricKey)
     ? 'at or below'
     : 'at or above';
   const historicalTarget = historical.goalValue == null
     ? null
     : Number(historical.goalValue);
-  const estimatedTarget = estimated.goalValue == null
-    ? null
-    : Number(estimated.goalValue);
 
   return {
     historical,
     estimated,
     historicalTargetText: historicalTarget != null && Number.isFinite(historicalTarget)
       ? `${directionLabel} ${valueFormatter(historicalTarget)} per month`
-      : 'Unavailable',
-    estimatedTargetText: estimatedTarget != null && Number.isFinite(estimatedTarget)
-      ? `${directionLabel} ${valueFormatter(estimatedTarget)} for the selected ${String(
-        timelineLabel ?? timeline
-      ).toLowerCase()} view`
       : 'Unavailable'
   };
 }
@@ -3971,7 +3915,7 @@ function PerformanceIndicatorTooltipSection({ performanceStatus }) {
 
   return (
     <div className="metric-performance-info">
-      <p className="metric-performance-info-title">Performance to target</p>
+      <p className="metric-performance-info-title">Historical performance to target</p>
       <p>
         <strong>{PERFORMANCE_STATUS_LABELS.historical}</strong> compares the latest 12 valid
         completed monthly points with the hardcoded monthly target. Dark green = 9+ months met;
@@ -3980,16 +3924,6 @@ function PerformanceIndicatorTooltipSection({ performanceStatus }) {
       <p>
         Historical target: <strong>{performanceStatus.historicalTargetText}</strong>. Current
         status: <strong>{performanceStatus.historical.detail}</strong>.
-      </p>
-      <p>
-        <strong>{PERFORMANCE_STATUS_LABELS.estimated}</strong> compares the existing forecast
-        model&apos;s next-month estimate with the hardcoded target. Dark green meets target; light
-        green is within 5%; yellow is within 10%; light red is within 20%; dark red is more than
-        20% from target.
-      </p>
-      <p>
-        Estimated target: <strong>{performanceStatus.estimatedTargetText}</strong>. Forecast:
-        {' '}<strong>{performanceStatus.estimated.detail}</strong>.
       </p>
     </div>
   );

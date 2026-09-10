@@ -1476,6 +1476,7 @@ h1 {
   background: #991b1b;
 }
 
+.performance-neutral,
 .performance-unavailable {
   background: #94a3b8;
 }

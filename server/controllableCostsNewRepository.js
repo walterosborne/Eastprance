@@ -8,6 +8,10 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
+import {
+  normalizeCostCenter,
+  readCostCenterFacilityKey
+} from './costCenterFacilityKey.js';
 import { CONTROLLABLE_COSTS_NEW_DBM_QUERY } from './dbmQueries/controllableCostsNewQuery.js';
 import {
   formatSqlIdentifier,
@@ -24,7 +28,7 @@ const REQUIRED_COLUMNS = [
   'month',
   'division',
   'business_unit',
-  'facility',
+  'cost_center',
   'cost_category',
   'gl_account_cost_element',
   'cost_element_description',
@@ -180,13 +184,17 @@ async function readCostElementKeys() {
   };
 }
 
-export function normalizeControllableCostsNewRow(row) {
+export function normalizeControllableCostsNewRow(row, facilityKey = null) {
   const source = getNormalizedSourceRow(row);
   const year = normalizeNumber(source.year);
   const month = normalizeNumber(source.month);
   const cost = normalizeNumber(source.cost);
   const costCategory = normalizeText(source.cost_category) || 'Other';
   const costElement = normalizeText(source.gl_account_cost_element);
+  const costCenter = normalizeCostCenter(source.cost_center);
+  const facilityMapping = costCenter ? facilityKey?.lookup?.get(costCenter) : null;
+  const unmappedFacility = costCenter ? `Unmapped (CC ${costCenter})` : 'Unmapped';
+  const facility = facilityMapping?.address || unmappedFacility;
 
   if (
     !Number.isInteger(year)
@@ -205,9 +213,11 @@ export function normalizeControllableCostsNewRow(row) {
     quarter: `Q${Math.floor((month - 1) / 3) + 1}`,
     division: normalizeText(source.division),
     business_unit: normalizeText(source.business_unit),
-    facility: normalizeText(source.facility) || 'Unmapped',
-    address: normalizeText(source.facility) || 'Unmapped',
-    cost_center: normalizeText(source.cost_center),
+    facility,
+    address: facility,
+    facility_city: facilityMapping?.city || '',
+    facility_state: facilityMapping?.state || '',
+    cost_center: costCenter,
     cost_category: costCategory,
     cost_element: costElement,
     gl_account_cost_element: costElement,
@@ -217,6 +227,26 @@ export function normalizeControllableCostsNewRow(row) {
     cost,
     controllable: 'Unclassified'
   };
+}
+
+async function readControllableCostsFacilityKey() {
+  try {
+    return await readCostCenterFacilityKey();
+  } catch (error) {
+    logError(
+      'controllable-costs-new',
+      'New controllable costs will use unmapped facility labels where cost centers cannot be resolved.',
+      error
+    );
+
+    return {
+      lookup: new Map(),
+      fileName: null,
+      sheetName: null,
+      mappedCostCenterCount: 0,
+      error: error.message
+    };
+  }
 }
 
 async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
@@ -231,7 +261,15 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     );
   }
 
-  const normalizedRows = sourceRows.map(normalizeControllableCostsNewRow).filter(Boolean);
+  const facilityKey = await readControllableCostsFacilityKey();
+  const normalizedRows = sourceRows
+    .map((row) => normalizeControllableCostsNewRow(row, facilityKey))
+    .filter(Boolean);
+  const facilityEligibleRows = normalizedRows.filter((row) => row.cost_center);
+  const mappedFacilityRowCount = facilityEligibleRows.filter(
+    (row) => facilityKey.lookup.has(row.cost_center)
+      && Boolean(facilityKey.lookup.get(row.cost_center)?.address)
+  ).length;
   const costElementKeys = await readCostElementKeys();
   const rows = [];
   const unmatchedRows = [];
@@ -274,7 +312,16 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     rows,
     unmatchedRows,
     selectedKeyMatches,
-    costElementKeys
+    costElementKeys,
+    facilityMapping: {
+      source: facilityKey.fileName ?? null,
+      sheetName: facilityKey.sheetName ?? null,
+      mappedCostCenterCount: facilityKey.mappedCostCenterCount ?? 0,
+      eligibleRowCount: facilityEligibleRows.length,
+      mappedRowCount: mappedFacilityRowCount,
+      unmappedRowCount: facilityEligibleRows.length - mappedFacilityRowCount,
+      error: facilityKey.error ?? null
+    }
   };
 }
 
@@ -330,7 +377,8 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     normalizedRows,
     rows,
     unmatchedRows,
-    costElementKeys
+    costElementKeys,
+    facilityMapping
   } = pipeline;
   const years = Array.from(new Set(rows.map((row) => row.year)).values()).sort(
     (left, right) => left - right
@@ -361,6 +409,7 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     costElementKeyTableName: costElementKeys.tableName,
     costElementKeyRowCount: costElementKeys.rowCount,
     validCostElementCount: costElementKeys.valuesByIdentifier.size,
+    facilityMapping,
     years,
     totalCost,
     controllableRowCount,
@@ -386,6 +435,7 @@ function logControllableCostsNewPayload(payload, stopTimer) {
     costElementKeyRowCount: payload.costElementKeyRowCount,
     validCostElementCount: payload.validCostElementCount,
     costElementKeyTableName: payload.costElementKeyTableName,
+    facilityMapping: payload.facilityMapping,
     years: payload.years,
     totalCost: payload.totalCost,
     controllableRowCount: payload.controllableRowCount,

@@ -3559,7 +3559,7 @@ function ChartTypeToggleWithFilter({
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  placeholder={filterValue.length === 0 ? filterValueAllLabel : 'Search...'}
+                  placeholder={filterValue.length === 0 ? filterValueAllLabel : ''}
                   inputProps={{
                     ...params.inputProps,
                     'aria-label': filterValueAriaLabel

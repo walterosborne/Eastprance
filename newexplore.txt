@@ -2,10 +2,28 @@ WITH ERP AS (
     SELECT
         TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
         COUNT(*) AS ERP_Rows,
+        COUNT(DISTINCT [Cost Center]) AS Cost_Centers,
+
+        SUM(
+            CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) > 0
+                THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+                ELSE 0
+            END
+        ) AS Positive_Amount,
+
+        SUM(
+            CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) < 0
+                THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+                ELSE 0
+            END
+        ) AS Negative_Amount,
+
         SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
-            AS ERP_Net,
+            AS Net_Amount,
+
         SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
-            AS ERP_Gross
+            AS Gross_Activity
+
     FROM ecosystem_source.dbo.erpdata
     GROUP BY TRY_CONVERT(BIGINT, [G/L Account])
 ),
@@ -17,22 +35,9 @@ SAP AS (
       AND TRY_CONVERT(INT, POPER) BETWEEN 6 AND 8
 )
 SELECT
-    CASE
-        WHEN SAP.GL IS NULL THEN 'Missing from SAP'
-        ELSE 'Found in SAP'
-    END AS Match_Status,
-
-    COUNT(*) AS GL_Accounts,
-    SUM(ERP.ERP_Rows) AS ERP_Rows,
-    SUM(ERP.ERP_Net) AS ERP_Net,
-    SUM(ERP.ERP_Gross) AS ERP_Gross
-
+    ERP.*
 FROM ERP
 LEFT JOIN SAP
     ON ERP.GL = SAP.GL
-
-GROUP BY
-    CASE
-        WHEN SAP.GL IS NULL THEN 'Missing from SAP'
-        ELSE 'Found in SAP'
-    END;
+WHERE SAP.GL IS NULL
+ORDER BY ERP.Gross_Activity DESC;

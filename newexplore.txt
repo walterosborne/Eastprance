@@ -1,18 +1,14 @@
 SELECT
-    COLUMN_NAME,
-    DATA_TYPE
-FROM DTO_Business_Management.INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'src'
-  AND TABLE_NAME = 'rb_CVG_Transaction_Details_03'
-  AND (
-       COLUMN_NAME LIKE '%SL%'
-    OR COLUMN_NAME LIKE '%AMT%'
-    OR COLUMN_NAME LIKE '%AMOUNT%'
-    OR COLUMN_NAME LIKE '%DOC%'
-    OR COLUMN_NAME LIKE '%BELNR%'
-    OR COLUMN_NAME LIKE '%BUDAT%'
-    OR COLUMN_NAME LIKE '%BLART%'
-    OR COLUMN_NAME LIKE '%SGTXT%'
-    OR COLUMN_NAME LIKE '%BKTXT%'
-  )
-ORDER BY ORDINAL_POSITION;
+    [Fiscal Year Period],
+    COUNT(*) AS ERP_Rows,
+    COUNT(DISTINCT [Cost Center]) AS Cost_Centers,
+    COUNT(DISTINCT [G/L Account]) AS GL_Accounts,
+    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
+        AS Net_Amount,
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
+        AS Gross_Activity
+FROM ecosystem_source.dbo.erpdata
+GROUP BY [Fiscal Year Period]
+ORDER BY
+    TRY_CONVERT(INT, RIGHT([Fiscal Year Period], 4)),
+    TRY_CONVERT(INT, LEFT([Fiscal Year Period], 3));

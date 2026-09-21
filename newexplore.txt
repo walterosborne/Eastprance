@@ -1,66 +1,29 @@
 SELECT
-    t.RCNTR AS Cost_Center,
+    t.RACCT AS GL_Account,
+    MAX(t.GL_TXT20) AS Description,
+    COUNT(*) AS Transaction_Rows,
 
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4300591
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Real_Estate_Lease,
-
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4300625
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Variable_Rent_CAM,
-
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT)
-             IN (4300591, 4300625)
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Total_Rent,
-
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4301050
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS LHI_Amortization,
-
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4301049
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Machinery_Depreciation,
-
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4301048
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Facilities_Depreciation,
-
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4301102
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Electricity,
-
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4300703
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Janitorial
+    SUM(
+        TRY_CONVERT(DECIMAL(19,2), t.KSL)
+    ) AS Q1_Net
 
 FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
 WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
   AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-  AND LTRIM(RTRIM(t.RCNTR)) IN (
-      'TDA87R10',
-      'TDA87R20',
-      'TDA87R30',
-      'TDA87R40'
+  AND LTRIM(RTRIM(t.RCNTR)) = 'TDA87R40'
+
+  AND (
+      UPPER(t.GL_TXT20) LIKE '%RENT%'
+      OR UPPER(t.GL_TXT20) LIKE '%LEASE%'
+      OR UPPER(t.GL_TXT20) LIKE '%CAM%'
+      OR TRY_CONVERT(BIGINT, t.RACCT)
+          IN (4300591, 4300625)
   )
 
-GROUP BY t.RCNTR
-ORDER BY t.RCNTR;
+GROUP BY t.RACCT
+
+ORDER BY ABS(
+    SUM(TRY_CONVERT(DECIMAL(19,2), t.KSL))
+) DESC;

@@ -1,34 +1,34 @@
 SELECT
-    [Segment],
+    h.LEV03_DESC AS Division,
+    h.LEV04_DESC AS Business_Unit,
 
-    COUNT(*) AS Row_Count,
+    COUNT(*) AS Transaction_Rows,
+    COUNT(DISTINCT t.RCNTR) AS Cost_Centers,
 
-    SUM(TRY_CONVERT(DECIMAL(19,2), [Cost]))
-        AS Total_Cost,
+    SUM(
+        TRY_CONVERT(DECIMAL(19,2), t.KSL)
+    ) AS Net_Amount,
 
-    SUM(CASE
-        WHEN NULLIF(
-            LTRIM(RTRIM(CONVERT(VARCHAR(100), [Cost Element]))),
-            ''
-        ) IS NOT NULL
-        THEN TRY_CONVERT(DECIMAL(19,2), [Cost])
-        ELSE 0
-    END) AS Cost_With_Element,
+    SUM(
+        CASE
+            WHEN TRY_CONVERT(DECIMAL(19,2), t.KSL) > 0
+            THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+            ELSE 0
+        END
+    ) AS Positive_Amount
 
-    SUM(CASE
-        WHEN NULLIF(
-            LTRIM(RTRIM(CONVERT(VARCHAR(100), [Cost Element]))),
-            ''
-        ) IS NULL
-        THEN TRY_CONVERT(DECIMAL(19,2), [Cost])
-        ELSE 0
-    END) AS Cost_Without_Element
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
-FROM ecosystem_source.qmi.controllable_costs
+JOIN DTO_Business_Management.rpt.rb_load_cost_center_hierarchy h
+    ON LTRIM(RTRIM(t.RCNTR))
+     = LTRIM(RTRIM(h.COST_CENTER))
 
-WHERE [Quarter] = 'Q1'
-  AND [Year] = 2026
+WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+  AND h.LEV02 = 'NGRBT'
 
-GROUP BY [Segment]
+GROUP BY
+    h.LEV03_DESC,
+    h.LEV04_DESC
 
-ORDER BY Total_Cost DESC;
+ORDER BY Positive_Amount DESC;

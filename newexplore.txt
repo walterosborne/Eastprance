@@ -1,40 +1,13 @@
--- ERP: Priscilla's extract
 SELECT
-    'ERP' AS Source,
+    [Year],
+    [Quarter],
     COUNT(*) AS Row_Count,
-    COUNT(DISTINCT [Cost Center]) AS Cost_Centers,
-    COUNT(DISTINCT [G/L Account]) AS GL_Accounts,
-    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])) AS Net_Amount,
-    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))) AS Gross_Activity
-
-FROM ecosystem_source.dbo.erpdata e
-
-WHERE [Fiscal Year Period] = '008/2026'
-  AND EXISTS (
-      SELECT 1
-      FROM ecosystem_source.qmi.costcenterkey k
-      WHERE LTRIM(RTRIM(k.[Cost Center]))
-          = LTRIM(RTRIM(e.[Cost Center]))
-  )
-
-UNION ALL
-
--- SAP: same cost centers, all G/L accounts
-SELECT
-    'SAP' AS Source,
-    COUNT(*) AS Row_Count,
-    COUNT(DISTINCT RCNTR) AS Cost_Centers,
-    COUNT(DISTINCT RACCT) AS GL_Accounts,
-    SUM(TRY_CONVERT(DECIMAL(19,2), KSL)) AS Net_Amount,
-    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL))) AS Gross_Activity
-
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 s
-
-WHERE TRY_CONVERT(INT, GJAHR) = 2026
-  AND TRY_CONVERT(INT, POPER) = 8
-  AND EXISTS (
-      SELECT 1
-      FROM ecosystem_source.qmi.costcenterkey k
-      WHERE LTRIM(RTRIM(k.[Cost Center]))
-          = LTRIM(RTRIM(s.RCNTR))
-  );
+    SUM(TRY_CONVERT(DECIMAL(19,2), [Cost])) AS Total_Cost
+FROM ecosystem_source.qmi.controllable_costs
+WHERE TRY_CONVERT(INT, [Year]) = 2025
+   OR (
+       TRY_CONVERT(INT, [Year]) = 2026
+       AND [Quarter] IN ('Q1', 'Q2')
+   )
+GROUP BY [Year], [Quarter]
+ORDER BY [Year], [Quarter];

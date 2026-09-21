@@ -1,57 +1,60 @@
-WITH Facilities AS (
-    SELECT DISTINCT
-        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
-        CC_DESCRIPTION AS Cost_Center_Name
+WITH SDS AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
+        MAX(CC_DESCRIPTION) AS Cost_Center_Name
     FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
     WHERE LEV02 = 'NGRBT'
       AND LEV03_DESC = 'DS Strategic Deterrent Systems'
-      AND (
-          UPPER(CC_DESCRIPTION) LIKE '%CHEYENNE%'
-          OR UPPER(CC_DESCRIPTION) LIKE '%888%UNIVERSITY%'
-      )
+    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+),
+
+Unmapped AS (
+    SELECT
+        h.CC,
+        h.Cost_Center_Name
+    FROM SDS h
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM ecosystem_source.qmi.costcenterkey k
+        WHERE UPPER(LTRIM(RTRIM(k.[Cost Center]))) = h.CC
+    )
 )
 
-SELECT
-    f.Cost_Center,
-    f.Cost_Center_Name,
+SELECT TOP (30)
+    u.CC AS Cost_Center,
+    u.Cost_Center_Name,
 
-    COUNT(t.RCNTR) AS Transaction_Rows,
+    COUNT(*) AS Transaction_Rows,
 
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT)
-             IN (4300591, 4300625)
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Rent,
+    SUM(
+        TRY_CONVERT(DECIMAL(19,2), t.KSL)
+    ) AS Q1_Selected_Cost
 
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT)
-             IN (4301050, 4301049, 4301048)
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Depreciation_LHI,
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4301102
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Electricity,
+JOIN Unmapped u
+    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = u.CC
 
-    SUM(CASE
-        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4300703
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ELSE 0
-    END) AS Janitorial
+WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-FROM Facilities f
-
-LEFT JOIN DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-    ON LTRIM(RTRIM(t.RCNTR)) = f.Cost_Center
-   AND TRY_CONVERT(INT, t.GJAHR) = 2026
-   AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+  AND TRY_CONVERT(BIGINT, t.RACCT) IN (
+      4300591,  -- Real estate lease
+      4300625,  -- Variable rent / CAM
+      4301050,  -- LHI amortization
+      4301049,  -- Machinery depreciation
+      4301102,  -- Electricity
+      4300703   -- Janitorial
+  )
 
 GROUP BY
-    f.Cost_Center,
-    f.Cost_Center_Name
+    u.CC,
+    u.Cost_Center_Name
 
-ORDER BY f.Cost_Center_Name, f.Cost_Center;
+HAVING SUM(
+    TRY_CONVERT(DECIMAL(19,2), t.KSL)
+) <> 0
+
+ORDER BY ABS(
+    SUM(TRY_CONVERT(DECIMAL(19,2), t.KSL))
+) DESC;

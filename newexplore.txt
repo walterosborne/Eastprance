@@ -1,51 +1,56 @@
-WITH Centers AS (
-    SELECT Cost_Center
-    FROM (VALUES
-        ('TDA87H20'), ('TDA87VU0'), ('TDB84UVP'),
-        ('TDA87WY0'), ('TDB84WYC'),
-        ('TDA87HN0'), ('TDB84HUN'),
-        ('TDA87KE0'), ('TDB84KEM'),
-        ('TDB84MNO'),
-        ('TDA87OM0'),
-        ('TDA87FO0'), ('TDB84FCO'),
-        ('TDB84FAC'), ('TDA87FC0'),
-        ('TDA87SR0'), ('TDB84SUR'),
-        ('TDA87UK0'), ('TDB84UKD')
-    ) v(Cost_Center)
-),
-
-Hierarchy AS (
-    SELECT
-        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
-        MAX(CC_DESCRIPTION) AS Cost_Center_Name
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    WHERE LEV02 = 'NGRBT'
-      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
-    GROUP BY LTRIM(RTRIM(COST_CENTER))
-),
-
-Activity AS (
-    SELECT
-        LTRIM(RTRIM(RCNTR)) AS Cost_Center,
-        COUNT(*) AS SAP_Rows,
-        COUNT(DISTINCT RACCT) AS GL_Accounts,
-        SUM(TRY_CONVERT(DECIMAL(19,2), KSL))
-            AS Net_Amount
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
-    WHERE TRY_CONVERT(INT, GJAHR) = 2026
-      AND TRY_CONVERT(INT, POPER) BETWEEN 1 AND 3
-    GROUP BY LTRIM(RTRIM(RCNTR))
-)
-
 SELECT
-    c.Cost_Center,
-    h.Cost_Center_Name,
-    COALESCE(a.SAP_Rows, 0) AS SAP_Rows,
-    COALESCE(a.GL_Accounts, 0) AS GL_Accounts,
-    COALESCE(a.Net_Amount, 0) AS Net_Amount
-FROM Centers c
-LEFT JOIN Hierarchy h
-    ON c.Cost_Center = h.Cost_Center
-LEFT JOIN Activity a
-    ON c.Cost_Center = a.Cost_Center
-ORDER BY h.Cost_Center_Name, c.Cost_Center;
+    LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+
+    MAX(h.CC_DESCRIPTION) AS Cost_Center_Name,
+
+    SUM(CASE
+        WHEN TRY_CONVERT(BIGINT, t.RACCT)
+             IN (4300591, 4300625)
+        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ELSE 0
+    END) AS Rent,
+
+    SUM(CASE
+        WHEN TRY_CONVERT(BIGINT, t.RACCT)
+             IN (4301050, 4301049, 4301048)
+        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ELSE 0
+    END) AS Depreciation_LHI,
+
+    SUM(CASE
+        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4301102
+        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ELSE 0
+    END) AS Electricity,
+
+    SUM(CASE
+        WHEN TRY_CONVERT(BIGINT, t.RACCT) = 4300703
+        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ELSE 0
+    END) AS Janitorial
+
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
+LEFT JOIN (
+    SELECT
+        COST_CENTER,
+        MAX(CC_DESCRIPTION) AS CC_DESCRIPTION
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    GROUP BY COST_CENTER
+) h
+    ON LTRIM(RTRIM(t.RCNTR))
+     = LTRIM(RTRIM(h.COST_CENTER))
+
+WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+
+  AND LTRIM(RTRIM(t.RCNTR)) IN (
+      'TDA87HN0',
+      'TDB84HUN',
+      'TDA87OM0',
+      'TDA87H20'
+  )
+
+GROUP BY LTRIM(RTRIM(t.RCNTR))
+
+ORDER BY Cost_Center;

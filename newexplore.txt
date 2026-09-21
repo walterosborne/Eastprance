@@ -1,36 +1,40 @@
-DECLARE @CostCenter VARCHAR(100) = 'PUT_COST_CENTER_HERE';
-
 SELECT
-    TRY_CONVERT(INT, GJAHR) AS [Year],
-    TRY_CONVERT(INT, POPER) AS [Month],
+    [Fiscal Year],
+    [Period],
 
-    COUNT(*) AS SAP_Rows,
-    COUNT(DISTINCT RACCT) AS GL_Count,
+    COUNT(*) AS ERP_Rows,
+    COUNT(DISTINCT [G/L Account]) AS GL_Count,
 
     SUM(
-        CASE WHEN TRY_CONVERT(DECIMAL(19,2), KSL) > 0
-        THEN TRY_CONVERT(DECIMAL(19,2), KSL)
-        ELSE 0 END
+        CASE
+            WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) > 0
+            THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+            ELSE 0
+        END
     ) AS Positive_Amount,
 
     SUM(
-        CASE WHEN TRY_CONVERT(DECIMAL(19,2), KSL) < 0
-        THEN TRY_CONVERT(DECIMAL(19,2), KSL)
-        ELSE 0 END
+        CASE
+            WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) < 0
+            THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+            ELSE 0
+        END
     ) AS Negative_Amount,
 
-    SUM(TRY_CONVERT(DECIMAL(19,2), KSL))
+    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
         AS Net_Amount,
 
-    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
         AS Gross_Activity
 
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+FROM ecosystem_source.dbo.erpdata
 
-WHERE LTRIM(RTRIM(RCNTR)) = @CostCenter
+WHERE LTRIM(RTRIM([Cost Center])) = 'TDA84LF0'
 
 GROUP BY
-    TRY_CONVERT(INT, GJAHR),
-    TRY_CONVERT(INT, POPER)
+    [Fiscal Year],
+    [Period]
 
-ORDER BY [Year], [Month];
+ORDER BY
+    [Fiscal Year],
+    [Period];

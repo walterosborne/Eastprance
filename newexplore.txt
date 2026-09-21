@@ -1,25 +1,30 @@
-SELECT
-    TRY_CONVERT(INT, GJAHR) AS [Year],
-    TRY_CONVERT(INT, POPER) AS [Month],
+SELECT TOP (10)
+    [Cost Center],
+    MAX([Cost Center Name]) AS Cost_Center_Name,
 
-    COUNT(*) AS Row_Count,
+    COUNT(*) AS ERP_Rows,
+    COUNT(DISTINCT [G/L Account]) AS GL_Count,
 
-    COUNT(DISTINCT RCNTR) AS Cost_Center_Count,
-    COUNT(DISTINCT RACCT) AS GL_Account_Count,
+    SUM(
+        CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) > 0
+        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+        ELSE 0 END
+    ) AS Positive_Amount,
 
-    SUM(TRY_CONVERT(DECIMAL(19,2), KSL)) AS Net_Amount,
+    SUM(
+        CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) < 0
+        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+        ELSE 0 END
+    ) AS Negative_Amount,
 
-    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
+    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
+        AS Net_Amount,
+
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
         AS Gross_Activity
 
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+FROM ecosystem_source.dbo.erpdata
 
-WHERE TRY_CONVERT(INT, GJAHR) >= 2025
+GROUP BY [Cost Center]
 
-GROUP BY
-    TRY_CONVERT(INT, GJAHR),
-    TRY_CONVERT(INT, POPER)
-
-ORDER BY
-    [Year],
-    [Month];
+ORDER BY Gross_Activity DESC;

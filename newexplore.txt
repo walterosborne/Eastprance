@@ -1,14 +1,53 @@
+WITH ERP AS (
+    SELECT
+        [Fiscal Year Period] AS Period,
+        COUNT(*) AS ERP_Rows,
+        SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
+            AS ERP_Amount
+    FROM ecosystem_source.dbo.erpdata
+    WHERE LTRIM(RTRIM([Cost Center])) = 'TDA84LF0'
+      AND TRY_CONVERT(BIGINT, [G/L Account]) = 4300651
+    GROUP BY [Fiscal Year Period]
+),
+SAP AS (
+    SELECT
+        RIGHT(
+            '000' + CONVERT(VARCHAR(3), TRY_CONVERT(INT, POPER)),
+            3
+        ) + '/' + CONVERT(VARCHAR(4), TRY_CONVERT(INT, GJAHR))
+            AS Period,
+
+        COUNT(*) AS SAP_Rows,
+
+        SUM(TRY_CONVERT(DECIMAL(19,2), KSL))
+            AS SAP_Amount
+
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+
+    WHERE LTRIM(RTRIM(RCNTR)) = 'TDA84LF0'
+      AND TRY_CONVERT(BIGINT, RACCT) = 4300651
+      AND TRY_CONVERT(INT, GJAHR) >= 2025
+
+    GROUP BY
+        TRY_CONVERT(INT, GJAHR),
+        TRY_CONVERT(INT, POPER)
+)
+
 SELECT
-    [Fiscal Year Period],
-    COUNT(*) AS ERP_Rows,
-    COUNT(DISTINCT [Cost Center]) AS Cost_Centers,
-    COUNT(DISTINCT [G/L Account]) AS GL_Accounts,
-    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
-        AS Net_Amount,
-    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
-        AS Gross_Activity
-FROM ecosystem_source.dbo.erpdata
-GROUP BY [Fiscal Year Period]
+    COALESCE(E.Period, S.Period) AS Period,
+    E.ERP_Rows,
+    S.SAP_Rows,
+    E.ERP_Amount,
+    S.SAP_Amount,
+
+    E.ERP_Amount - S.SAP_Amount AS Difference
+
+FROM ERP E
+FULL OUTER JOIN SAP S
+    ON E.Period = S.Period
+
+WHERE COALESCE(E.Period, S.Period) >= '001/2025'
+
 ORDER BY
-    TRY_CONVERT(INT, RIGHT([Fiscal Year Period], 4)),
-    TRY_CONVERT(INT, LEFT([Fiscal Year Period], 3));
+    RIGHT(COALESCE(E.Period, S.Period), 4),
+    LEFT(COALESCE(E.Period, S.Period), 3);

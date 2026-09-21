@@ -225,7 +225,7 @@ export function normalizeControllableCostsNewRow(row, facilityKey = null) {
     cost_type: normalizeText(source.cost_type),
     facility_type: normalizeText(source.facility_type),
     cost,
-    controllable: 'Unclassified'
+    controllable: null
   };
 }
 
@@ -272,15 +272,14 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
   ).length;
   const costElementKeys = await readCostElementKeys();
   const rows = [];
-  const unmatchedRows = [];
+  const excludedRows = [];
   const selectedKeyMatches = [];
 
   normalizedRows.forEach((row) => {
     const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
 
     if (!matchedKey) {
-      unmatchedRows.push(row);
-      rows.push(row);
+      excludedRows.push(row);
       return;
     }
 
@@ -310,7 +309,7 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     sourceRows,
     normalizedRows,
     rows,
-    unmatchedRows,
+    excludedRows,
     selectedKeyMatches,
     costElementKeys,
     facilityMapping: {
@@ -376,7 +375,7 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     sourceRows,
     normalizedRows,
     rows,
-    unmatchedRows,
+    excludedRows,
     costElementKeys,
     facilityMapping
   } = pipeline;
@@ -390,9 +389,6 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
   const uncontrollableRowCount = rows.filter(
     (row) => row.controllable === 'Uncontrollable'
   ).length;
-  const unclassifiedRowCount = rows.filter(
-    (row) => row.controllable === 'Unclassified'
-  ).length;
 
   return {
     source: fallbackReason ? 'excel-fallback' : source,
@@ -404,8 +400,8 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     sourceRowCount: sourceRows.length,
     rowCount: rows.length,
     invalidRowCount: sourceRows.length - normalizedRows.length,
-    excludedByCostElementKeyCount: 0,
-    unclassifiedByCostElementKeyCount: unmatchedRows.length,
+    excludedByCostElementKeyCount: excludedRows.length,
+    unclassifiedByCostElementKeyCount: 0,
     costElementKeyTableName: costElementKeys.tableName,
     costElementKeyRowCount: costElementKeys.rowCount,
     validCostElementCount: costElementKeys.valuesByIdentifier.size,
@@ -414,7 +410,7 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     totalCost,
     controllableRowCount,
     uncontrollableRowCount,
-    unclassifiedRowCount,
+    unclassifiedRowCount: 0,
     rows
   };
 }

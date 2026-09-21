@@ -1,57 +1,102 @@
-WITH ERP AS (
-    SELECT
-        TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
-        COUNT(*) AS ERP_Rows,
-        SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
-            AS ERP_Net,
-        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
-            AS ERP_Gross
-    FROM ecosystem_source.dbo.erpdata
-    WHERE [Fiscal Year Period] = '001/2026'
-      AND LTRIM(RTRIM([Cost Center])) = 'TDA84AB0'
-    GROUP BY TRY_CONVERT(BIGINT, [G/L Account])
+WITH KeyCenters AS (
+    SELECT DISTINCT
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
+    FROM ecosystem_source.qmi.costcenterkey
 ),
 
-SAP AS (
+Transactions AS (
     SELECT
+        'ERP' AS Source,
+        TRY_CONVERT(
+            INT,
+            LEFT([Fiscal Year Period], 3)
+        ) AS Month,
+        TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
+        TRY_CONVERT(
+            DECIMAL(19,2),
+            [Actual Amount]
+        ) AS Amount
+    FROM ecosystem_source.dbo.erpdata e
+    WHERE [Fiscal Year Period] IN (
+        '001/2026', '002/2026', '003/2026'
+    )
+      AND EXISTS (
+          SELECT 1
+          FROM KeyCenters k
+          WHERE k.CC =
+              UPPER(LTRIM(RTRIM(e.[Cost Center])))
+      )
+
+    UNION ALL
+
+    SELECT
+        'SAP' AS Source,
+        TRY_CONVERT(INT, POPER) AS Month,
         TRY_CONVERT(BIGINT, RACCT) AS GL,
-        COUNT(*) AS SAP_Rows,
-        SUM(TRY_CONVERT(DECIMAL(19,2), KSL))
-            AS SAP_Net,
-        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
-            AS SAP_Gross
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+        TRY_CONVERT(DECIMAL(19,2), KSL) AS Amount
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 s
     WHERE TRY_CONVERT(INT, GJAHR) = 2026
-      AND TRY_CONVERT(INT, POPER) = 1
-      AND LTRIM(RTRIM(RCNTR)) = 'TDA84AB0'
-    GROUP BY TRY_CONVERT(BIGINT, RACCT)
+      AND TRY_CONVERT(INT, POPER) BETWEEN 1 AND 3
+      AND EXISTS (
+          SELECT 1
+          FROM KeyCenters k
+          WHERE k.CC =
+              UPPER(LTRIM(RTRIM(s.RCNTR)))
+      )
 )
 
 SELECT
-    COALESCE(e.GL, s.GL) AS GL,
-    e.ERP_Rows,
-    s.SAP_Rows,
-    e.ERP_Net,
-    s.SAP_Net,
-    e.ERP_Gross,
-    s.SAP_Gross,
-
-    COALESCE(e.ERP_Gross, 0)
-      - COALESCE(s.SAP_Gross, 0)
-        AS Gross_Difference,
-
     CASE
-        WHEN e.GL IS NULL THEN 'SAP only'
-        WHEN s.GL IS NULL THEN 'ERP only'
-        ELSE 'Both'
-    END AS Match_Status
+        WHEN GROUPING(Month) = 1 THEN 'Q1 TOTAL'
+        ELSE CONCAT('Month ', Month)
+    END AS Period,
 
-FROM ERP e
-FULL OUTER JOIN SAP s
-    ON e.GL = s.GL
+    SUM(CASE
+        WHEN Source = 'ERP'
+        THEN ABS(Amount)
+        ELSE 0
+    END) AS ERP_Gross_All,
 
-ORDER BY
-    ABS(
-        COALESCE(e.ERP_Gross, 0)
-        - COALESCE(s.SAP_Gross, 0)
-    ) DESC;
+    SUM(CASE
+        WHEN Source = 'ERP'
+         AND GL = 8999999
+        THEN ABS(Amount)
+        ELSE 0
+    END) AS ERP_8999999_Gross,
+
+    SUM(CASE
+        WHEN Source = 'ERP'
+         AND (GL <> 8999999 OR GL IS NULL)
+        THEN ABS(Amount)
+        ELSE 0
+    END) AS ERP_Gross_Excluding_8999999,
+
+    SUM(CASE
+        WHEN Source = 'SAP'
+         AND (GL <> 8999999 OR GL IS NULL)
+        THEN ABS(Amount)
+        ELSE 0
+    END) AS SAP_Gross_Excluding_8999999,
+
+    SUM(CASE
+        WHEN Source = 'ERP'
+         AND (GL <> 8999999 OR GL IS NULL)
+        THEN Amount
+        ELSE 0
+    END) AS ERP_Net_Excluding_8999999,
+
+    SUM(CASE
+        WHEN Source = 'SAP'
+         AND (GL <> 8999999 OR GL IS NULL)
+        THEN Amount
+        ELSE 0
+    END) AS SAP_Net_Excluding_8999999
+
+FROM Transactions
+
+GROUP BY GROUPING SETS (
+    (Month),
+    ()
+)
+
+ORDER BY GROUPING(Month), Month;

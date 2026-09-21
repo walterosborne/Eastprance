@@ -1,45 +1,46 @@
 SELECT
-    RACCT AS GL_Account,
-    GL_TXT20 AS GL_Description,
-    ACCT_LEVEL02_TEXT,
-    ACCT_LEVEL03_TEXT,
+    'ERP' AS Source,
+    TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
 
     COUNT(*) AS Row_Count,
+    COUNT(DISTINCT [Cost Center]) AS Cost_Centers,
 
-    SUM(
-        CASE
-            WHEN TRY_CONVERT(DECIMAL(19,2), KSL) > 0
-            THEN TRY_CONVERT(DECIMAL(19,2), KSL)
-            ELSE 0
-        END
-    ) AS Positive_Amount,
+    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
+        AS Net_Amount,
 
-    SUM(
-        CASE
-            WHEN TRY_CONVERT(DECIMAL(19,2), KSL) < 0
-            THEN TRY_CONVERT(DECIMAL(19,2), KSL)
-            ELSE 0
-        END
-    ) AS Negative_Amount,
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
+        AS Gross_Activity
+
+FROM ecosystem_source.dbo.erpdata
+
+WHERE [Fiscal Year Period] = '008/2026'
+  AND TRY_CONVERT(BIGINT, [G/L Account])
+      IN (4300591, 8320585)
+
+GROUP BY TRY_CONVERT(BIGINT, [G/L Account])
+
+UNION ALL
+
+SELECT
+    'SAP' AS Source,
+    TRY_CONVERT(BIGINT, RACCT) AS GL,
+
+    COUNT(*) AS Row_Count,
+    COUNT(DISTINCT RCNTR) AS Cost_Centers,
 
     SUM(TRY_CONVERT(DECIMAL(19,2), KSL))
-        AS Net_Amount
+        AS Net_Amount,
+
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
+        AS Gross_Activity
 
 FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
 
-WHERE LTRIM(RTRIM(RCNTR)) = 'TDA84LF0'
-  AND TRY_CONVERT(INT, GJAHR) = 2026
+WHERE TRY_CONVERT(INT, GJAHR) = 2026
   AND TRY_CONVERT(INT, POPER) = 8
-  AND TRY_CONVERT(BIGINT, RACCT) IN (
-      8320585,
-      4300591
-  )
+  AND TRY_CONVERT(BIGINT, RACCT)
+      IN (4300591, 8320585)
 
-GROUP BY
-    RACCT,
-    GL_TXT20,
-    ACCT_LEVEL02_TEXT,
-    ACCT_LEVEL03_TEXT
+GROUP BY TRY_CONVERT(BIGINT, RACCT)
 
-ORDER BY
-    RACCT;
+ORDER BY GL, Source;

@@ -1,43 +1,28 @@
-WITH ERP AS (
-    SELECT
-        TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
-        COUNT(*) AS ERP_Rows,
-        SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
-            AS ERP_Net,
-        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
-            AS ERP_Gross
-    FROM ecosystem_source.dbo.erpdata
-    WHERE [Cost Center] = 'TDA84LF0'
-      AND [Fiscal Year Period] = '008/2026'
-    GROUP BY TRY_CONVERT(BIGINT, [G/L Account])
-),
-SAP AS (
-    SELECT
-        TRY_CONVERT(BIGINT, RACCT) AS GL,
-        MAX(GL_TXT20) AS GL_Description,
-        MAX(ACCT_LEVEL02_TEXT) AS Account_Level_02,
-        MAX(ACCT_LEVEL03_TEXT) AS Account_Level_03,
-        COUNT(*) AS SAP_Rows,
-        SUM(TRY_CONVERT(DECIMAL(19,2), KSL)) AS SAP_Net,
-        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
-            AS SAP_Gross
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
-    WHERE RCNTR = 'TDA84LF0'
-      AND TRY_CONVERT(INT, GJAHR) = 2026
-      AND TRY_CONVERT(INT, POPER) = 8
-    GROUP BY TRY_CONVERT(BIGINT, RACCT)
-)
+-- ERP
 SELECT
-    E.GL,
-    S.GL_Description,
-    S.Account_Level_02,
-    S.Account_Level_03,
-    E.ERP_Rows,
-    S.SAP_Rows,
-    E.ERP_Net,
-    S.SAP_Net,
-    E.ERP_Gross,
-    S.SAP_Gross
-FROM ERP E
-LEFT JOIN SAP S ON E.GL = S.GL
-ORDER BY E.ERP_Gross DESC;
+    [Fiscal Year Period],
+    [Cost Center],
+    [G/L Account],
+    [Actual Amount]
+FROM ecosystem_source.dbo.erpdata
+WHERE LTRIM(RTRIM([Cost Center])) = 'TDA84LF0'
+  AND [Fiscal Year Period] = '008/2026'
+  AND TRY_CONVERT(BIGINT, [G/L Account]) = 4300651;
+
+
+-- SAP
+SELECT
+    GJAHR,
+    POPER,
+    RCNTR,
+    RACCT,
+    GL_TXT20,
+    ACCT_LEVEL02_TEXT,
+    ACCT_LEVEL03_TEXT,
+    KSL
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+WHERE LTRIM(RTRIM(RCNTR)) = 'TDA84LF0'
+  AND TRY_CONVERT(INT, GJAHR) = 2026
+  AND TRY_CONVERT(INT, POPER) = 8
+  AND TRY_CONVERT(BIGINT, RACCT) = 4300651
+ORDER BY TRY_CONVERT(DECIMAL(19,2), KSL) DESC;

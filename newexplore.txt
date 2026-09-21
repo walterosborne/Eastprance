@@ -2,21 +2,33 @@ WITH KeyCenters AS (
     SELECT DISTINCT
         UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
     FROM ecosystem_source.qmi.costcenterkey
-    WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
 ),
 
-Transactions AS (
+ERP AS (
     SELECT
-        'ERP' AS Source,
+        TRY_CONVERT(
+            INT,
+            LEFT(e.[Fiscal Year Period], 3)
+        ) AS Month,
+
         UPPER(LTRIM(RTRIM(e.[Cost Center]))) AS CC,
-        TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount]) AS Amount
+
+        COUNT(*) AS ERP_Rows,
+
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount])
+        ) AS ERP_Net,
+
+        SUM(
+            ABS(TRY_CONVERT(
+                DECIMAL(19,2), e.[Actual Amount]
+            ))
+        ) AS ERP_Gross
 
     FROM ecosystem_source.dbo.erpdata e
 
     WHERE e.[Fiscal Year Period] IN (
-        '001/2026',
-        '002/2026',
-        '003/2026'
+        '001/2026', '002/2026', '003/2026'
     )
 
     AND EXISTS (
@@ -26,12 +38,29 @@ Transactions AS (
             UPPER(LTRIM(RTRIM(e.[Cost Center])))
     )
 
-    UNION ALL
+    GROUP BY
+        TRY_CONVERT(
+            INT,
+            LEFT(e.[Fiscal Year Period], 3)
+        ),
+        UPPER(LTRIM(RTRIM(e.[Cost Center])))
+),
 
+SAP AS (
     SELECT
-        'SAP' AS Source,
+        TRY_CONVERT(INT, s.POPER) AS Month,
+
         UPPER(LTRIM(RTRIM(s.RCNTR))) AS CC,
-        TRY_CONVERT(DECIMAL(19,2), s.KSL) AS Amount
+
+        COUNT(*) AS SAP_Rows,
+
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), s.KSL)
+        ) AS SAP_Net,
+
+        SUM(
+            ABS(TRY_CONVERT(DECIMAL(19,2), s.KSL))
+        ) AS SAP_Gross
 
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 s
 
@@ -44,28 +73,37 @@ Transactions AS (
           WHERE k.CC =
               UPPER(LTRIM(RTRIM(s.RCNTR)))
       )
+
+    GROUP BY
+        TRY_CONVERT(INT, s.POPER),
+        UPPER(LTRIM(RTRIM(s.RCNTR)))
 )
 
-SELECT
-    Source,
-    COUNT(*) AS Row_Count,
-    COUNT(DISTINCT CC) AS Cost_Centers,
+SELECT TOP (30)
+    COALESCE(e.Month, s.Month) AS Month,
+    COALESCE(e.CC, s.CC) AS Cost_Center,
 
-    SUM(CASE
-        WHEN Amount > 0 THEN Amount
-        ELSE 0
-    END) AS Positive_Amount,
+    e.ERP_Rows,
+    s.SAP_Rows,
 
-    SUM(CASE
-        WHEN Amount < 0 THEN ABS(Amount)
-        ELSE 0
-    END) AS Negative_Absolute,
+    e.ERP_Net,
+    s.SAP_Net,
 
-    SUM(Amount) AS Net_Amount,
+    e.ERP_Gross,
+    s.SAP_Gross,
 
-    SUM(ABS(Amount)) AS Gross_Activity
+    COALESCE(e.ERP_Gross, 0)
+      - COALESCE(s.SAP_Gross, 0)
+        AS Gross_Difference
 
-FROM Transactions
+FROM ERP e
 
-GROUP BY Source
-ORDER BY Source;
+FULL OUTER JOIN SAP s
+    ON e.Month = s.Month
+   AND e.CC = s.CC
+
+ORDER BY
+    ABS(
+        COALESCE(e.ERP_Gross, 0)
+        - COALESCE(s.SAP_Gross, 0)
+    ) DESC;

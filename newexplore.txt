@@ -1,43 +1,25 @@
-WITH ERP AS (
-    SELECT
-        TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
-        COUNT(*) AS ERP_Rows,
-        COUNT(DISTINCT [Cost Center]) AS Cost_Centers,
-
-        SUM(
-            CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) > 0
-                THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
-                ELSE 0
-            END
-        ) AS Positive_Amount,
-
-        SUM(
-            CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) < 0
-                THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
-                ELSE 0
-            END
-        ) AS Negative_Amount,
-
-        SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
-            AS Net_Amount,
-
-        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
-            AS Gross_Activity
-
-    FROM ecosystem_source.dbo.erpdata
-    GROUP BY TRY_CONVERT(BIGINT, [G/L Account])
-),
-SAP AS (
-    SELECT DISTINCT
-        TRY_CONVERT(BIGINT, RACCT) AS GL
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
-    WHERE TRY_CONVERT(INT, GJAHR) = 2026
-      AND TRY_CONVERT(INT, POPER) BETWEEN 6 AND 8
-)
 SELECT
-    ERP.*
-FROM ERP
-LEFT JOIN SAP
-    ON ERP.GL = SAP.GL
-WHERE SAP.GL IS NULL
-ORDER BY ERP.Gross_Activity DESC;
+    TRY_CONVERT(INT, GJAHR) AS [Year],
+    TRY_CONVERT(INT, POPER) AS [Month],
+
+    COUNT(*) AS Row_Count,
+
+    COUNT(DISTINCT RCNTR) AS Cost_Center_Count,
+    COUNT(DISTINCT RACCT) AS GL_Account_Count,
+
+    SUM(TRY_CONVERT(DECIMAL(19,2), KSL)) AS Net_Amount,
+
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
+        AS Gross_Activity
+
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+
+WHERE TRY_CONVERT(INT, GJAHR) >= 2025
+
+GROUP BY
+    TRY_CONVERT(INT, GJAHR),
+    TRY_CONVERT(INT, POPER)
+
+ORDER BY
+    [Year],
+    [Month];

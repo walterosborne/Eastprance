@@ -1,13 +1,33 @@
-SELECT
-    h.LEV03_DESC AS Division,
-    h.LEV04_DESC AS Business_Unit,
+WITH KeyCenters AS (
+    SELECT DISTINCT
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
+    FROM ecosystem_source.qmi.costcenterkey
+),
 
-    COUNT(*) AS Transaction_Rows,
+Hierarchy AS (
+    SELECT DISTINCT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
+        LEV03_DESC AS Division
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE LEV02 = 'NGRBT'
+      AND LEV03_DESC IN (
+          'DS Strategic Deterrent Systems',
+          'DS C2 & Weapons Integration'
+      )
+)
+
+SELECT
+    h.Division,
+
+    CASE
+        WHEN k.CC IS NOT NULL
+            THEN 'In current key'
+        ELSE 'Outside current key'
+    END AS Key_Status,
+
     COUNT(DISTINCT t.RCNTR) AS Cost_Centers,
 
-    SUM(
-        TRY_CONVERT(DECIMAL(19,2), t.KSL)
-    ) AS Net_Amount,
+    COUNT(*) AS Transaction_Rows,
 
     SUM(
         CASE
@@ -15,20 +35,25 @@ SELECT
             THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
             ELSE 0
         END
-    ) AS Positive_Amount
+    ) AS Positive_Activity
 
 FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
-JOIN DTO_Business_Management.rpt.rb_load_cost_center_hierarchy h
-    ON LTRIM(RTRIM(t.RCNTR))
-     = LTRIM(RTRIM(h.COST_CENTER))
+JOIN Hierarchy h
+    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = h.CC
+
+LEFT JOIN KeyCenters k
+    ON h.CC = k.CC
 
 WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
   AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-  AND h.LEV02 = 'NGRBT'
 
 GROUP BY
-    h.LEV03_DESC,
-    h.LEV04_DESC
+    h.Division,
+    CASE
+        WHEN k.CC IS NOT NULL
+            THEN 'In current key'
+        ELSE 'Outside current key'
+    END
 
-ORDER BY Positive_Amount DESC;
+ORDER BY h.Division, Key_Status;

@@ -1,133 +1,88 @@
-DECLARE @HasOldCostCenter bit =
-    CASE
-        WHEN COL_LENGTH(
-            'ecosystem_source.qmi.controllable_costs',
-            'Cost Center'
-        ) IS NOT NULL THEN 1
-        ELSE 0
-    END;
-
-DECLARE @OldCCExpression nvarchar(max) =
-    CASE
-        WHEN @HasOldCostCenter = 1
-        THEN
-            N'UPPER(LTRIM(RTRIM(CONVERT(
-                nvarchar(100), o.[Cost Center]
-            ))))'
-        ELSE
-            N'CAST(NULL AS nvarchar(100))'
-    END;
-
-DECLARE @SQL nvarchar(max) = N'
 WITH KeyCenters AS (
     SELECT DISTINCT
         UPPER(LTRIM(RTRIM([Cost Center]))) AS Cost_Center
     FROM ecosystem_source.qmi.costcenterkey
-    WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '''') IS NOT NULL
+    WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
 ),
 
-OriginalRows AS (
+Original AS (
     SELECT
-        TRY_CONVERT(int, o.[Year]) AS Yr,
-        TRY_CONVERT(
-            int,
-            RIGHT(LTRIM(RTRIM(CONVERT(varchar(20), o.[Quarter]))), 1)
-        ) AS Qtr,
-        TRY_CONVERT(decimal(19,2), o.[Cost]) AS Amount,
-        ' + @OldCCExpression + N' AS Cost_Center
-    FROM ecosystem_source.qmi.controllable_costs AS o
-),
-
-OriginalQuarter AS (
-    SELECT
-        o.Yr,
-        o.Qtr,
-
         COUNT(*) AS Original_Rows,
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), [Cost])
+        ) AS Original_Total
 
-        SUM(o.Amount) AS Original_All_Costs,
+    FROM ecosystem_source.qmi.controllable_costs
 
-        CASE
-            WHEN @HasOldCostCenter = 0 THEN NULL
-            ELSE SUM(
-                CASE
-                    WHEN k.Cost_Center IS NOT NULL
-                    THEN o.Amount
-                    ELSE 0
-                END
-            )
-        END AS Original_23_CC_Costs
-
-    FROM OriginalRows AS o
-    LEFT JOIN KeyCenters AS k
-        ON o.Cost_Center = k.Cost_Center
-
-    WHERE o.Yr >= 2025
-      AND o.Qtr BETWEEN 1 AND 4
-
-    GROUP BY o.Yr, o.Qtr
+    WHERE TRY_CONVERT(INT, [Year]) = 2026
+      AND RIGHT(
+          LTRIM(RTRIM(CONVERT(VARCHAR(20), [Quarter]))),
+          1
+      ) = '1'
 ),
 
-SAPQuarter AS (
+SAP AS (
     SELECT
-        TRY_CONVERT(int, t.GJAHR) AS Yr,
-
-        CEILING(
-            TRY_CONVERT(decimal(10,2), t.POPER) / 3.0
-        ) AS Qtr,
-
         COUNT(*) AS SAP_Rows,
 
         COUNT(DISTINCT UPPER(LTRIM(RTRIM(t.RCNTR))))
             AS SAP_Cost_Centers,
 
         SUM(
-            TRY_CONVERT(decimal(19,2), t.KSL)
-        ) AS SAP_23_CC_Costs
+            CASE
+                WHEN TRY_CONVERT(DECIMAL(19,2), t.KSL) > 0
+                THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+                ELSE 0
+            END
+        ) AS Positive_Amount,
 
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 AS t
+        SUM(
+            CASE
+                WHEN TRY_CONVERT(DECIMAL(19,2), t.KSL) < 0
+                THEN ABS(TRY_CONVERT(DECIMAL(19,2), t.KSL))
+                ELSE 0
+            END
+        ) AS Negative_Absolute,
 
-    INNER JOIN KeyCenters AS k
-        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = k.Cost_Center
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ) AS Net_Amount,
 
-    WHERE TRY_CONVERT(int, t.GJAHR) >= 2025
-      AND TRY_CONVERT(int, t.POPER) BETWEEN 1 AND 12
+        SUM(
+            ABS(TRY_CONVERT(DECIMAL(19,2), t.KSL))
+        ) AS Gross_Activity
 
-    GROUP BY
-        TRY_CONVERT(int, t.GJAHR),
-        CEILING(
-            TRY_CONVERT(decimal(10,2), t.POPER) / 3.0
-        )
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+
+      AND EXISTS (
+          SELECT 1
+          FROM KeyCenters k
+          WHERE UPPER(LTRIM(RTRIM(t.RCNTR)))
+                = k.Cost_Center
+      )
 )
 
 SELECT
-    COALESCE(o.Yr, s.Yr) AS [Year],
-    CONCAT('Q', COALESCE(o.Qtr, s.Qtr)) AS [Quarter],
+    'Q1 2026' AS Period,
 
-    o.Original_All_Costs,
-    o.Original_23_CC_Costs,
-    s.SAP_23_CC_Costs,
+    o.Original_Total,
+    s.Positive_Amount,
+    s.Negative_Absolute,
+    s.Net_Amount,
+    s.Gross_Activity,
 
-    o.Original_23_CC_Costs
-        - s.SAP_23_CC_Costs AS Difference,
+    s.Positive_Amount - o.Original_Total
+        AS Positive_Difference,
+
+    s.Gross_Activity - o.Original_Total
+        AS Gross_Difference,
 
     o.Original_Rows,
     s.SAP_Rows,
-    s.SAP_Cost_Centers,
+    s.SAP_Cost_Centers
 
-    @HasOldCostCenter AS Original_Has_Cost_Center
-
-FROM OriginalQuarter AS o
-FULL OUTER JOIN SAPQuarter AS s
-    ON o.Yr = s.Yr
-   AND o.Qtr = s.Qtr
-
-ORDER BY
-    COALESCE(o.Yr, s.Yr),
-    COALESCE(o.Qtr, s.Qtr);
-';
-
-EXEC sys.sp_executesql
-    @SQL,
-    N'@HasOldCostCenter bit',
-    @HasOldCostCenter = @HasOldCostCenter;
+FROM Original o
+CROSS JOIN SAP s;

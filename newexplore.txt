@@ -1,30 +1,36 @@
-SELECT TOP (10)
-    [Cost Center],
-    MAX([Cost Center Name]) AS Cost_Center_Name,
+DECLARE @CostCenter VARCHAR(100) = 'PUT_COST_CENTER_HERE';
 
-    COUNT(*) AS ERP_Rows,
-    COUNT(DISTINCT [G/L Account]) AS GL_Count,
+SELECT
+    TRY_CONVERT(INT, GJAHR) AS [Year],
+    TRY_CONVERT(INT, POPER) AS [Month],
+
+    COUNT(*) AS SAP_Rows,
+    COUNT(DISTINCT RACCT) AS GL_Count,
 
     SUM(
-        CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) > 0
-        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+        CASE WHEN TRY_CONVERT(DECIMAL(19,2), KSL) > 0
+        THEN TRY_CONVERT(DECIMAL(19,2), KSL)
         ELSE 0 END
     ) AS Positive_Amount,
 
     SUM(
-        CASE WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) < 0
-        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+        CASE WHEN TRY_CONVERT(DECIMAL(19,2), KSL) < 0
+        THEN TRY_CONVERT(DECIMAL(19,2), KSL)
         ELSE 0 END
     ) AS Negative_Amount,
 
-    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
+    SUM(TRY_CONVERT(DECIMAL(19,2), KSL))
         AS Net_Amount,
 
-    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
         AS Gross_Activity
 
-FROM ecosystem_source.dbo.erpdata
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
 
-GROUP BY [Cost Center]
+WHERE LTRIM(RTRIM(RCNTR)) = @CostCenter
 
-ORDER BY Gross_Activity DESC;
+GROUP BY
+    TRY_CONVERT(INT, GJAHR),
+    TRY_CONVERT(INT, POPER)
+
+ORDER BY [Year], [Month];

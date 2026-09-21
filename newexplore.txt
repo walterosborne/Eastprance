@@ -1,29 +1,38 @@
+WITH SDS AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS Cost_Center,
+        MAX(CC_DESCRIPTION) AS Cost_Center_Name
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE LEV02 = 'NGRBT'
+      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
+    GROUP BY
+        UPPER(LTRIM(RTRIM(COST_CENTER)))
+)
+
 SELECT
-    t.RACCT AS GL_Account,
-    MAX(t.GL_TXT20) AS Description,
-    COUNT(*) AS Transaction_Rows,
-
-    SUM(
-        TRY_CONVERT(DECIMAL(19,2), t.KSL)
-    ) AS Q1_Net
-
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-
-WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-
-  AND LTRIM(RTRIM(t.RCNTR)) = 'TDA87R40'
-
-  AND (
-      UPPER(t.GL_TXT20) LIKE '%RENT%'
-      OR UPPER(t.GL_TXT20) LIKE '%LEASE%'
-      OR UPPER(t.GL_TXT20) LIKE '%CAM%'
-      OR TRY_CONVERT(BIGINT, t.RACCT)
-          IN (4300591, 4300625)
-  )
-
-GROUP BY t.RACCT
-
-ORDER BY ABS(
-    SUM(TRY_CONVERT(DECIMAL(19,2), t.KSL))
-) DESC;
+    Cost_Center,
+    Cost_Center_Name
+FROM SDS
+WHERE EXISTS (
+    SELECT 1
+    FROM (VALUES
+        ('OGDEN'),
+        ('KEMP'),
+        ('WAREHOUSE'),
+        ('SURGE'),
+        ('HUNTSVILLE'),
+        ('MADISON'),
+        ('WYNN'),
+        ('CHEYENNE'),
+        ('CLEARFIELD'),
+        ('UNIVERSITY'),
+        ('SANTA'),
+        ('MARIA'),
+        ('VANDENBERG'),
+        ('FAIRWAY'),
+        ('FACILITY')
+    ) AS SearchTerms(Term)
+    WHERE UPPER(Cost_Center_Name)
+        LIKE '%' + SearchTerms.Term + '%'
+)
+ORDER BY Cost_Center_Name, Cost_Center;

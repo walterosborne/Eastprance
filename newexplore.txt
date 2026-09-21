@@ -1,69 +1,18 @@
-WITH ERP AS (
-    SELECT
-        TRY_CONVERT(
-            INT,
-            LEFT([Fiscal Year Period], 3)
-        ) AS [Month],
-
-        LTRIM(RTRIM([Cost Center])) AS Cost_Center,
-
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
-        ) AS ERP_Amount
-
-    FROM ecosystem_source.dbo.erpdata
-
-    WHERE TRY_CONVERT(BIGINT, [G/L Account]) = 4300651
-      AND RIGHT([Fiscal Year Period], 4) = '2026'
-      AND TRY_CONVERT(
-          INT,
-          LEFT([Fiscal Year Period], 3)
-      ) BETWEEN 6 AND 8
-
-    GROUP BY
-        TRY_CONVERT(INT, LEFT([Fiscal Year Period], 3)),
-        LTRIM(RTRIM([Cost Center]))
-),
-
-SAP AS (
-    SELECT
-        TRY_CONVERT(INT, POPER) AS [Month],
-
-        LTRIM(RTRIM(RCNTR)) AS Cost_Center,
-
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), KSL)
-        ) AS SAP_Amount
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
-
-    WHERE TRY_CONVERT(BIGINT, RACCT) = 4300651
-      AND TRY_CONVERT(INT, GJAHR) = 2026
-      AND TRY_CONVERT(INT, POPER) BETWEEN 6 AND 8
-
-    GROUP BY
-        TRY_CONVERT(INT, POPER),
-        LTRIM(RTRIM(RCNTR))
-)
-
 SELECT
-    COALESCE(E.[Month], S.[Month]) AS [Month],
-    COALESCE(E.Cost_Center, S.Cost_Center) AS Cost_Center,
-
-    E.ERP_Amount,
-    S.SAP_Amount,
-
-    COALESCE(E.ERP_Amount, 0)
-      - COALESCE(S.SAP_Amount, 0) AS Difference
-
-FROM ERP E
-
-FULL OUTER JOIN SAP S
-    ON E.[Month] = S.[Month]
-   AND E.Cost_Center = S.Cost_Center
-
-ORDER BY
-    ABS(
-        COALESCE(E.ERP_Amount, 0)
-        - COALESCE(S.SAP_Amount, 0)
-    ) DESC;
+    COLUMN_NAME,
+    DATA_TYPE
+FROM DTO_Business_Management.INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'src'
+  AND TABLE_NAME = 'rb_CVG_Transaction_Details_03'
+  AND (
+       COLUMN_NAME LIKE '%SL%'
+    OR COLUMN_NAME LIKE '%AMT%'
+    OR COLUMN_NAME LIKE '%AMOUNT%'
+    OR COLUMN_NAME LIKE '%DOC%'
+    OR COLUMN_NAME LIKE '%BELNR%'
+    OR COLUMN_NAME LIKE '%BUDAT%'
+    OR COLUMN_NAME LIKE '%BLART%'
+    OR COLUMN_NAME LIKE '%SGTXT%'
+    OR COLUMN_NAME LIKE '%BKTXT%'
+  )
+ORDER BY ORDINAL_POSITION;

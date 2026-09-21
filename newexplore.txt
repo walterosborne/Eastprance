@@ -1,34 +1,34 @@
-WITH ERP AS (
-    SELECT
-        TRY_CONVERT(INT, LEFT([Fiscal Year Period], 3)) AS Month,
-        COUNT(*) AS ERP_Rows,
-        SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])) AS ERP_Amount
-    FROM ecosystem_source.dbo.erpdata
-    WHERE LTRIM(RTRIM([Cost Center])) = 'TDA84LF0'
-      AND TRY_CONVERT(BIGINT, [G/L Account]) = 4300651
-      AND RIGHT([Fiscal Year Period], 4) = '2026'
-    GROUP BY
-        TRY_CONVERT(INT, LEFT([Fiscal Year Period], 3))
-),
-SAP AS (
-    SELECT
-        TRY_CONVERT(INT, POPER) AS Month,
-        COUNT(*) AS SAP_Rows,
-        SUM(TRY_CONVERT(DECIMAL(19,2), KSL)) AS SAP_Amount
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
-    WHERE LTRIM(RTRIM(RCNTR)) = 'TDA84LF0'
-      AND TRY_CONVERT(BIGINT, RACCT) = 4300651
-      AND TRY_CONVERT(INT, GJAHR) = 2026
-    GROUP BY TRY_CONVERT(INT, POPER)
-)
+-- ERP
 SELECT
-    COALESCE(E.Month, S.Month) AS Month,
-    E.ERP_Rows,
-    S.SAP_Rows,
-    E.ERP_Amount,
-    S.SAP_Amount,
-    E.ERP_Amount - S.SAP_Amount AS Difference
-FROM ERP E
-FULL OUTER JOIN SAP S
-    ON E.Month = S.Month
-ORDER BY COALESCE(E.Month, S.Month);
+    [Fiscal Year Period],
+    [Cost Center],
+    [G/L Account],
+    [Actual Amount],
+    [Partner Cost Center]
+FROM ecosystem_source.dbo.erpdata
+WHERE LTRIM(RTRIM([Cost Center])) = 'TDA84LF0'
+  AND TRY_CONVERT(BIGINT, [G/L Account]) = 4300651
+  AND [Fiscal Year Period] IN (
+      '006/2026',
+      '007/2026',
+      '008/2026'
+  )
+ORDER BY [Fiscal Year Period], [Actual Amount];
+
+
+-- SAP
+SELECT
+    GJAHR,
+    POPER,
+    RCNTR,
+    RACCT,
+    GL_TXT20,
+    ACCT_LEVEL02_TEXT,
+    ACCT_LEVEL03_TEXT,
+    KSL
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+WHERE LTRIM(RTRIM(RCNTR)) = 'TDA84LF0'
+  AND TRY_CONVERT(BIGINT, RACCT) = 4300651
+  AND TRY_CONVERT(INT, GJAHR) = 2026
+  AND TRY_CONVERT(INT, POPER) BETWEEN 6 AND 8
+ORDER BY TRY_CONVERT(INT, POPER), KSL DESC;

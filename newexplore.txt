@@ -1,8 +1,24 @@
-WITH SDS_Expenses AS (
+WITH SDS_Centers AS (
     SELECT
-        UPPER(LTRIM(RTRIM(t.RCNTR))) AS Cost_Center,
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
+        MAX(CC_DESCRIPTION) AS Cost_Center_Name,
+        MAX(LEV04_DESC) AS Business_Unit
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE LEV02 = 'NGRBT'
+      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
+    GROUP BY
+        UPPER(LTRIM(RTRIM(COST_CENTER)))
+),
+
+Selected_Costs AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(t.RCNTR))) AS CC,
+
+        COUNT(*) AS Transaction_Rows,
+
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ) AS Q1_Cost
 
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
@@ -10,57 +26,37 @@ WITH SDS_Expenses AS (
       AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
       AND TRY_CONVERT(BIGINT, t.RACCT) IN (
-          4300591,  -- Real estate lease
-          4301050,  -- LHI amortization
-          4301049,  -- Machinery depreciation
-          4300625,  -- Variable rent / CAM
-          4301102,  -- Purchased electricity
-          4300703   -- Janitorial
+          4300591,
+          4301050,
+          4301049,
+          4300625,
+          4301102,
+          4300703
       )
 
       AND EXISTS (
           SELECT 1
-          FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy h
-
-          WHERE UPPER(LTRIM(RTRIM(h.COST_CENTER)))
-              = UPPER(LTRIM(RTRIM(t.RCNTR)))
-
-            AND h.LEV02 = 'NGRBT'
-            AND h.LEV03_DESC =
-                'DS Strategic Deterrent Systems'
+          FROM SDS_Centers h
+          WHERE h.CC =
+              UPPER(LTRIM(RTRIM(t.RCNTR)))
       )
+
+    GROUP BY
+        UPPER(LTRIM(RTRIM(t.RCNTR)))
 )
 
-SELECT TOP (30)
-    Cost_Center,
+SELECT TOP (25)
+    s.CC AS Cost_Center,
+    h.Cost_Center_Name,
+    h.Business_Unit,
+    s.Transaction_Rows,
+    s.Q1_Cost
 
-    COUNT(*) AS Transaction_Rows,
+FROM Selected_Costs s
 
-    SUM(CASE WHEN GL = 4300591
-        THEN Amount ELSE 0 END) AS Real_Estate_Lease,
+JOIN SDS_Centers h
+    ON s.CC = h.CC
 
-    SUM(CASE WHEN GL = 4301050
-        THEN Amount ELSE 0 END) AS LHI_Amortization,
+WHERE s.Q1_Cost <> 0
 
-    SUM(CASE WHEN GL = 4301049
-        THEN Amount ELSE 0 END) AS Machinery_Depreciation,
-
-    SUM(CASE WHEN GL = 4300625
-        THEN Amount ELSE 0 END) AS Variable_Rent_CAM,
-
-    SUM(CASE WHEN GL = 4301102
-        THEN Amount ELSE 0 END) AS Electricity,
-
-    SUM(CASE WHEN GL = 4300703
-        THEN Amount ELSE 0 END) AS Janitorial,
-
-    SUM(Amount) AS Total_Selected_Cost,
-
-    SUM(SUM(Amount)) OVER ()
-        AS All_SDS_Selected_Cost
-
-FROM SDS_Expenses
-
-GROUP BY Cost_Center
-
-ORDER BY Total_Selected_Cost DESC;
+ORDER BY ABS(s.Q1_Cost) DESC;

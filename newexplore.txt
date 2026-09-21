@@ -1,38 +1,29 @@
 SELECT
-    [Fiscal Year],
-    [Period],
+    [G/L Account],
 
     COUNT(*) AS Row_Count,
-
     COUNT(DISTINCT [Cost Center]) AS Cost_Center_Count,
 
-    COUNT(DISTINCT [G/L Account]) AS GL_Account_Count,
+    SUM(CASE
+        WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) > 0
+        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+        ELSE 0
+    END) AS Positive_Amount,
 
-    SUM(TRY_CONVERT(DECIMAL(19, 2), [Actual Amount]))
+    SUM(CASE
+        WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) < 0
+        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
+        ELSE 0
+    END) AS Negative_Amount,
+
+    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
         AS Net_Amount,
 
-    SUM(
-        CASE
-            WHEN TRY_CONVERT(DECIMAL(19, 2), [Actual Amount]) > 0
-            THEN TRY_CONVERT(DECIMAL(19, 2), [Actual Amount])
-            ELSE 0
-        END
-    ) AS Positive_Amount,
-
-    SUM(
-        CASE
-            WHEN TRY_CONVERT(DECIMAL(19, 2), [Actual Amount]) < 0
-            THEN TRY_CONVERT(DECIMAL(19, 2), [Actual Amount])
-            ELSE 0
-        END
-    ) AS Negative_Amount
+    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
+        AS Gross_Activity
 
 FROM ecosystem_source.dbo.erpdata
 
-GROUP BY
-    [Fiscal Year],
-    [Period]
+GROUP BY [G/L Account]
 
-ORDER BY
-    [Fiscal Year],
-    [Period];
+ORDER BY Gross_Activity DESC;

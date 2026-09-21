@@ -1,60 +1,60 @@
-WITH SDS AS (
+WITH MappedSDS AS (
     SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
-        MAX(CC_DESCRIPTION) AS Cost_Center_Name
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    WHERE LEV02 = 'NGRBT'
-      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
-    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-),
+        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
+        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-Unmapped AS (
-    SELECT
-        h.CC,
-        h.Cost_Center_Name
-    FROM SDS h
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM ecosystem_source.qmi.costcenterkey k
-        WHERE UPPER(LTRIM(RTRIM(k.[Cost Center]))) = h.CC
-    )
+      AND TRY_CONVERT(BIGINT, t.RACCT) IN (
+          4300591, 4300625,
+          4301050, 4301049, 4301048,
+          4301102, 4300703
+      )
+
+      AND EXISTS (
+          SELECT 1
+          FROM ecosystem_source.qmi.costcenterkey k
+          WHERE UPPER(LTRIM(RTRIM(k.[Cost Center])))
+              = UPPER(LTRIM(RTRIM(t.RCNTR)))
+      )
+
+      AND EXISTS (
+          SELECT 1
+          FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy h
+          WHERE UPPER(LTRIM(RTRIM(h.COST_CENTER)))
+              = UPPER(LTRIM(RTRIM(t.RCNTR)))
+            AND h.LEV02 = 'NGRBT'
+            AND h.LEV03_DESC =
+                'DS Strategic Deterrent Systems'
+      )
 )
 
-SELECT TOP (30)
-    u.CC AS Cost_Center,
-    u.Cost_Center_Name,
+SELECT
+    CASE WHEN GROUPING(Cost_Center) = 1
+         THEN 'TOTAL MAPPED SDS'
+         ELSE Cost_Center
+    END AS Cost_Center,
 
-    COUNT(*) AS Transaction_Rows,
+    SUM(CASE WHEN GL IN (4300591, 4300625)
+        THEN Amount ELSE 0 END) AS Rent,
 
-    SUM(
-        TRY_CONVERT(DECIMAL(19,2), t.KSL)
-    ) AS Q1_Selected_Cost
+    SUM(CASE WHEN GL IN (4301050, 4301049, 4301048)
+        THEN Amount ELSE 0 END) AS Depreciation_LHI,
 
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+    SUM(CASE WHEN GL = 4301102
+        THEN Amount ELSE 0 END) AS Electricity,
 
-JOIN Unmapped u
-    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = u.CC
+    SUM(CASE WHEN GL = 4300703
+        THEN Amount ELSE 0 END) AS Janitorial,
 
-WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+    SUM(Amount) AS Total_Selected_Cost
 
-  AND TRY_CONVERT(BIGINT, t.RACCT) IN (
-      4300591,  -- Real estate lease
-      4300625,  -- Variable rent / CAM
-      4301050,  -- LHI amortization
-      4301049,  -- Machinery depreciation
-      4301102,  -- Electricity
-      4300703   -- Janitorial
-  )
+FROM MappedSDS
 
-GROUP BY
-    u.CC,
-    u.Cost_Center_Name
+GROUP BY ROLLUP(Cost_Center)
 
-HAVING SUM(
-    TRY_CONVERT(DECIMAL(19,2), t.KSL)
-) <> 0
-
-ORDER BY ABS(
-    SUM(TRY_CONVERT(DECIMAL(19,2), t.KSL))
-) DESC;
+ORDER BY
+    GROUPING(Cost_Center),
+    Total_Selected_Cost DESC;

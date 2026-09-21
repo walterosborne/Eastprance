@@ -1,106 +1,54 @@
-WITH KeyCenters AS (
-    SELECT DISTINCT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
-    FROM ecosystem_source.qmi.costcenterkey
-),
-
-ERP AS (
+WITH ERP AS (
     SELECT
-        TRY_CONVERT(
-            INT,
-            LEFT(e.[Fiscal Year Period], 3)
-        ) AS Month,
-
-        UPPER(LTRIM(RTRIM(e.[Cost Center]))) AS CC,
-
+        TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
         COUNT(*) AS ERP_Rows,
-
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount])
-        ) AS ERP_Net,
-
-        SUM(
-            ABS(TRY_CONVERT(
-                DECIMAL(19,2), e.[Actual Amount]
-            ))
-        ) AS ERP_Gross
-
-    FROM ecosystem_source.dbo.erpdata e
-
-    WHERE e.[Fiscal Year Period] IN (
-        '001/2026', '002/2026', '003/2026'
-    )
-
-    AND EXISTS (
-        SELECT 1
-        FROM KeyCenters k
-        WHERE k.CC =
-            UPPER(LTRIM(RTRIM(e.[Cost Center])))
-    )
-
-    GROUP BY
-        TRY_CONVERT(
-            INT,
-            LEFT(e.[Fiscal Year Period], 3)
-        ),
-        UPPER(LTRIM(RTRIM(e.[Cost Center])))
+        SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
+            AS ERP_Net,
+        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
+            AS ERP_Gross
+    FROM ecosystem_source.dbo.erpdata
+    WHERE [Fiscal Year Period] = '001/2026'
+      AND LTRIM(RTRIM([Cost Center])) = 'TDA84AB0'
+    GROUP BY TRY_CONVERT(BIGINT, [G/L Account])
 ),
 
 SAP AS (
     SELECT
-        TRY_CONVERT(INT, s.POPER) AS Month,
-
-        UPPER(LTRIM(RTRIM(s.RCNTR))) AS CC,
-
+        TRY_CONVERT(BIGINT, RACCT) AS GL,
         COUNT(*) AS SAP_Rows,
-
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), s.KSL)
-        ) AS SAP_Net,
-
-        SUM(
-            ABS(TRY_CONVERT(DECIMAL(19,2), s.KSL))
-        ) AS SAP_Gross
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 s
-
-    WHERE TRY_CONVERT(INT, s.GJAHR) = 2026
-      AND TRY_CONVERT(INT, s.POPER) BETWEEN 1 AND 3
-
-      AND EXISTS (
-          SELECT 1
-          FROM KeyCenters k
-          WHERE k.CC =
-              UPPER(LTRIM(RTRIM(s.RCNTR)))
-      )
-
-    GROUP BY
-        TRY_CONVERT(INT, s.POPER),
-        UPPER(LTRIM(RTRIM(s.RCNTR)))
+        SUM(TRY_CONVERT(DECIMAL(19,2), KSL))
+            AS SAP_Net,
+        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), KSL)))
+            AS SAP_Gross
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+    WHERE TRY_CONVERT(INT, GJAHR) = 2026
+      AND TRY_CONVERT(INT, POPER) = 1
+      AND LTRIM(RTRIM(RCNTR)) = 'TDA84AB0'
+    GROUP BY TRY_CONVERT(BIGINT, RACCT)
 )
 
-SELECT TOP (30)
-    COALESCE(e.Month, s.Month) AS Month,
-    COALESCE(e.CC, s.CC) AS Cost_Center,
-
+SELECT
+    COALESCE(e.GL, s.GL) AS GL,
     e.ERP_Rows,
     s.SAP_Rows,
-
     e.ERP_Net,
     s.SAP_Net,
-
     e.ERP_Gross,
     s.SAP_Gross,
 
     COALESCE(e.ERP_Gross, 0)
       - COALESCE(s.SAP_Gross, 0)
-        AS Gross_Difference
+        AS Gross_Difference,
+
+    CASE
+        WHEN e.GL IS NULL THEN 'SAP only'
+        WHEN s.GL IS NULL THEN 'ERP only'
+        ELSE 'Both'
+    END AS Match_Status
 
 FROM ERP e
-
 FULL OUTER JOIN SAP s
-    ON e.Month = s.Month
-   AND e.CC = s.CC
+    ON e.GL = s.GL
 
 ORDER BY
     ABS(

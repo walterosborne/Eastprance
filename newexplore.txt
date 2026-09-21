@@ -4,38 +4,59 @@ WITH SDS AS (
     FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
     WHERE LEV02 = 'NGRBT'
       AND LEV03_DESC = 'DS Strategic Deterrent Systems'
+),
+
+FacilityCandidates AS (
+    SELECT
+        t.RACCT,
+        t.GL_TXT20,
+        t.RCNTR,
+        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
+    JOIN SDS
+        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = SDS.CC
+
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+
+      AND (
+          UPPER(t.GL_TXT20) LIKE '%RENT%'
+          OR UPPER(t.GL_TXT20) LIKE '%LEASE%'
+          OR UPPER(t.GL_TXT20) LIKE '%DEPR%'
+          OR UPPER(t.GL_TXT20) LIKE '%AMORT%'
+          OR UPPER(t.GL_TXT20) LIKE '%UTIL%'
+          OR UPPER(t.GL_TXT20) LIKE '%ELEC%'
+          OR UPPER(t.GL_TXT20) LIKE '%INSUR%'
+          OR UPPER(t.GL_TXT20) LIKE '%TAX%'
+          OR UPPER(t.GL_TXT20) LIKE '%MAINT%'
+          OR UPPER(t.GL_TXT20) LIKE '%JANIT%'
+          OR UPPER(t.GL_TXT20) LIKE '%BUILD%'
+          OR UPPER(t.GL_TXT20) LIKE '%FAC%'
+      )
 )
 
-SELECT TOP (50)
-    t.RACCT AS GL_Account,
-    MAX(t.GL_TXT20) AS GL_Description,
+SELECT
+    RACCT AS GL_Account,
+    MAX(GL_TXT20) AS Description,
 
     COUNT(*) AS Transaction_Rows,
-    COUNT(DISTINCT t.RCNTR) AS Cost_Centers,
+    COUNT(DISTINCT RCNTR) AS Cost_Centers,
 
-    SUM(TRY_CONVERT(DECIMAL(19,2), t.KSL))
-        AS Net_Amount,
+    SUM(Amount) AS Net_Amount,
 
     SUM(CASE
-        WHEN TRY_CONVERT(DECIMAL(19,2), t.KSL) > 0
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        WHEN Amount > 0 THEN Amount
         ELSE 0
     END) AS Positive_Amount,
 
     SUM(CASE
-        WHEN TRY_CONVERT(DECIMAL(19,2), t.KSL) < 0
-        THEN ABS(TRY_CONVERT(DECIMAL(19,2), t.KSL))
+        WHEN Amount < 0 THEN ABS(Amount)
         ELSE 0
     END) AS Negative_Absolute
 
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+FROM FacilityCandidates
 
-JOIN SDS
-    ON UPPER(LTRIM(RTRIM(t.RCNTR))) = SDS.CC
+GROUP BY RACCT
 
-WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-
-GROUP BY t.RACCT
-
-ORDER BY Positive_Amount DESC;
+ORDER BY ABS(SUM(Amount)) DESC;

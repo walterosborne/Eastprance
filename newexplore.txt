@@ -1,7 +1,21 @@
-SELECT
-    LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+WITH Facilities AS (
+    SELECT DISTINCT
+        LTRIM(RTRIM(COST_CENTER)) AS Cost_Center,
+        CC_DESCRIPTION AS Cost_Center_Name
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE LEV02 = 'NGRBT'
+      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
+      AND (
+          UPPER(CC_DESCRIPTION) LIKE '%CHEYENNE%'
+          OR UPPER(CC_DESCRIPTION) LIKE '%888%UNIVERSITY%'
+      )
+)
 
-    MAX(h.CC_DESCRIPTION) AS Cost_Center_Name,
+SELECT
+    f.Cost_Center,
+    f.Cost_Center_Name,
+
+    COUNT(t.RCNTR) AS Transaction_Rows,
 
     SUM(CASE
         WHEN TRY_CONVERT(BIGINT, t.RACCT)
@@ -29,29 +43,15 @@ SELECT
         ELSE 0
     END) AS Janitorial
 
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+FROM Facilities f
 
-LEFT JOIN (
-    SELECT
-        LTRIM(RTRIM(COST_CENTER)) AS CC,
-        MAX(CC_DESCRIPTION) AS CC_DESCRIPTION
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    GROUP BY LTRIM(RTRIM(COST_CENTER))
-) h
-    ON LTRIM(RTRIM(t.RCNTR)) = h.CC
+LEFT JOIN DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+    ON LTRIM(RTRIM(t.RCNTR)) = f.Cost_Center
+   AND TRY_CONVERT(INT, t.GJAHR) = 2026
+   AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+GROUP BY
+    f.Cost_Center,
+    f.Cost_Center_Name
 
-  AND LTRIM(RTRIM(t.RCNTR)) IN (
-      'TDA87KE0',
-      'TDB84KEM',
-      'TDA87UK0',
-      'TDB84UKD',
-      'TDA87SR0',
-      'TDB84SUR'
-  )
-
-GROUP BY LTRIM(RTRIM(t.RCNTR))
-
-ORDER BY Cost_Center;
+ORDER BY f.Cost_Center_Name, f.Cost_Center;

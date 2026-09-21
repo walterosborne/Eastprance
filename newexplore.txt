@@ -1,29 +1,38 @@
+WITH ERP AS (
+    SELECT
+        TRY_CONVERT(BIGINT, [G/L Account]) AS GL,
+        COUNT(*) AS ERP_Rows,
+        SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
+            AS ERP_Net,
+        SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
+            AS ERP_Gross
+    FROM ecosystem_source.dbo.erpdata
+    GROUP BY TRY_CONVERT(BIGINT, [G/L Account])
+),
+SAP AS (
+    SELECT DISTINCT
+        TRY_CONVERT(BIGINT, RACCT) AS GL
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
+    WHERE TRY_CONVERT(INT, GJAHR) = 2026
+      AND TRY_CONVERT(INT, POPER) BETWEEN 6 AND 8
+)
 SELECT
-    [G/L Account],
+    CASE
+        WHEN SAP.GL IS NULL THEN 'Missing from SAP'
+        ELSE 'Found in SAP'
+    END AS Match_Status,
 
-    COUNT(*) AS Row_Count,
-    COUNT(DISTINCT [Cost Center]) AS Cost_Center_Count,
+    COUNT(*) AS GL_Accounts,
+    SUM(ERP.ERP_Rows) AS ERP_Rows,
+    SUM(ERP.ERP_Net) AS ERP_Net,
+    SUM(ERP.ERP_Gross) AS ERP_Gross
 
-    SUM(CASE
-        WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) > 0
-        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
-        ELSE 0
-    END) AS Positive_Amount,
+FROM ERP
+LEFT JOIN SAP
+    ON ERP.GL = SAP.GL
 
-    SUM(CASE
-        WHEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount]) < 0
-        THEN TRY_CONVERT(DECIMAL(19,2), [Actual Amount])
-        ELSE 0
-    END) AS Negative_Amount,
-
-    SUM(TRY_CONVERT(DECIMAL(19,2), [Actual Amount]))
-        AS Net_Amount,
-
-    SUM(ABS(TRY_CONVERT(DECIMAL(19,2), [Actual Amount])))
-        AS Gross_Activity
-
-FROM ecosystem_source.dbo.erpdata
-
-GROUP BY [G/L Account]
-
-ORDER BY Gross_Activity DESC;
+GROUP BY
+    CASE
+        WHEN SAP.GL IS NULL THEN 'Missing from SAP'
+        ELSE 'Found in SAP'
+    END;

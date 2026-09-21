@@ -5,10 +5,11 @@
 const METRIC_INFO = {
   controllableCosts: 'Compares controllable and uncontrollable costs over time.',
   controllableCostsNew: [
-    'Validation view of the replacement DBM cost dataset; this is not yet the final facility-cost metric.',
-    'Organization is mapped from each transaction posting cost center (RCNTR) through the current cost-center hierarchy.',
-    'Physical facility is mapped from normalized RCNTR values through the cost-center key; unmatched cost centers remain labeled as unmapped.',
-    'Only transactions whose G/L account matches a Cost Element key are included, and the matching key determines controllability.'
+    'SAP-only validation view, not yet Priscilla’s finished facility-cost or controllable-cost metric.',
+    'Amounts are signed KSL from DTO_Business_Management.src.rb_CVG_Transaction_Details_03. Credits and reversals are retained.',
+    'Includes every G/L account at cost centers in ecosystem_source.qmi.costcenterkey; no G/L whitelist or indirect non-labor filter.',
+    'Division and business unit are looked up from posting cost center RCNTR. The optional costcenterkey.xlsx workbook supplies facility addresses; unmatched centers display as unmapped.',
+    'Shows total net SAP cost without labeling unclassified transactions as controllable or uncontrollable. Weapon Systems outside the selected cost centers is not included.'
   ],
   controllableCostsHana: 'Shows total HANA costs over time by organization.',
   sif: 'Counts significant injuries or fatalities over time.',

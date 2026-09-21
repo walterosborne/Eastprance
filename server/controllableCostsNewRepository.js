@@ -270,12 +270,20 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     (row) => facilityKey.lookup.has(row.cost_center)
       && Boolean(facilityKey.lookup.get(row.cost_center)?.address)
   ).length;
-  const costElementKeys = await readCostElementKeys();
+  const costElementKeys = metadata.includeAllSapCosts
+    ? { tableName: null, rowCount: 0, valuesByIdentifier: new Map() }
+    : await readCostElementKeys();
   const rows = [];
   const excludedRows = [];
   const selectedKeyMatches = [];
 
   normalizedRows.forEach((row) => {
+    if (metadata.includeAllSapCosts) {
+      // All G/L accounts and signed credits/reversals remain in the SAP total.
+      rows.push({ ...row, controllable: 'Unclassified' });
+      return;
+    }
+
     const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
 
     if (!matchedKey) {
@@ -359,9 +367,10 @@ async function readControllableCostsNewDbmPipelineData(config) {
   const result = await pool.request().query(CONTROLLABLE_COSTS_NEW_DBM_QUERY);
 
   return buildControllableCostsNewPipelineData(result.recordset, {
-    source: 'dbm-sql',
-    sourceLabel: 'The DBM controllable costs query',
-    tableName: 'src.rb_CVG_Transaction_Details_03'
+    source: 'sap-sql',
+    sourceLabel: 'The SAP transaction query',
+    tableName: 'DTO_Business_Management.src.rb_CVG_Transaction_Details_03',
+    includeAllSapCosts: true
   });
 }
 
@@ -410,7 +419,7 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     totalCost,
     controllableRowCount,
     uncontrollableRowCount,
-    unclassifiedRowCount: 0,
+    unclassifiedRowCount: rows.filter((row) => row.controllable === 'Unclassified').length,
     rows
   };
 }
@@ -478,35 +487,21 @@ export async function readControllableCostsNewData() {
   const { config, missing } = getConnectionConfig('dbm');
 
   if (missing.length > 0) {
-    const fallbackReason = `Missing DBM environment variables: ${missing.join(', ')}`;
-
-    logDebug('controllable-costs-new', 'DBM configuration is incomplete; using Excel fallback.', {
-      source: 'excel-fallback',
-      fallbackReason
-    });
-    return readControllableCostsNewExcelFallback(fallbackReason, stopTimer);
+    throw new Error(`Missing SAP/DBM database environment variables: ${missing.join(', ')}`);
   }
 
+  // Do not silently substitute Excel amounts when SAP is unavailable.
   try {
     const pipeline = await readControllableCostsNewDbmPipelineData(config);
     const payload = buildControllableCostsNewPayload(pipeline);
-
     logControllableCostsNewPayload(payload, stopTimer);
     return payload;
   } catch (error) {
-    const fallbackReason = 'DBM controllable costs query failed; Excel fallback used.';
-
-    logError(
-      'controllable-costs-new',
-      'DBM controllable costs load failed; using Excel fallback.',
-      error,
-      {
-        server: config.server,
-        database: config.database,
-        source: 'excel-fallback',
-        fallbackReason
-      }
-    );
-    return readControllableCostsNewExcelFallback(fallbackReason, stopTimer);
+    logError('controllable-costs-new', 'SAP transaction cost load failed.', error, {
+      server: config.server,
+      database: config.database,
+      duration: formatDuration(stopTimer())
+    });
+    throw error;
   }
 }

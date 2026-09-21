@@ -203,6 +203,11 @@ const CONTROLLABLE_NEW_CHART_FILTER_FIELDS = [
     allLabel: 'All facilities'
   },
   {
+    value: 'cost_center',
+    label: 'Cost center',
+    allLabel: 'All cost centers'
+  },
+  {
     value: 'cost_category',
     label: 'Cost category',
     allLabel: 'All cost categories'
@@ -218,13 +223,9 @@ const CONTROLLABLE_NEW_CHART_FILTER_FIELDS = [
     allLabel: 'All descriptions'
   }
 ];
-const CONTROLLABLE_NEW_PALETTE_FIELDS = [
-  ...CONTROLLABLE_NEW_CHART_FILTER_FIELDS.map(({ value, label }) => ({ value, label })),
-  {
-    value: 'controllable',
-    label: 'Controllability'
-  }
-];
+const CONTROLLABLE_NEW_PALETTE_FIELDS = CONTROLLABLE_NEW_CHART_FILTER_FIELDS.map(
+  ({ value, label }) => ({ value, label })
+);
 const CONTROLLABLE_NEW_PARETO_FILTER_FIELDS = CONTROLLABLE_NEW_CHART_FILTER_FIELDS;
 
 const CONTROLLABLE_HANA_CHART_FILTER_FIELDS = [
@@ -6830,13 +6831,10 @@ export default function App() {
     ? []
     : isControllableCostsNewPareto
       ? [
-        { label: 'Total cost', color: 'var(--chart-line)' },
+        { label: 'Total SAP cost (net)', color: 'var(--chart-line)' },
         paretoCumulativeLegendItem
       ]
-      : [
-        { label: 'Controllable', color: 'var(--chart-line)' },
-        { label: 'Uncontrollable', color: 'var(--chart-accent-line)' }
-      ];
+      : [{ label: 'Total SAP cost (net)', color: 'var(--chart-line)' }];
   const controllableCostsHanaOverviewLegend = isControllableCostsHanaPalette
     ? []
     : isControllableCostsHanaPareto
@@ -7068,11 +7066,11 @@ export default function App() {
   );
   const visibleControllableCostsNewGoalLine = clampGoalLineToVisibleSeries(
     controllableCostsNewGoalLine,
-    [controllableCostsNewChartData.controllable, controllableCostsNewChartData.uncontrollable]
+    [controllableCostsNewChartData.total]
   );
   const controllableCostsNewChartYAxis = buildDynamicNumericYAxis(
     CONTROLLABLE_COSTS_Y_AXIS,
-    [controllableCostsNewChartData.controllable, controllableCostsNewChartData.uncontrollable],
+    [controllableCostsNewChartData.total],
     {
       includeZero: chartVariants.controllableCostsNew === 'bar',
       goalLine: visibleControllableCostsNewGoalLine
@@ -8380,7 +8378,7 @@ export default function App() {
             {visibleCards.controllableCostsNew && (
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
-                  title="Controllable Costs — New Data"
+                  title="SAP Costs — New Data"
                   info={controllableCostsNewMetricInfo}
                   tooltipLegend={controllableCostsNewCardTooltipLegend}
                   performanceStatus={controllableCostsNewPerformanceStatus}
@@ -8400,7 +8398,7 @@ export default function App() {
                     />
                     <div ref={controllableCostsNewChartHostRef} className="chart-host">
                       {controllableCostsNewState.loading && (
-                        <p className="chart-message">Loading new controllable costs workbook...</p>
+                        <p className="chart-message">Loading SAP costs...</p>
                       )}
 
                       {!controllableCostsNewState.loading && controllableCostsNewState.error && (
@@ -8419,7 +8417,7 @@ export default function App() {
                               : globallyFilteredControllableCostsNewRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsNewState.rows.length === 0
-                              ? 'No rows were loaded from the new controllable costs workbook.'
+                              ? 'No SAP transactions matched the selected cost centers and date range.'
                               : filteredControllableCostsNewRows.length === 0
                                   && controllableNewFilterApplies
                                 ? 'No new controllable cost rows match the selected filters.'
@@ -8477,16 +8475,9 @@ export default function App() {
                               yAxis={controllableCostsNewChartYAxis}
                               series={[
                                 {
-                                  data: controllableCostsNewChartData.controllable,
-                                  label: 'Controllable',
+                                  data: controllableCostsNewChartData.total,
+                                  label: 'Total SAP cost (net)',
                                   color: 'var(--chart-line)',
-                                  valueFormatter: formatCurrency,
-                                  showMark: controllableCostsNewChartData.labels.length <= 1
-                                },
-                                {
-                                  data: controllableCostsNewChartData.uncontrollable,
-                                  label: 'Uncontrollable',
-                                  color: 'var(--chart-accent-line)',
                                   valueFormatter: formatCurrency,
                                   showMark: controllableCostsNewChartData.labels.length <= 1
                                 }

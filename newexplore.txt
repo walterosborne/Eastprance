@@ -1,88 +1,71 @@
 WITH KeyCenters AS (
     SELECT DISTINCT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS Cost_Center
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
     FROM ecosystem_source.qmi.costcenterkey
     WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
 ),
 
-Original AS (
+Transactions AS (
     SELECT
-        COUNT(*) AS Original_Rows,
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), [Cost])
-        ) AS Original_Total
+        'ERP' AS Source,
+        UPPER(LTRIM(RTRIM(e.[Cost Center]))) AS CC,
+        TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount]) AS Amount
 
-    FROM ecosystem_source.qmi.controllable_costs
+    FROM ecosystem_source.dbo.erpdata e
 
-    WHERE TRY_CONVERT(INT, [Year]) = 2026
-      AND RIGHT(
-          LTRIM(RTRIM(CONVERT(VARCHAR(20), [Quarter]))),
-          1
-      ) = '1'
-),
+    WHERE e.[Fiscal Year Period] IN (
+        '001/2026',
+        '002/2026',
+        '003/2026'
+    )
 
-SAP AS (
+    AND EXISTS (
+        SELECT 1
+        FROM KeyCenters k
+        WHERE k.CC =
+            UPPER(LTRIM(RTRIM(e.[Cost Center])))
+    )
+
+    UNION ALL
+
     SELECT
-        COUNT(*) AS SAP_Rows,
+        'SAP' AS Source,
+        UPPER(LTRIM(RTRIM(s.RCNTR))) AS CC,
+        TRY_CONVERT(DECIMAL(19,2), s.KSL) AS Amount
 
-        COUNT(DISTINCT UPPER(LTRIM(RTRIM(t.RCNTR))))
-            AS SAP_Cost_Centers,
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 s
 
-        SUM(
-            CASE
-                WHEN TRY_CONVERT(DECIMAL(19,2), t.KSL) > 0
-                THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
-                ELSE 0
-            END
-        ) AS Positive_Amount,
-
-        SUM(
-            CASE
-                WHEN TRY_CONVERT(DECIMAL(19,2), t.KSL) < 0
-                THEN ABS(TRY_CONVERT(DECIMAL(19,2), t.KSL))
-                ELSE 0
-            END
-        ) AS Negative_Absolute,
-
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ) AS Net_Amount,
-
-        SUM(
-            ABS(TRY_CONVERT(DECIMAL(19,2), t.KSL))
-        ) AS Gross_Activity
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+    WHERE TRY_CONVERT(INT, s.GJAHR) = 2026
+      AND TRY_CONVERT(INT, s.POPER) BETWEEN 1 AND 3
 
       AND EXISTS (
           SELECT 1
           FROM KeyCenters k
-          WHERE UPPER(LTRIM(RTRIM(t.RCNTR)))
-                = k.Cost_Center
+          WHERE k.CC =
+              UPPER(LTRIM(RTRIM(s.RCNTR)))
       )
 )
 
 SELECT
-    'Q1 2026' AS Period,
+    Source,
+    COUNT(*) AS Row_Count,
+    COUNT(DISTINCT CC) AS Cost_Centers,
 
-    o.Original_Total,
-    s.Positive_Amount,
-    s.Negative_Absolute,
-    s.Net_Amount,
-    s.Gross_Activity,
+    SUM(CASE
+        WHEN Amount > 0 THEN Amount
+        ELSE 0
+    END) AS Positive_Amount,
 
-    s.Positive_Amount - o.Original_Total
-        AS Positive_Difference,
+    SUM(CASE
+        WHEN Amount < 0 THEN ABS(Amount)
+        ELSE 0
+    END) AS Negative_Absolute,
 
-    s.Gross_Activity - o.Original_Total
-        AS Gross_Difference,
+    SUM(Amount) AS Net_Amount,
 
-    o.Original_Rows,
-    s.SAP_Rows,
-    s.SAP_Cost_Centers
+    SUM(ABS(Amount)) AS Gross_Activity
 
-FROM Original o
-CROSS JOIN SAP s;
+FROM Transactions
+
+GROUP BY Source
+ORDER BY Source;

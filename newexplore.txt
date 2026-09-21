@@ -33,22 +33,23 @@ FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
 LEFT JOIN (
     SELECT
-        COST_CENTER,
+        LTRIM(RTRIM(COST_CENTER)) AS CC,
         MAX(CC_DESCRIPTION) AS CC_DESCRIPTION
     FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    GROUP BY COST_CENTER
+    GROUP BY LTRIM(RTRIM(COST_CENTER))
 ) h
-    ON LTRIM(RTRIM(t.RCNTR))
-     = LTRIM(RTRIM(h.COST_CENTER))
+    ON LTRIM(RTRIM(t.RCNTR)) = h.CC
 
 WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
   AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
   AND LTRIM(RTRIM(t.RCNTR)) IN (
-      'TDA87HN0',
-      'TDB84HUN',
-      'TDA87OM0',
-      'TDA87H20'
+      'TDA87KE0',
+      'TDB84KEM',
+      'TDA87UK0',
+      'TDB84UKD',
+      'TDA87SR0',
+      'TDB84SUR'
   )
 
 GROUP BY LTRIM(RTRIM(t.RCNTR))

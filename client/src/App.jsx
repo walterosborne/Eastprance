@@ -201,26 +201,6 @@ const CONTROLLABLE_NEW_CHART_FILTER_FIELDS = [
     value: 'facility',
     label: 'Facility',
     allLabel: 'All facilities'
-  },
-  {
-    value: 'cost_center',
-    label: 'Cost center',
-    allLabel: 'All cost centers'
-  },
-  {
-    value: 'cost_category',
-    label: 'Cost category',
-    allLabel: 'All cost categories'
-  },
-  {
-    value: 'cost_element',
-    label: 'GL account / cost element',
-    allLabel: 'All GL accounts / cost elements'
-  },
-  {
-    value: 'cost_element_description',
-    label: 'Description',
-    allLabel: 'All descriptions'
   }
 ];
 const CONTROLLABLE_NEW_PALETTE_FIELDS = CONTROLLABLE_NEW_CHART_FILTER_FIELDS.map(
@@ -1673,15 +1653,18 @@ function buildControllableCostsChartData(rows, viewMode, selectedDateRange) {
       sortValue,
       total: 0,
       controllable: 0,
-      uncontrollable: 0
+      uncontrollable: 0,
+      unclassified: 0
     };
 
     currentBucket.total += cost;
 
     if (row.controllable === 'Controllable') {
       currentBucket.controllable += cost;
-    } else {
+    } else if (row.controllable === 'Uncontrollable') {
       currentBucket.uncontrollable += cost;
+    } else {
+      currentBucket.unclassified += cost;
     }
 
     buckets.set(bucketKey, currentBucket);
@@ -1695,7 +1678,8 @@ function buildControllableCostsChartData(rows, viewMode, selectedDateRange) {
     labels: sortedBuckets.map((bucket) => bucket.label),
     total: sortedBuckets.map((bucket) => Number(bucket.total.toFixed(2))),
     controllable: sortedBuckets.map((bucket) => Number(bucket.controllable.toFixed(2))),
-    uncontrollable: sortedBuckets.map((bucket) => Number(bucket.uncontrollable.toFixed(2)))
+    uncontrollable: sortedBuckets.map((bucket) => Number(bucket.uncontrollable.toFixed(2))),
+    unclassified: sortedBuckets.map((bucket) => Number(bucket.unclassified.toFixed(2)))
   };
 }
 
@@ -6834,7 +6818,11 @@ export default function App() {
         { label: 'Total SAP cost (net)', color: 'var(--chart-line)' },
         paretoCumulativeLegendItem
       ]
-      : [{ label: 'Total SAP cost (net)', color: 'var(--chart-line)' }];
+      : [
+        { label: 'Controllable', color: 'var(--chart-line)' },
+        { label: 'Uncontrollable', color: 'var(--chart-accent-line)' },
+        { label: 'Unclassified', color: 'var(--chart-secondary-line)' }
+      ];
   const controllableCostsHanaOverviewLegend = isControllableCostsHanaPalette
     ? []
     : isControllableCostsHanaPareto
@@ -7066,11 +7054,19 @@ export default function App() {
   );
   const visibleControllableCostsNewGoalLine = clampGoalLineToVisibleSeries(
     controllableCostsNewGoalLine,
-    [controllableCostsNewChartData.total]
+    [
+      controllableCostsNewChartData.controllable,
+      controllableCostsNewChartData.uncontrollable,
+      controllableCostsNewChartData.unclassified
+    ]
   );
   const controllableCostsNewChartYAxis = buildDynamicNumericYAxis(
     CONTROLLABLE_COSTS_Y_AXIS,
-    [controllableCostsNewChartData.total],
+    [
+      controllableCostsNewChartData.controllable,
+      controllableCostsNewChartData.uncontrollable,
+      controllableCostsNewChartData.unclassified
+    ],
     {
       includeZero: chartVariants.controllableCostsNew === 'bar',
       goalLine: visibleControllableCostsNewGoalLine
@@ -8475,9 +8471,23 @@ export default function App() {
                               yAxis={controllableCostsNewChartYAxis}
                               series={[
                                 {
-                                  data: controllableCostsNewChartData.total,
-                                  label: 'Total SAP cost (net)',
+                                  data: controllableCostsNewChartData.controllable,
+                                  label: 'Controllable',
                                   color: 'var(--chart-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: controllableCostsNewChartData.labels.length <= 1
+                                },
+                                {
+                                  data: controllableCostsNewChartData.uncontrollable,
+                                  label: 'Uncontrollable',
+                                  color: 'var(--chart-accent-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: controllableCostsNewChartData.labels.length <= 1
+                                },
+                                {
+                                  data: controllableCostsNewChartData.unclassified,
+                                  label: 'Unclassified',
+                                  color: 'var(--chart-secondary-line)',
                                   valueFormatter: formatCurrency,
                                   showMark: controllableCostsNewChartData.labels.length <= 1
                                 }

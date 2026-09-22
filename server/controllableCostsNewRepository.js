@@ -82,9 +82,10 @@ function normalizeMatchText(value) {
 }
 
 function normalizeKeyControllability(value) {
-  return normalizeMatchText(value) === 'controllable'
-    ? 'Controllable'
-    : 'Uncontrollable';
+  const normalized = normalizeMatchText(value);
+  if (normalized === 'controllable') return 'Controllable';
+  if (normalized === 'uncontrollable') return 'Uncontrollable';
+  return 'Unclassified';
 }
 
 function getCostElementMatchRank(costRow, keyRow) {
@@ -163,6 +164,22 @@ async function readCostElementKeys() {
     costElementDescription: normalizeText(row['Cost Element Description']),
     controllable: normalizeKeyControllability(row.Controllable)
   }));
+  // The category key fills classifications where a particular G/L has no element-key row.
+  const categoryKeyTableName = formatSqlIdentifier('cost_category_key', config);
+  const categoryResult = await pool.request().query(`
+    SELECT
+      LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Category] AS nvarchar(4000)), '')))
+        AS [Cost Category],
+      LTRIM(RTRIM(COALESCE(TRY_CAST([Controllable] AS nvarchar(255)), '')))
+        AS [Controllable]
+    FROM ${categoryKeyTableName};
+  `);
+  const controllabilityByCategory = new Map(
+    categoryResult.recordset.map((row) => [
+      normalizeMatchText(row['Cost Category']),
+      normalizeKeyControllability(row.Controllable)
+    ])
+  );
   const valuesByIdentifier = rows.reduce((lookup, row) => {
     const currentRows = lookup.get(row.costElement) ?? [];
 
@@ -180,7 +197,8 @@ async function readCostElementKeys() {
   return {
     tableName: costElementKeyTableName,
     rowCount: rows.length,
-    valuesByIdentifier
+    valuesByIdentifier,
+    controllabilityByCategory
   };
 }
 
@@ -288,42 +306,33 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     (row) => facilityKey.lookup.has(row.cost_center)
       && Boolean(facilityKey.lookup.get(row.cost_center)?.address)
   ).length;
-  const costElementKeys = metadata.includeAllSapCosts
-    ? { tableName: null, rowCount: 0, valuesByIdentifier: new Map() }
-    : await readCostElementKeys();
+  const costElementKeys = await readCostElementKeys();
   const rows = [];
   const excludedRows = [];
   const selectedKeyMatches = [];
 
   normalizedRows.forEach((row) => {
-    if (metadata.includeAllSapCosts) {
-      // Selected facility G/L accounts retain signed credits and reversals.
-      rows.push({ ...row, controllable: 'Unclassified' });
-      return;
-    }
-
     const matchedKey = resolveCostElementKey(row, costElementKeys.valuesByIdentifier);
-
-    if (!matchedKey) {
-      excludedRows.push(row);
-      return;
-    }
-
-    const classifiedRow = {
-      ...row,
-      controllable: matchedKey.controllable
-    };
-
+    const categoryControllability = costElementKeys.controllabilityByCategory.get(
+      normalizeMatchText(row.cost_category)
+    );
+    const controllable = matchedKey?.controllable && matchedKey.controllable !== 'Unclassified'
+      ? matchedKey.controllable
+      : (categoryControllability ?? 'Unclassified');
+    // Never discard selected SAP costs solely because a classification key is missing.
+    const classifiedRow = { ...row, controllable };
     rows.push(classifiedRow);
-    selectedKeyMatches.push({
-      row: classifiedRow,
-      selectedKey: {
-        costCategory: matchedKey.costCategory,
-        costElement: matchedKey.costElement,
-        costElementDescription: matchedKey.costElementDescription,
-        controllable: matchedKey.controllable
-      }
-    });
+    if (matchedKey) {
+      selectedKeyMatches.push({
+        row: classifiedRow,
+        selectedKey: {
+          costCategory: matchedKey.costCategory,
+          costElement: matchedKey.costElement,
+          costElementDescription: matchedKey.costElementDescription,
+          controllable
+        }
+      });
+    }
   });
 
   return {
@@ -428,7 +437,9 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
     rowCount: rows.length,
     invalidRowCount: sourceRows.length - normalizedRows.length,
     excludedByCostElementKeyCount: excludedRows.length,
-    unclassifiedByCostElementKeyCount: 0,
+    unclassifiedByCostElementKeyCount: rows.filter(
+      (row) => row.controllable === 'Unclassified'
+    ).length,
     costElementKeyTableName: costElementKeys.tableName,
     costElementKeyRowCount: costElementKeys.rowCount,
     validCostElementCount: costElementKeys.valuesByIdentifier.size,

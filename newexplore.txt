@@ -1,67 +1,25 @@
-WITH Central AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(t.RCNTR))) AS Cost_Center,
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-      AND UPPER(LTRIM(RTRIM(t.RCNTR))) IN (
-          'TDA87FC0',
-          'TDB84FAC',
-          'TDA87FO0',
-          'TDB84FCO'
-      )
-)
-
 SELECT
-    CASE
-        WHEN GROUPING(Cost_Center) = 1
-            THEN 'TOTAL CENTRAL SDS'
-        ELSE Cost_Center
-    END AS Cost_Center,
+    LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+    TRY_CONVERT(BIGINT, t.RACCT) AS GL_Account,
+    MAX(t.GL_TXT20) AS Description,
 
     COUNT(*) AS Transaction_Rows,
 
-    SUM(Amount) AS Net_Amount,
+    SUM(
+        TRY_CONVERT(DECIMAL(19,2), t.KSL)
+    ) AS Q1_Net
 
-    SUM(CASE
-        WHEN Amount > 0 THEN Amount ELSE 0
-    END) AS Positive_Amount,
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
-    SUM(CASE
-        WHEN Amount < 0 THEN -Amount ELSE 0
-    END) AS Negative_Absolute,
+WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-    SUM(CASE
-        WHEN GL IN (4301048, 4301049, 4301050)
-            THEN Amount ELSE 0
-    END) AS Depreciation_LHI,
+  AND LTRIM(RTRIM(t.RCNTR)) = 'TDA87FL0'
 
-    SUM(CASE
-        WHEN GL = 8445003
-            THEN Amount ELSE 0
-    END) AS ISM_MOA_Fac,
+GROUP BY
+    LTRIM(RTRIM(t.RCNTR)),
+    TRY_CONVERT(BIGINT, t.RACCT)
 
-    SUM(CASE
-        WHEN GL = 8320563
-            THEN Amount ELSE 0
-    END) AS SDS_Indirect_Facility_Allocation,
-
-    SUM(CASE
-        WHEN GL = 8320578
-            THEN Amount ELSE 0
-    END) AS Facility_MOA_Division,
-
-    SUM(CASE
-        WHEN GL = 8320584
-            THEN Amount ELSE 0
-    END) AS Common_Facility_MOA
-
-FROM Central
-
-GROUP BY ROLLUP(Cost_Center)
-
-ORDER BY
-    GROUPING(Cost_Center),
-    Cost_Center;
+ORDER BY ABS(
+    SUM(TRY_CONVERT(DECIMAL(19,2), t.KSL))
+) DESC;

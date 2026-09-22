@@ -1,25 +1,46 @@
-SELECT
-    LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
-    TRY_CONVERT(BIGINT, t.RACCT) AS GL_Account,
-    MAX(t.GL_TXT20) AS Description,
+WITH Overhead AS (
+    SELECT
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
+        t.GL_TXT20 AS Description,
+        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+      AND LTRIM(RTRIM(t.RCNTR)) = 'TDA10H1C'
+)
 
+SELECT
+    GL AS GL_Account,
+    MAX(Description) AS Description,
     COUNT(*) AS Transaction_Rows,
 
-    SUM(
-        TRY_CONVERT(DECIMAL(19,2), t.KSL)
-    ) AS Q1_Net
+    SUM(Amount) AS Net_Amount,
 
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+    SUM(CASE
+        WHEN Amount > 0 THEN Amount
+        ELSE 0
+    END) AS Positive_Amount,
 
-WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+    SUM(CASE
+        WHEN Amount < 0 THEN -Amount
+        ELSE 0
+    END) AS Negative_Absolute,
 
-  AND LTRIM(RTRIM(t.RCNTR)) = 'TDA87FL0'
+    CASE
+        WHEN GL IN (
+            4300591, 4300625,
+            4301050, 4301049, 4301048,
+            4301102, 4300703
+        )
+        THEN 'Original seven accounts'
+        ELSE 'Other account'
+    END AS Account_Group
 
-GROUP BY
-    LTRIM(RTRIM(t.RCNTR)),
-    TRY_CONVERT(BIGINT, t.RACCT)
+FROM Overhead
 
-ORDER BY ABS(
-    SUM(TRY_CONVERT(DECIMAL(19,2), t.KSL))
-) DESC;
+GROUP BY GL
+
+HAVING SUM(Amount) <> 0
+
+ORDER BY
+    ABS(SUM(Amount)) DESC;

@@ -1,13 +1,16 @@
-WITH MappedSDS AS (
+WITH OtherCosts AS (
     SELECT
-        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
         TRY_CONVERT(BIGINT, t.RACCT) AS GL,
+        t.GL_TXT20 AS Description,
+        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
         TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
     WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
       AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-      AND TRY_CONVERT(BIGINT, t.RACCT) IN (
+      AND TRY_CONVERT(BIGINT, t.RACCT) NOT IN (
           4300591, 4300625,
           4301050, 4301049, 4301048,
           4301102, 4300703
@@ -31,30 +34,29 @@ WITH MappedSDS AS (
       )
 )
 
-SELECT
-    CASE WHEN GROUPING(Cost_Center) = 1
-         THEN 'TOTAL MAPPED SDS'
-         ELSE Cost_Center
-    END AS Cost_Center,
+SELECT TOP (60)
+    GL AS GL_Account,
+    MAX(Description) AS Description,
 
-    SUM(CASE WHEN GL IN (4300591, 4300625)
-        THEN Amount ELSE 0 END) AS Rent,
+    COUNT(*) AS Transaction_Rows,
+    COUNT(DISTINCT Cost_Center) AS Facilities,
 
-    SUM(CASE WHEN GL IN (4301050, 4301049, 4301048)
-        THEN Amount ELSE 0 END) AS Depreciation_LHI,
+    SUM(Amount) AS Net_Amount,
 
-    SUM(CASE WHEN GL = 4301102
-        THEN Amount ELSE 0 END) AS Electricity,
+    SUM(CASE
+        WHEN Amount > 0 THEN Amount ELSE 0
+    END) AS Positive_Amount,
 
-    SUM(CASE WHEN GL = 4300703
-        THEN Amount ELSE 0 END) AS Janitorial,
+    SUM(CASE
+        WHEN Amount < 0 THEN ABS(Amount) ELSE 0
+    END) AS Negative_Absolute
 
-    SUM(Amount) AS Total_Selected_Cost
+FROM OtherCosts
 
-FROM MappedSDS
+WHERE GL IS NOT NULL
 
-GROUP BY ROLLUP(Cost_Center)
+GROUP BY GL
 
-ORDER BY
-    GROUPING(Cost_Center),
-    Total_Selected_Cost DESC;
+HAVING SUM(Amount) <> 0
+
+ORDER BY ABS(SUM(Amount)) DESC;

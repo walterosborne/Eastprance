@@ -8398,7 +8398,7 @@ export default function App() {
             {visibleCards.controllableCostsNew && (
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
-                  title="SAP Costs — New Data"
+                  title="Controllable Costs — New Data"
                   info={controllableCostsNewMetricInfo}
                   tooltipLegend={controllableCostsNewCardTooltipLegend}
                   performanceStatus={controllableCostsNewPerformanceStatus}
@@ -9611,7 +9611,7 @@ export default function App() {
             {visibleCards.labor && (
               <article className="analytics-card" style={{ order: 3 }}>
                 <CardHeader
-                  title="Direct Labor Utilization"
+                  title="Labor Utilization"
                   info={laborMetricInfo}
                   tooltipLegend={laborCardTooltipLegend}
                   performanceStatus={laborPerformanceStatus}

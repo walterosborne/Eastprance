@@ -1,168 +1,30 @@
-/* Q1 2026: Priscilla vs SAP CWI
-   Read-only. No temporary tables. */
-
-WITH CWI_Centers AS (
-    SELECT DISTINCT
-        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    WHERE LEV02 = 'NGRBT'
-      AND LEV03_DESC = 'DS C2 & Weapons Integration'
-),
-
-Key_Centers AS (
-    SELECT DISTINCT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
-    FROM ecosystem_source.qmi.costcenterkey
-),
-
-SAP_Rows AS (
+WITH Original AS (
     SELECT
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-
-      AND EXISTS (
-          SELECT 1
-          FROM CWI_Centers h
-          WHERE h.CC = UPPER(LTRIM(RTRIM(t.RCNTR)))
-      )
-
-      AND EXISTS (
-          SELECT 1
-          FROM Key_Centers k
-          WHERE k.CC = UPPER(LTRIM(RTRIM(t.RCNTR)))
-      )
-),
-
-Categorized AS (
-    SELECT
-        Amount,
-
-        CASE
-            WHEN GL BETWEEN 4100000 AND 4109999
-              OR GL = 8320037
-                THEN '1 Labor'
-
-            WHEN GL IN (
-                4300591, 4300625, 4300887, 4301077
-            )
-                THEN '2 Rent - Land & Building'
-
-            WHEN GL IN (
-                4301048, 4301049, 4301050, 4301231
-            )
-                THEN '3 Depreciation & LHI'
-
-            WHEN GL = 4300626
-                THEN '4 Property Taxes'
-
-            WHEN GL IN (
-                4300852, 4300630, 8320479
-            )
-                THEN '5 Insurance'
-
-            WHEN GL IN (
-                4300884, 4300699, 4300702,
-                4300704, 4300705, 4300701,
-                4300700, 4300671, 4300643,
-                4300305, 4300669, 4300698,
-                4300680
-            )
-                THEN '6 Maintenance & Repairs'
-
-            WHEN GL IN (
-                4300703, 4300805, 4300666, 4300807
-            )
-                THEN '7 Services'
-
-            WHEN GL IN (
-                4301102, 4301013, 4301104, 4300628
-            )
-                THEN '8 Utilities'
-
-            WHEN GL IN (4300645, 4300073, 4301052)
-                THEN 'REVIEW'
-
-            ELSE NULL
-        END AS Cost_Category
-
-    FROM SAP_Rows
-),
-
-Comparison AS (
-
-    /* Priscilla: populated Cost Element is our CWI proxy */
-    SELECT
-        'Priscilla' AS Source,
-        LTRIM(RTRIM([Cost Category])) AS Cost_Category,
-        TRY_CONVERT(DECIMAL(19,2), [Cost]) AS Amount,
-        CAST(0 AS DECIMAL(19,2)) AS Review_Amount
-
+        TRY_CONVERT(
+            BIGINT,
+            TRY_CONVERT(DECIMAL(19,2), [Cost Element])
+        ) AS GL,
+        [Cost Category] AS Category,
+        SUM(TRY_CONVERT(DECIMAL(19,2), [Cost]))
+            AS Amount
     FROM ecosystem_source.qmi.controllable_costs
-
     WHERE TRY_CONVERT(INT, [Year]) = 2026
       AND LTRIM(RTRIM([Quarter])) = 'Q1'
-      AND [Cost Element] IS NOT NULL
-
-    UNION ALL
-
-    /* SAP: mapped CWI cost centers only */
-    SELECT
-        'SAP' AS Source,
-        Cost_Category,
-
-        CASE
-            WHEN Cost_Category <> 'REVIEW'
-                THEN Amount
-            ELSE 0
-        END AS Amount,
-
-        CASE
-            WHEN Cost_Category = 'REVIEW'
-                THEN Amount
-            ELSE 0
-        END AS Review_Amount
-
-    FROM Categorized
-
-    WHERE Cost_Category IS NOT NULL
+      AND TRY_CONVERT(
+            BIGINT,
+            TRY_CONVERT(DECIMAL(19,2), [Cost Element])
+          ) IN (4300852, 4300630, 8320479)
+    GROUP BY
+        TRY_CONVERT(
+            BIGINT,
+            TRY_CONVERT(DECIMAL(19,2), [Cost Element])
+        ),
+        [Cost Category]
 )
 
 SELECT
-    CASE
-        WHEN GROUPING(Cost_Category) = 1
-            THEN 'TOTAL'
-        ELSE Cost_Category
-    END AS Cost_Category,
-
-    SUM(CASE
-        WHEN Source = 'Priscilla' THEN Amount
-        ELSE 0
-    END) AS Priscilla_Q1,
-
-    SUM(CASE
-        WHEN Source = 'SAP' THEN Amount
-        ELSE 0
-    END) AS SAP_CWI_Q1,
-
-    SUM(CASE
-        WHEN Source = 'SAP' THEN Amount
-        ELSE -Amount
-    END) AS SAP_Minus_Priscilla,
-
-    SUM(CASE
-        WHEN Source = 'SAP' THEN Review_Amount
-        ELSE 0
-    END) AS SAP_Review_Only
-
-FROM Comparison
-
-GROUP BY ROLLUP(Cost_Category)
-
-ORDER BY
-    GROUPING(Cost_Category),
-    Cost_Category;
+    GL AS GL_Account,
+    Category AS Priscilla_Category,
+    Amount AS Priscilla_Q1
+FROM Original
+ORDER BY GL, Category;

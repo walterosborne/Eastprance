@@ -1,53 +1,311 @@
-/* ================================================
-   RESULT 1: THE THREE ERP LABOR RECORDS
-   ================================================ */
+/* ============================================================
+   QMI FACILITY COST RECONSTRUCTION — Q1 2026
+
+   SAP only.
+   CWI + SDS.
+   No Weapon Systems.
+   No gross-activity inflation.
+   No guessed $8,603.51 adjustment.
+   ============================================================ */
+
+WITH CostCenterKey AS (
+    SELECT
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC,
+        MAX([Address]) AS Facility
+    FROM ecosystem_source.qmi.costcenterkey
+    GROUP BY UPPER(LTRIM(RTRIM([Cost Center])))
+),
+
+Hierarchy AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
+        MAX(CC_DESCRIPTION) AS Cost_Center_Name,
+        MAX(LEV03_DESC) AS Division,
+        MAX(LEV04_DESC) AS Business_Unit
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE LEV02 = 'NGRBT'
+      AND LEV03_DESC IN (
+          'DS C2 & Weapons Integration',
+          'DS Strategic Deterrent Systems'
+      )
+    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+),
+
+CentralSDS AS (
+    SELECT CC
+    FROM (VALUES
+        ('TDA87FC0'),
+        ('TDA87FO0'),
+        ('TDB84FAC'),
+        ('TDB84FCO'),
+        ('TDA87FL0'),
+        ('TDA10H1C')
+    ) v(CC)
+),
+
+SAP AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(t.RCNTR))) AS CC,
+
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
+
+        TRY_CONVERT(
+            DECIMAL(19,2),
+            t.KSL
+        ) AS Amount
+
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+
+      AND TRY_CONVERT(INT, t.POPER)
+          BETWEEN 1 AND 3
+),
+
+MappedSAP AS (
+    SELECT
+        h.Division,
+        h.Business_Unit,
+
+        s.CC AS Cost_Center,
+        h.Cost_Center_Name,
+
+        CASE
+            WHEN cs.CC IS NOT NULL
+                THEN 'Central SDS'
+            ELSE 'Physical facility'
+        END AS Reporting_Scope,
+
+        CASE
+            WHEN cs.CC IS NOT NULL
+                THEN 'Strategic Deterrent Facility/Operations'
+            ELSE k.Facility
+        END AS Facility,
+
+        s.GL,
+        s.Amount
+
+    FROM SAP s
+
+    JOIN Hierarchy h
+        ON s.CC = h.CC
+
+    LEFT JOIN CostCenterKey k
+        ON s.CC = k.CC
+
+    LEFT JOIN CentralSDS cs
+        ON s.CC = cs.CC
+
+    WHERE k.CC IS NOT NULL
+       OR cs.CC IS NOT NULL
+),
+
+Classified AS (
+    SELECT
+        *,
+
+        CASE
+
+            /* LABOR — incomplete without SAP GL 4100000 */
+            WHEN GL BETWEEN 4100000 AND 4109999
+              OR GL = 8320037
+                THEN '1 Labor'
+
+            /* RENT */
+            WHEN GL IN (
+                4300591, -- Lease expense
+                4300625, -- Variable rent / CAM
+                4300887, -- Rent miscellaneous
+                4301077  -- Rent land and building
+            )
+                THEN '2 Rent - Land & Building'
+
+            /* DEPRECIATION AND LHI */
+            WHEN GL IN (
+                4301048, -- Depreciation facilities
+                4301049, -- Depreciation machinery/equipment
+                4301050, -- Amortization LHI
+                4301231  -- FAS/CAS depreciation
+            )
+                THEN '3 Depreciation & LHI'
+
+            /* PROPERTY TAXES */
+            WHEN GL IN (
+                4300626
+            )
+                THEN '4 Property Taxes'
+
+            /* INSURANCE */
+            WHEN GL IN (
+                4300852,
+                4300630,
+                8320479
+            )
+                THEN '5 Insurance'
+
+            /* MAINTENANCE AND REPAIRS */
+            WHEN GL IN (
+                4300884,
+                4300699,
+                4300702,
+                4300704,
+                4300705,
+                4300701,
+                4300700,
+                4300671,
+                4300643,
+                4300305,
+                4300669,
+                4300698,
+                4300680
+            )
+                THEN '6 Maintenance & Repairs'
+
+            /* SERVICES */
+            WHEN GL IN (
+                4300703, -- Facility janitorial
+                4300805, -- General services
+                4300666, -- Purchased janitorial
+                4300807  -- Rubbish hauling
+            )
+                THEN '7 Services'
+
+            /* UTILITIES */
+            WHEN GL IN (
+                4301102, -- Electricity
+                4301013, -- Gas
+                4301104, -- Water
+                4300628  -- Variable rent utilities
+            )
+                THEN '8 Utilities'
+
+            /* PLAUSIBLE FACILITY COSTS NEEDING REVIEW */
+            WHEN GL = 4300645
+                THEN 'REVIEW - Site & Building'
+
+            WHEN GL = 4300073
+                THEN 'REVIEW - COTS'
+
+            WHEN GL = 4301052
+                THEN 'REVIEW - Asset Gain/Loss'
+
+            ELSE NULL
+        END AS Cost_Category
+
+    FROM MappedSAP
+),
+
+SelectedRows AS (
+    SELECT
+        *,
+
+        CASE
+            WHEN Cost_Category LIKE 'REVIEW%'
+                THEN 'Review'
+            ELSE 'Selected'
+        END AS Mapping_Status
+
+    FROM Classified
+
+    WHERE Cost_Category IS NOT NULL
+)
 
 SELECT
-    *
-FROM ecosystem_source.dbo.erpdata e
-WHERE UPPER(LTRIM(RTRIM(e.[Cost Center])))
-      = 'TDA87FC0'
+    CASE
+        WHEN GROUPING(Division) = 1
+            THEN 'ALL CWI + SDS'
+        ELSE Division
+    END AS Division,
 
-  AND TRY_CONVERT(BIGINT, e.[G/L Account])
-      = 4100000
+    CASE
+        WHEN GROUPING(Reporting_Scope) = 1
+            THEN 'TOTAL'
+        ELSE Reporting_Scope
+    END AS Reporting_Scope,
 
-  AND RIGHT(
-      LTRIM(RTRIM(e.[Fiscal Year Period])), 4
-  ) = '2026'
+    CASE
+        WHEN GROUPING(Cost_Center) = 1
+            THEN NULL
+        ELSE Cost_Center
+    END AS Cost_Center,
 
-  AND TRY_CONVERT(
-      INT,
-      LEFT(LTRIM(RTRIM(e.[Fiscal Year Period])), 3)
-  ) BETWEEN 1 AND 3
+    CASE
+        WHEN GROUPING(Cost_Center) = 1
+            THEN NULL
+        ELSE Cost_Center_Name
+    END AS Cost_Center_Name,
 
-ORDER BY e.[Fiscal Year Period];
+    CASE
+        WHEN GROUPING(Cost_Center) = 1
+            THEN NULL
+        ELSE Facility
+    END AS Facility,
 
+    CASE
+        WHEN GROUPING(Cost_Category) = 1
+            THEN 'TOTAL'
+        ELSE Cost_Category
+    END AS Cost_Category,
 
-/* ================================================
-   RESULT 2: DOES 4100000 EXIST ANYWHERE IN SAP?
-   ================================================ */
+    COUNT(*) AS Transaction_Rows,
 
-SELECT
-    COUNT(*) AS SAP_4100000_Rows,
-
-    COUNT(DISTINCT
-        UPPER(LTRIM(RTRIM(t.RCNTR)))
-    ) AS SAP_Cost_Centers,
-
-    SUM(
-        TRY_CONVERT(DECIMAL(19,2), t.KSL)
-    ) AS SAP_4100000_Total,
+    COUNT(DISTINCT GL) AS GL_Accounts,
 
     SUM(CASE
-        WHEN UPPER(LTRIM(RTRIM(t.RCNTR)))
-             = 'TDA87FC0'
-        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        WHEN Mapping_Status = 'Selected'
+            THEN Amount
         ELSE 0
-    END) AS SAP_Facility_Ops_4100000
+    END) AS Selected_Net,
 
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+    SUM(CASE
+        WHEN Mapping_Status = 'Review'
+            THEN Amount
+        ELSE 0
+    END) AS Review_Net,
 
-WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+    SUM(CASE
+        WHEN Mapping_Status = 'Selected'
+         AND Amount > 0
+            THEN Amount
+        ELSE 0
+    END) AS Selected_Positive,
 
-  AND TRY_CONVERT(BIGINT, t.RACCT) = 4100000;
+    SUM(CASE
+        WHEN Mapping_Status = 'Selected'
+         AND Amount < 0
+            THEN -Amount
+        ELSE 0
+    END) AS Selected_Negative
+
+FROM SelectedRows
+
+GROUP BY GROUPING SETS (
+
+    /* Individual facility and category */
+    (
+        Division,
+        Reporting_Scope,
+        Cost_Center,
+        Cost_Center_Name,
+        Facility,
+        Cost_Category
+    ),
+
+    /* Division / physical vs central subtotal */
+    (
+        Division,
+        Reporting_Scope
+    ),
+
+    /* Grand total */
+    ()
+)
+
+ORDER BY
+    GROUPING(Division) DESC,
+    Division,
+    GROUPING(Reporting_Scope) DESC,
+    Reporting_Scope,
+    Facility,
+    Cost_Center,
+    Cost_Category;

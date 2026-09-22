@@ -1,28 +1,47 @@
-SELECT
-    [Address],
-    [Cost Category],
-    COUNT(*) AS Report_Rows,
+WITH CentralSAP AS (
+    SELECT
+        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
+        t.GL_TXT20 AS Description,
+        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
 
-    SUM(
-        TRY_CONVERT(DECIMAL(19,2), [Cost])
-    ) AS Q1_Cost,
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
-    SUM(
-        SUM(TRY_CONVERT(DECIMAL(19,2), [Cost]))
-    ) OVER () AS Total_Central_SDS
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-FROM ecosystem_source.qmi.controllable_costs
+      AND LTRIM(RTRIM(t.RCNTR)) IN (
+          'TDA87FC0',
+          'TDB84FAC',
+          'TDA87FO0',
+          'TDB84FCO'
+      )
+)
 
-WHERE TRY_CONVERT(INT, [Year]) = 2026
-  AND LTRIM(RTRIM([Quarter])) = 'Q1'
+SELECT TOP (100)
+    Cost_Center,
+    GL AS GL_Account,
+    MAX(Description) AS Description,
 
-  AND UPPER([Address])
-      LIKE '%STRATEGIC DETERRENT%'
+    COUNT(*) AS Transaction_Rows,
 
-GROUP BY
-    [Address],
-    [Cost Category]
+    SUM(Amount) AS Net_Amount,
+
+    SUM(CASE
+        WHEN Amount > 0 THEN Amount
+        ELSE 0
+    END) AS Positive_Amount,
+
+    SUM(CASE
+        WHEN Amount < 0 THEN ABS(Amount)
+        ELSE 0
+    END) AS Negative_Amount
+
+FROM CentralSAP
+
+GROUP BY Cost_Center, GL
+
+HAVING SUM(Amount) <> 0
 
 ORDER BY
-    [Address],
-    [Cost Category];
+    ABS(SUM(Amount)) DESC;

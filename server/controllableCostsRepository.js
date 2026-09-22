@@ -127,8 +127,9 @@ async function readFallbackControllableCostsData(reason) {
   const costRows = XLSX.utils.sheet_to_json(costsWorksheet, { defval: null, raw: true });
   const categoryKeyRows = XLSX.utils.sheet_to_json(categoryKeyWorksheet, { defval: null, raw: true });
   const elementKeyRows = XLSX.utils.sheet_to_json(elementKeyWorksheet, { defval: null, raw: true });
-  const rows = costRows.map((row) =>
-    normalizeControllableCostsRow({
+  const rows = costRows
+    .filter((row) => normalizeNumber(row['Cost Element']) !== null)
+    .map((row) => normalizeControllableCostsRow({
       ...row,
       'Resolved Controllable': resolveControllableStatus(row, elementKeyRows, categoryKeyRows)
     })
@@ -237,6 +238,7 @@ export async function readControllableCostsData() {
       ) AS elementMatch
       LEFT JOIN normalized_category_key AS categoryMatch
         ON categoryMatch.[Cost Category] = costs.[Cost Category]
+      WHERE TRY_CONVERT(DECIMAL(19,2), NULLIF(costs.[Cost Element], '')) IS NOT NULL
       ORDER BY
         costs.[Year] ASC,
         costs.[Quarter] ASC,

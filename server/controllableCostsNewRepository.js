@@ -194,7 +194,7 @@ export function normalizeControllableCostsNewRow(row, facilityKey = null) {
   const costCenter = normalizeCostCenter(source.cost_center);
   const facilityMapping = costCenter ? facilityKey?.lookup?.get(costCenter) : null;
   const unmappedFacility = costCenter ? `Unmapped (CC ${costCenter})` : 'Unmapped';
-  const facility = facilityMapping?.address || unmappedFacility;
+  const facility = normalizeText(source.facility) || facilityMapping?.address || unmappedFacility;
 
   if (
     !Number.isInteger(year)
@@ -215,8 +215,8 @@ export function normalizeControllableCostsNewRow(row, facilityKey = null) {
     business_unit: normalizeText(source.business_unit),
     facility,
     address: facility,
-    facility_city: facilityMapping?.city || '',
-    facility_state: facilityMapping?.state || '',
+    facility_city: normalizeText(source.facility_city) || facilityMapping?.city || '',
+    facility_state: normalizeText(source.facility_state) || facilityMapping?.state || '',
     cost_center: costCenter,
     cost_category: costCategory,
     cost_element: costElement,
@@ -261,7 +261,25 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     );
   }
 
-  const facilityKey = await readControllableCostsFacilityKey();
+  // SAP already carries the live SQL costcenterkey facility mapping.
+  // Do not override it with a potentially stale local XLSX workbook.
+  const facilityKey = metadata.includeAllSapCosts
+    ? {
+        lookup: new Map(sourceRows.map((row) => {
+          const source = getNormalizedSourceRow(row);
+          return [normalizeCostCenter(source.cost_center), {
+            address: normalizeText(source.facility),
+            city: normalizeText(source.facility_city),
+            state: normalizeText(source.facility_state)
+          }];
+        })),
+        fileName: 'ecosystem_source.qmi.costcenterkey + central SDS',
+        sheetName: null,
+        mappedCostCenterCount: new Set(sourceRows.map((row) =>
+          normalizeCostCenter(getNormalizedSourceRow(row).cost_center)
+        )).size
+      }
+    : await readControllableCostsFacilityKey();
   const normalizedRows = sourceRows
     .map((row) => normalizeControllableCostsNewRow(row, facilityKey))
     .filter(Boolean);
@@ -279,7 +297,7 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
 
   normalizedRows.forEach((row) => {
     if (metadata.includeAllSapCosts) {
-      // All G/L accounts and signed credits/reversals remain in the SAP total.
+      // Selected facility G/L accounts retain signed credits and reversals.
       rows.push({ ...row, controllable: 'Unclassified' });
       return;
     }

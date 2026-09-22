@@ -1,181 +1,88 @@
-/* =========================================================
-   1. FIND THE $8,603.51 DIFFERENCE
-
-   Priscilla central Other:       $4,071,035.67
-   SAP overhead Depreciation/LHI: $4,079,639.18
-   Difference:                       $8,603.51
-
-   Search SDS cost center + GL combinations for amounts
-   close to either +8603.51 or -8603.51.
-   ========================================================= */
-
-WITH SDS AS (
+WITH Priscilla AS (
     SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
-        MAX(CC_DESCRIPTION) AS Cost_Center_Name
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    WHERE LEV02 = 'NGRBT'
-      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
-    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-),
+        TRY_CONVERT(INT, [Year]) AS Yr,
+        TRY_CONVERT(INT, REPLACE([Quarter], 'Q', '')) AS Qtr,
 
-AccountTotals AS (
-    SELECT
-        s.CC AS Cost_Center,
-        s.Cost_Center_Name,
+        SUM(CASE
+            WHEN [Cost Category] = '0 Other'
+            THEN TRY_CONVERT(DECIMAL(19,2), [Cost])
+            ELSE 0
+        END) AS Other_Cost,
 
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL_Account,
-        MAX(t.GL_TXT20) AS Description,
+        SUM(CASE
+            WHEN [Cost Category] = '1 Labor'
+            THEN TRY_CONVERT(DECIMAL(19,2), [Cost])
+            ELSE 0
+        END) AS Labor_Cost
 
-        COUNT(*) AS Transaction_Rows,
+    FROM ecosystem_source.qmi.controllable_costs
 
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ) AS Q1_Net
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-
-    JOIN SDS s
-        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = s.CC
-
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-
-      -- Exclude the depreciation already explaining $4.08M
-      AND NOT (
-          s.CC = 'TDA10H1C'
-          AND TRY_CONVERT(BIGINT, t.RACCT)
-              IN (4301049, 4301050)
-      )
+    WHERE [Address] =
+        'Strategic Deterrent Facility/Operations'
 
     GROUP BY
-        s.CC,
-        s.Cost_Center_Name,
-        TRY_CONVERT(BIGINT, t.RACCT)
-)
-
-SELECT TOP (30)
-    Cost_Center,
-    Cost_Center_Name,
-    GL_Account,
-    Description,
-    Transaction_Rows,
-    Q1_Net,
-
-    ABS(ABS(Q1_Net) - 8603.51)
-        AS Distance_From_8603
-
-FROM AccountTotals
-
-WHERE Q1_Net <> 0
-
-ORDER BY
-    Distance_From_8603,
-    ABS(Q1_Net) DESC;
-
-
-/* =========================================================
-   2. FIND CENTRAL SDS LABOR
-
-   Priscilla's central Labor: $1,949,847.71
-
-   Search SDS cost centers OUTSIDE the physical-facility key.
-   Include central facility, overhead, fringe, and labor
-   allocation candidates.
-   ========================================================= */
-
-WITH SDS AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
-        MAX(CC_DESCRIPTION) AS Cost_Center_Name
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    WHERE LEV02 = 'NGRBT'
-      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
-    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+        TRY_CONVERT(INT, [Year]),
+        TRY_CONVERT(INT, REPLACE([Quarter], 'Q', ''))
 ),
 
-Labor AS (
+SAP AS (
     SELECT
-        s.CC AS Cost_Center,
-        s.Cost_Center_Name,
+        TRY_CONVERT(INT, GJAHR) AS Yr,
 
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL_Account,
-        t.GL_TXT20 AS Description,
+        CEILING(
+            TRY_CONVERT(DECIMAL(10,2), POPER) / 3.0
+        ) AS Qtr,
 
-        TRY_CONVERT(DECIMAL(19,2), t.KSL)
-            AS Amount
+        SUM(CASE
+            WHEN TRY_CONVERT(BIGINT, RACCT) = 4301049
+            THEN TRY_CONVERT(DECIMAL(19,2), KSL)
+            ELSE 0
+        END) AS Machinery_Depreciation,
 
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+        SUM(CASE
+            WHEN TRY_CONVERT(BIGINT, RACCT) = 4301050
+            THEN TRY_CONVERT(DECIMAL(19,2), KSL)
+            ELSE 0
+        END) AS LHI_Amortization
 
-    JOIN SDS s
-        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = s.CC
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
 
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+    WHERE LTRIM(RTRIM(RCNTR)) = 'TDA10H1C'
+      AND TRY_CONVERT(INT, POPER) BETWEEN 1 AND 12
+      AND TRY_CONVERT(BIGINT, RACCT)
+          IN (4301049, 4301050)
 
-      -- Central/nonphysical SDS cost centers
-      AND NOT EXISTS (
-          SELECT 1
-          FROM ecosystem_source.qmi.costcenterkey k
-          WHERE UPPER(LTRIM(RTRIM(k.[Cost Center])))
-              = s.CC
-      )
+    GROUP BY
+        TRY_CONVERT(INT, GJAHR),
 
-      AND (
-          CONVERT(
-              VARCHAR(20),
-              TRY_CONVERT(BIGINT, t.RACCT)
-          ) LIKE '410%'
-
-          OR TRY_CONVERT(BIGINT, t.RACCT) = 8320037
-
-          OR UPPER(t.GL_TXT20) LIKE '%LABOR%'
-          OR UPPER(t.GL_TXT20) LIKE '%FRINGE%'
-          OR UPPER(t.GL_TXT20) LIKE '%BONUS%'
-          OR UPPER(t.GL_TXT20) LIKE '%PAYROLL%'
-          OR UPPER(t.GL_TXT20) LIKE '%SALARY%'
-          OR UPPER(t.GL_TXT20) LIKE '%WAGE%'
-      )
+        CEILING(
+            TRY_CONVERT(DECIMAL(10,2), POPER) / 3.0
+        )
 )
 
-SELECT TOP (100)
-    Cost_Center,
-    Cost_Center_Name,
+SELECT
+    p.Yr AS [Year],
+    CONCAT('Q', p.Qtr) AS [Quarter],
 
-    GL_Account,
-    MAX(Description) AS Description,
+    p.Other_Cost AS Priscilla_Other,
+    s.Machinery_Depreciation,
+    s.LHI_Amortization,
 
-    COUNT(*) AS Transaction_Rows,
+    s.Machinery_Depreciation
+        + s.LHI_Amortization
+        AS SAP_Depreciation_LHI,
 
-    SUM(Amount) AS Q1_Net,
+    p.Other_Cost
+        - s.Machinery_Depreciation
+        - s.LHI_Amortization
+        AS Difference,
 
-    SUM(CASE
-        WHEN Amount > 0 THEN Amount ELSE 0
-    END) AS Positive_Amount,
+    p.Labor_Cost AS Priscilla_Central_Labor
 
-    SUM(CASE
-        WHEN Amount < 0 THEN -Amount ELSE 0
-    END) AS Negative_Absolute
+FROM Priscilla p
 
-FROM Labor
+JOIN SAP s
+    ON p.Yr = s.Yr
+   AND p.Qtr = s.Qtr
 
-GROUP BY
-    Cost_Center,
-    Cost_Center_Name,
-    GL_Account
-
-HAVING SUM(Amount) <> 0
-
-ORDER BY
-    CASE
-        WHEN Cost_Center IN (
-            'TDA87FC0',
-            'TDA87FO0',
-            'TDB84FAC',
-            'TDB84FCO',
-            'TDA10H1C',
-            'TDA87FL0'
-        )
-        THEN 0 ELSE 1
-    END,
-    ABS(SUM(Amount)) DESC;
+ORDER BY p.Yr, p.Qtr;

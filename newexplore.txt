@@ -1,124 +1,53 @@
-WITH ERP AS (
-    SELECT
-        TRY_CONVERT(BIGINT, e.[G/L Account]) AS GL,
-
-        COUNT(*) AS ERP_Rows,
-
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount])
-        ) AS ERP_Amount
-
-    FROM ecosystem_source.dbo.erpdata e
-
-    WHERE UPPER(LTRIM(RTRIM(e.[Cost Center])))
-          = 'TDA87FC0'
-
-      AND RIGHT(
-          LTRIM(RTRIM(e.[Fiscal Year Period])), 4
-      ) = '2026'
-
-      AND TRY_CONVERT(
-          INT,
-          LEFT(
-              LTRIM(RTRIM(e.[Fiscal Year Period])), 3
-          )
-      ) BETWEEN 1 AND 3
-
-      AND (
-          TRY_CONVERT(BIGINT, e.[G/L Account])
-              BETWEEN 4100000 AND 4109999
-
-          OR TRY_CONVERT(BIGINT, e.[G/L Account])
-              = 8320037
-      )
-
-    GROUP BY
-        TRY_CONVERT(BIGINT, e.[G/L Account])
-),
-
-SAP AS (
-    SELECT
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-
-        MAX(t.GL_TXT20) AS Description,
-
-        COUNT(*) AS SAP_Rows,
-
-        SUM(
-            TRY_CONVERT(DECIMAL(19,2), t.KSL)
-        ) AS SAP_Amount
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-
-    WHERE UPPER(LTRIM(RTRIM(t.RCNTR)))
-          = 'TDA87FC0'
-
-      AND TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-
-      AND (
-          TRY_CONVERT(BIGINT, t.RACCT)
-              BETWEEN 4100000 AND 4109999
-
-          OR TRY_CONVERT(BIGINT, t.RACCT)
-              = 8320037
-      )
-
-    GROUP BY
-        TRY_CONVERT(BIGINT, t.RACCT)
-),
-
-Comparison AS (
-    SELECT
-        COALESCE(e.GL, s.GL) AS GL,
-
-        s.Description,
-
-        COALESCE(e.ERP_Rows, 0) AS ERP_Rows,
-        COALESCE(s.SAP_Rows, 0) AS SAP_Rows,
-
-        COALESCE(e.ERP_Amount, 0) AS ERP_Amount,
-        COALESCE(s.SAP_Amount, 0) AS SAP_Amount
-
-    FROM ERP e
-
-    FULL OUTER JOIN SAP s
-        ON e.GL = s.GL
-)
+/* ================================================
+   RESULT 1: THE THREE ERP LABOR RECORDS
+   ================================================ */
 
 SELECT
-    CASE
-        WHEN GROUPING(GL) = 1
-            THEN 'TOTAL'
-        ELSE CONVERT(VARCHAR(20), GL)
-    END AS GL_Account,
+    *
+FROM ecosystem_source.dbo.erpdata e
+WHERE UPPER(LTRIM(RTRIM(e.[Cost Center])))
+      = 'TDA87FC0'
 
-    CASE
-        WHEN GROUPING(GL) = 1
-            THEN ''
-        ELSE MAX(Description)
-    END AS Description,
+  AND TRY_CONVERT(BIGINT, e.[G/L Account])
+      = 4100000
 
-    SUM(ERP_Rows) AS ERP_Rows,
-    SUM(SAP_Rows) AS SAP_Rows,
+  AND RIGHT(
+      LTRIM(RTRIM(e.[Fiscal Year Period])), 4
+  ) = '2026'
 
-    SUM(ERP_Amount) AS ERP_Amount,
-    SUM(SAP_Amount) AS SAP_Amount,
+  AND TRY_CONVERT(
+      INT,
+      LEFT(LTRIM(RTRIM(e.[Fiscal Year Period])), 3)
+  ) BETWEEN 1 AND 3
 
-    SUM(ERP_Amount - SAP_Amount)
-        AS ERP_Minus_SAP,
+ORDER BY e.[Fiscal Year Period];
 
-    CASE
-        WHEN GROUPING(GL) = 1
-        THEN
-            SUM(ERP_Amount) - 1949847.71
-        ELSE NULL
-    END AS ERP_Minus_Priscilla
 
-FROM Comparison
+/* ================================================
+   RESULT 2: DOES 4100000 EXIST ANYWHERE IN SAP?
+   ================================================ */
 
-GROUP BY ROLLUP(GL)
+SELECT
+    COUNT(*) AS SAP_4100000_Rows,
 
-ORDER BY
-    GROUPING(GL),
-    ABS(SUM(ERP_Amount - SAP_Amount)) DESC;
+    COUNT(DISTINCT
+        UPPER(LTRIM(RTRIM(t.RCNTR)))
+    ) AS SAP_Cost_Centers,
+
+    SUM(
+        TRY_CONVERT(DECIMAL(19,2), t.KSL)
+    ) AS SAP_4100000_Total,
+
+    SUM(CASE
+        WHEN UPPER(LTRIM(RTRIM(t.RCNTR)))
+             = 'TDA87FC0'
+        THEN TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ELSE 0
+    END) AS SAP_Facility_Ops_4100000
+
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
+WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+
+  AND TRY_CONVERT(BIGINT, t.RACCT) = 4100000;

@@ -1,26 +1,181 @@
--- 1. Priscilla's central SDS Other records
-SELECT *
-FROM ecosystem_source.qmi.controllable_costs
-WHERE TRY_CONVERT(INT, [Year]) = 2026
-  AND LTRIM(RTRIM([Quarter])) = 'Q1'
-  AND [Address] LIKE '%Strategic Deterrent%'
-  AND LTRIM(RTRIM([Cost Category])) = '0 Other';
+/* =========================================================
+   1. FIND THE $8,603.51 DIFFERENCE
 
+   Priscilla central Other:       $4,071,035.67
+   SAP overhead Depreciation/LHI: $4,079,639.18
+   Difference:                       $8,603.51
 
--- 2. SAP's $4.08M overhead depreciation
-SELECT
-    t.RCNTR AS Cost_Center,
-    t.GJAHR AS Fiscal_Year,
-    t.POPER AS Fiscal_Period,
-    t.RACCT AS GL_Account,
-    t.GL_TXT20 AS Description,
-    TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
-FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-  AND LTRIM(RTRIM(t.RCNTR)) = 'TDA10H1C'
-  AND TRY_CONVERT(BIGINT, t.RACCT)
-      IN (4301049, 4301050)
+   Search SDS cost center + GL combinations for amounts
+   close to either +8603.51 or -8603.51.
+   ========================================================= */
+
+WITH SDS AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
+        MAX(CC_DESCRIPTION) AS Cost_Center_Name
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE LEV02 = 'NGRBT'
+      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
+    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+),
+
+AccountTotals AS (
+    SELECT
+        s.CC AS Cost_Center,
+        s.Cost_Center_Name,
+
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL_Account,
+        MAX(t.GL_TXT20) AS Description,
+
+        COUNT(*) AS Transaction_Rows,
+
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ) AS Q1_Net
+
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
+    JOIN SDS s
+        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = s.CC
+
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+
+      -- Exclude the depreciation already explaining $4.08M
+      AND NOT (
+          s.CC = 'TDA10H1C'
+          AND TRY_CONVERT(BIGINT, t.RACCT)
+              IN (4301049, 4301050)
+      )
+
+    GROUP BY
+        s.CC,
+        s.Cost_Center_Name,
+        TRY_CONVERT(BIGINT, t.RACCT)
+)
+
+SELECT TOP (30)
+    Cost_Center,
+    Cost_Center_Name,
+    GL_Account,
+    Description,
+    Transaction_Rows,
+    Q1_Net,
+
+    ABS(ABS(Q1_Net) - 8603.51)
+        AS Distance_From_8603
+
+FROM AccountTotals
+
+WHERE Q1_Net <> 0
+
 ORDER BY
-    TRY_CONVERT(INT, t.POPER),
-    t.RACCT;
+    Distance_From_8603,
+    ABS(Q1_Net) DESC;
+
+
+/* =========================================================
+   2. FIND CENTRAL SDS LABOR
+
+   Priscilla's central Labor: $1,949,847.71
+
+   Search SDS cost centers OUTSIDE the physical-facility key.
+   Include central facility, overhead, fringe, and labor
+   allocation candidates.
+   ========================================================= */
+
+WITH SDS AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
+        MAX(CC_DESCRIPTION) AS Cost_Center_Name
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE LEV02 = 'NGRBT'
+      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
+    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+),
+
+Labor AS (
+    SELECT
+        s.CC AS Cost_Center,
+        s.Cost_Center_Name,
+
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL_Account,
+        t.GL_TXT20 AS Description,
+
+        TRY_CONVERT(DECIMAL(19,2), t.KSL)
+            AS Amount
+
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
+    JOIN SDS s
+        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = s.CC
+
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+
+      -- Central/nonphysical SDS cost centers
+      AND NOT EXISTS (
+          SELECT 1
+          FROM ecosystem_source.qmi.costcenterkey k
+          WHERE UPPER(LTRIM(RTRIM(k.[Cost Center])))
+              = s.CC
+      )
+
+      AND (
+          CONVERT(
+              VARCHAR(20),
+              TRY_CONVERT(BIGINT, t.RACCT)
+          ) LIKE '410%'
+
+          OR TRY_CONVERT(BIGINT, t.RACCT) = 8320037
+
+          OR UPPER(t.GL_TXT20) LIKE '%LABOR%'
+          OR UPPER(t.GL_TXT20) LIKE '%FRINGE%'
+          OR UPPER(t.GL_TXT20) LIKE '%BONUS%'
+          OR UPPER(t.GL_TXT20) LIKE '%PAYROLL%'
+          OR UPPER(t.GL_TXT20) LIKE '%SALARY%'
+          OR UPPER(t.GL_TXT20) LIKE '%WAGE%'
+      )
+)
+
+SELECT TOP (100)
+    Cost_Center,
+    Cost_Center_Name,
+
+    GL_Account,
+    MAX(Description) AS Description,
+
+    COUNT(*) AS Transaction_Rows,
+
+    SUM(Amount) AS Q1_Net,
+
+    SUM(CASE
+        WHEN Amount > 0 THEN Amount ELSE 0
+    END) AS Positive_Amount,
+
+    SUM(CASE
+        WHEN Amount < 0 THEN -Amount ELSE 0
+    END) AS Negative_Absolute
+
+FROM Labor
+
+GROUP BY
+    Cost_Center,
+    Cost_Center_Name,
+    GL_Account
+
+HAVING SUM(Amount) <> 0
+
+ORDER BY
+    CASE
+        WHEN Cost_Center IN (
+            'TDA87FC0',
+            'TDA87FO0',
+            'TDB84FAC',
+            'TDB84FCO',
+            'TDA10H1C',
+            'TDA87FL0'
+        )
+        THEN 0 ELSE 1
+    END,
+    ABS(SUM(Amount)) DESC;

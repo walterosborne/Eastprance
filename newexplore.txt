@@ -1,62 +1,66 @@
-WITH OtherCosts AS (
+WITH Classified AS (
     SELECT
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        t.GL_TXT20 AS Description,
-        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+        c.[Cost Category],
+        TRY_CONVERT(DECIMAL(19,2), c.[Cost]) AS Amount,
 
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+        CASE
+            WHEN a.Addr LIKE '5770%MISSILE%' THEN 'RIC 1'
+            WHEN a.Addr LIKE '5730%MISSILE%' THEN 'RIC 2'
+            WHEN a.Addr LIKE '5690%MISSILE%' THEN 'RIC 3'
+            WHEN a.Addr LIKE '5650%MISSILE%' THEN 'RIC 4'
 
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+            WHEN a.Addr LIKE '7057%MADISON%' THEN 'Old Madison Pike'
+            WHEN a.Addr LIKE '110%WYNN%' THEN '110 Wynn'
+            WHEN a.Addr LIKE '213%WYNN%' THEN '213 Wynn'
 
-      AND TRY_CONVERT(BIGINT, t.RACCT) NOT IN (
-          4300591, 4300625,
-          4301050, 4301049, 4301048,
-          4301102, 4300703
-      )
+            WHEN a.Addr LIKE '4336%1650%' THEN 'Kemp'
+            WHEN a.Addr LIKE '425%530%' THEN 'Ogden Warehouse'
+            WHEN a.Addr LIKE '182%1070%' THEN 'Ogden Surge'
 
-      AND EXISTS (
-          SELECT 1
-          FROM ecosystem_source.qmi.costcenterkey k
-          WHERE UPPER(LTRIM(RTRIM(k.[Cost Center])))
-              = UPPER(LTRIM(RTRIM(t.RCNTR)))
-      )
+            WHEN a.Addr LIKE '888%UNIVERSITY%' THEN 'Clearfield'
+            WHEN a.Addr LIKE '2830%GRANITE%' THEN 'Cheyenne'
+            WHEN a.Addr LIKE '1467%FAIRWAY%' THEN 'Santa Maria'
 
-      AND EXISTS (
-          SELECT 1
-          FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy h
-          WHERE UPPER(LTRIM(RTRIM(h.COST_CENTER)))
-              = UPPER(LTRIM(RTRIM(t.RCNTR)))
-            AND h.LEV02 = 'NGRBT'
-            AND h.LEV03_DESC =
-                'DS Strategic Deterrent Systems'
-      )
+            WHEN a.Addr LIKE '%STRATEGIC DETERRENT FACILITY%'
+                THEN 'SDS Shared Facility/Ops'
+        END AS SDS_Site
+
+    FROM ecosystem_source.qmi.controllable_costs c
+
+    CROSS APPLY (
+        VALUES (
+            UPPER(
+                REPLACE(
+                    REPLACE(
+                        LTRIM(RTRIM(c.[Address])),
+                        '.', ''
+                    ),
+                    ',', ''
+                )
+            )
+        )
+    ) a(Addr)
+
+    WHERE TRY_CONVERT(INT, c.[Year]) = 2026
+      AND LTRIM(RTRIM(c.[Quarter])) = 'Q1'
 )
 
-SELECT TOP (60)
-    GL AS GL_Account,
-    MAX(Description) AS Description,
+SELECT
+    CASE
+        WHEN GROUPING([Cost Category]) = 1
+            THEN 'TOTAL MATCHED SDS'
+        ELSE [Cost Category]
+    END AS Cost_Category,
 
-    COUNT(*) AS Transaction_Rows,
-    COUNT(DISTINCT Cost_Center) AS Facilities,
+    COUNT(*) AS Report_Rows,
+    SUM(Amount) AS Priscilla_Q1_Cost
 
-    SUM(Amount) AS Net_Amount,
+FROM Classified
 
-    SUM(CASE
-        WHEN Amount > 0 THEN Amount ELSE 0
-    END) AS Positive_Amount,
+WHERE SDS_Site IS NOT NULL
 
-    SUM(CASE
-        WHEN Amount < 0 THEN ABS(Amount) ELSE 0
-    END) AS Negative_Absolute
+GROUP BY ROLLUP([Cost Category])
 
-FROM OtherCosts
-
-WHERE GL IS NOT NULL
-
-GROUP BY GL
-
-HAVING SUM(Amount) <> 0
-
-ORDER BY ABS(SUM(Amount)) DESC;
+ORDER BY
+    GROUPING([Cost Category]),
+    [Cost Category];

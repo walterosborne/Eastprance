@@ -1,53 +1,28 @@
-WITH SDS_Key AS (
-    SELECT DISTINCT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC,
-        UPPER(LTRIM(RTRIM([Address]))) AS Address_Key,
-        [Address]
-    FROM ecosystem_source.qmi.costcenterkey
-    WHERE UPPER(LTRIM(RTRIM([Cost Center]))) IN (
-        'TDA87R10', 'TDA87R20',
-        'TDA87R30', 'TDA87R40',
-        'TDA87OM0', 'TDA87HN0', 'TDA87H20',
-        'TDA87KE0', 'TDA87UK0', 'TDA87SR0',
-        'TDA87UV0', 'TDA87WY0', 'TDA87VF0'
-    )
-)
-
 SELECT
-    k.CC AS Cost_Center,
-    k.[Address],
-
-    COUNT(c.[Address]) AS Report_Rows,
-
-    SUM(CASE
-        WHEN UPPER(LTRIM(RTRIM(c.[Cost Category])))
-             = '1 LABOR'
-        THEN TRY_CONVERT(DECIMAL(19,2), c.[Cost])
-        ELSE 0
-    END) AS Priscilla_Labor,
-
-    SUM(CASE
-        WHEN UPPER(LTRIM(RTRIM(c.[Cost Category])))
-             = '0 OTHER'
-        THEN TRY_CONVERT(DECIMAL(19,2), c.[Cost])
-        ELSE 0
-    END) AS Priscilla_Other,
+    [Address],
+    [Cost Category],
+    COUNT(*) AS Report_Rows,
 
     SUM(
-        TRY_CONVERT(DECIMAL(19,2), c.[Cost])
-    ) AS Priscilla_All_Categories
+        TRY_CONVERT(DECIMAL(19,2), [Cost])
+    ) AS Q1_Cost,
 
-FROM SDS_Key k
+    SUM(
+        SUM(TRY_CONVERT(DECIMAL(19,2), [Cost]))
+    ) OVER () AS Total_Central_SDS
 
-LEFT JOIN ecosystem_source.qmi.controllable_costs c
-    ON UPPER(LTRIM(RTRIM(c.[Address])))
-       = k.Address_Key
-   AND TRY_CONVERT(INT, c.[Year]) = 2026
-   AND LTRIM(RTRIM(c.[Quarter])) = 'Q1'
+FROM ecosystem_source.qmi.controllable_costs
+
+WHERE TRY_CONVERT(INT, [Year]) = 2026
+  AND LTRIM(RTRIM([Quarter])) = 'Q1'
+
+  AND UPPER([Address])
+      LIKE '%STRATEGIC DETERRENT%'
 
 GROUP BY
-    k.CC,
-    k.[Address]
+    [Address],
+    [Cost Category]
 
 ORDER BY
-    Priscilla_All_Categories DESC;
+    [Address],
+    [Cost Category];

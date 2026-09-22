@@ -1,110 +1,53 @@
-WITH MappedCenters AS (
+WITH SDS_Key AS (
     SELECT DISTINCT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC,
+        UPPER(LTRIM(RTRIM([Address]))) AS Address_Key,
+        [Address]
     FROM ecosystem_source.qmi.costcenterkey
-),
-
-SDSTransactions AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(t.RCNTR))) AS CC,
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        t.GL_TXT20 AS Description,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount,
-
-        CASE
-            WHEN k.CC IS NOT NULL THEN 1
-            ELSE 0
-        END AS Is_Mapped
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-
-    LEFT JOIN MappedCenters k
-        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = k.CC
-
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-
-      AND TRY_CONVERT(BIGINT, t.RACCT) NOT IN (
-          4300591, 4300625,
-          4301050, 4301049, 4301048,
-          4301102, 4300703
-      )
-
-      AND EXISTS (
-          SELECT 1
-          FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy h
-          WHERE UPPER(LTRIM(RTRIM(h.COST_CENTER)))
-              = UPPER(LTRIM(RTRIM(t.RCNTR)))
-            AND h.LEV02 = 'NGRBT'
-            AND h.LEV03_DESC =
-                'DS Strategic Deterrent Systems'
-      )
-),
-
-Accounts AS (
-    SELECT
-        GL,
-        MAX(Description) AS Description,
-
-        COUNT(DISTINCT CASE
-            WHEN Is_Mapped = 1 THEN CC
-        END) AS Mapped_Centers,
-
-        COUNT(DISTINCT CASE
-            WHEN Is_Mapped = 0 THEN CC
-        END) AS Other_SDS_Centers,
-
-        SUM(CASE
-            WHEN Is_Mapped = 1 THEN Amount
-            ELSE 0
-        END) AS Mapped_Net,
-
-        SUM(CASE
-            WHEN Is_Mapped = 0 THEN Amount
-            ELSE 0
-        END) AS Other_SDS_Net,
-
-        SUM(CASE
-            WHEN Is_Mapped = 1 AND Amount > 0
-                THEN Amount
-            ELSE 0
-        END) AS Mapped_Positive,
-
-        SUM(CASE
-            WHEN Is_Mapped = 1 AND Amount < 0
-                THEN ABS(Amount)
-            ELSE 0
-        END) AS Mapped_Negative
-
-    FROM SDSTransactions
-    WHERE GL IS NOT NULL
-    GROUP BY GL
+    WHERE UPPER(LTRIM(RTRIM([Cost Center]))) IN (
+        'TDA87R10', 'TDA87R20',
+        'TDA87R30', 'TDA87R40',
+        'TDA87OM0', 'TDA87HN0', 'TDA87H20',
+        'TDA87KE0', 'TDA87UK0', 'TDA87SR0',
+        'TDA87UV0', 'TDA87WY0', 'TDA87VF0'
+    )
 )
 
-SELECT TOP (100)
-    GL AS GL_Account,
-    Description,
-    Mapped_Centers,
-    Other_SDS_Centers,
-    Mapped_Net,
-    Other_SDS_Net,
-    Mapped_Positive,
-    Mapped_Negative
+SELECT
+    k.CC AS Cost_Center,
+    k.[Address],
 
-FROM Accounts
+    COUNT(c.[Address]) AS Report_Rows,
 
-WHERE Mapped_Net <> 0
-   OR UPPER(Description) LIKE '%FAC%'
-   OR UPPER(Description) LIKE '%BUILD%'
-   OR UPPER(Description) LIKE '%RENT%'
-   OR UPPER(Description) LIKE '%LEASE%'
-   OR UPPER(Description) LIKE '%MAINT%'
-   OR UPPER(Description) LIKE '%LABOR%'
-   OR UPPER(Description) LIKE '%INSUR%'
-   OR UPPER(Description) LIKE '%UTIL%'
-   OR UPPER(Description) LIKE '%TAX%'
-   OR UPPER(Description) LIKE '%SERV%'
+    SUM(CASE
+        WHEN UPPER(LTRIM(RTRIM(c.[Cost Category])))
+             = '1 LABOR'
+        THEN TRY_CONVERT(DECIMAL(19,2), c.[Cost])
+        ELSE 0
+    END) AS Priscilla_Labor,
+
+    SUM(CASE
+        WHEN UPPER(LTRIM(RTRIM(c.[Cost Category])))
+             = '0 OTHER'
+        THEN TRY_CONVERT(DECIMAL(19,2), c.[Cost])
+        ELSE 0
+    END) AS Priscilla_Other,
+
+    SUM(
+        TRY_CONVERT(DECIMAL(19,2), c.[Cost])
+    ) AS Priscilla_All_Categories
+
+FROM SDS_Key k
+
+LEFT JOIN ecosystem_source.qmi.controllable_costs c
+    ON UPPER(LTRIM(RTRIM(c.[Address])))
+       = k.Address_Key
+   AND TRY_CONVERT(INT, c.[Year]) = 2026
+   AND LTRIM(RTRIM(c.[Quarter])) = 'Q1'
+
+GROUP BY
+    k.CC,
+    k.[Address]
 
 ORDER BY
-    ABS(Mapped_Net) DESC,
-    ABS(Other_SDS_Net) DESC;
+    Priscilla_All_Categories DESC;

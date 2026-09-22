@@ -1,16 +1,12 @@
-WITH CentralSAP AS (
+WITH Central AS (
     SELECT
-        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+        UPPER(LTRIM(RTRIM(t.RCNTR))) AS Cost_Center,
         TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        t.GL_TXT20 AS Description,
         TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
-
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-
     WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
       AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-
-      AND LTRIM(RTRIM(t.RCNTR)) IN (
+      AND UPPER(LTRIM(RTRIM(t.RCNTR))) IN (
           'TDA87FC0',
           'TDB84FAC',
           'TDA87FO0',
@@ -18,30 +14,54 @@ WITH CentralSAP AS (
       )
 )
 
-SELECT TOP (100)
-    Cost_Center,
-    GL AS GL_Account,
-    MAX(Description) AS Description,
+SELECT
+    CASE
+        WHEN GROUPING(Cost_Center) = 1
+            THEN 'TOTAL CENTRAL SDS'
+        ELSE Cost_Center
+    END AS Cost_Center,
 
     COUNT(*) AS Transaction_Rows,
 
     SUM(Amount) AS Net_Amount,
 
     SUM(CASE
-        WHEN Amount > 0 THEN Amount
-        ELSE 0
+        WHEN Amount > 0 THEN Amount ELSE 0
     END) AS Positive_Amount,
 
     SUM(CASE
-        WHEN Amount < 0 THEN ABS(Amount)
-        ELSE 0
-    END) AS Negative_Amount
+        WHEN Amount < 0 THEN -Amount ELSE 0
+    END) AS Negative_Absolute,
 
-FROM CentralSAP
+    SUM(CASE
+        WHEN GL IN (4301048, 4301049, 4301050)
+            THEN Amount ELSE 0
+    END) AS Depreciation_LHI,
 
-GROUP BY Cost_Center, GL
+    SUM(CASE
+        WHEN GL = 8445003
+            THEN Amount ELSE 0
+    END) AS ISM_MOA_Fac,
 
-HAVING SUM(Amount) <> 0
+    SUM(CASE
+        WHEN GL = 8320563
+            THEN Amount ELSE 0
+    END) AS SDS_Indirect_Facility_Allocation,
+
+    SUM(CASE
+        WHEN GL = 8320578
+            THEN Amount ELSE 0
+    END) AS Facility_MOA_Division,
+
+    SUM(CASE
+        WHEN GL = 8320584
+            THEN Amount ELSE 0
+    END) AS Common_Facility_MOA
+
+FROM Central
+
+GROUP BY ROLLUP(Cost_Center)
 
 ORDER BY
-    ABS(SUM(Amount)) DESC;
+    GROUPING(Cost_Center),
+    Cost_Center;

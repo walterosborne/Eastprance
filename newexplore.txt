@@ -1,87 +1,68 @@
 WITH Central AS (
     SELECT
-        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+        UPPER(LTRIM(RTRIM(t.RCNTR))) AS Cost_Center,
+
+        COALESCE(
+            NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL02_TEXT)), ''),
+            '(blank)'
+        ) AS Account_Level_2,
+
+        COALESCE(
+            NULLIF(LTRIM(RTRIM(t.ACCT_LEVEL03_TEXT)), ''),
+            '(blank)'
+        ) AS Account_Level_3,
+
         TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        t.GL_TXT20 AS Description,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+
+        TRY_CONVERT(DECIMAL(19,2), t.KSL)
+            AS Amount
+
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+
     WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
       AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-      AND LTRIM(RTRIM(t.RCNTR)) IN (
-          'TDA87FC0',
-          'TDA87FO0',
+
+      AND UPPER(LTRIM(RTRIM(t.RCNTR))) IN (
+          'TDA87FC0', -- Facility/Ops
+          'TDA87FO0', -- Facility Overhead
           'TDB84FAC',
           'TDB84FCO',
-          'TDA87FL0',
-          'TDA10H1C'
+          'TDA87FL0', -- Fleet Management
+          'TDA10H1C'  -- Strategic Deterrent Overhead
       )
-),
-
-Classified AS (
-    SELECT
-        *,
-        CASE
-            WHEN GL BETWEEN 4100000 AND 4109999
-              OR GL = 8320037
-                THEN 'LABOR CANDIDATE'
-
-            WHEN GL IN (
-                8320563,
-                8320578,
-                8320584,
-                8445003
-            )
-                THEN 'FACILITY ALLOCATION'
-        END AS Account_Group
-    FROM Central
 )
 
 SELECT
-    Account_Group,
-
-    CASE
-        WHEN GROUPING(Cost_Center) = 1
-            THEN 'TOTAL'
-        ELSE Cost_Center
-    END AS Cost_Center,
-
-    CASE
-        WHEN GROUPING(GL) = 1
-            THEN NULL
-        ELSE GL
-    END AS GL_Account,
-
-    MAX(Description) AS Description,
+    Cost_Center,
+    Account_Level_2,
+    Account_Level_3,
 
     COUNT(*) AS Transaction_Rows,
+    COUNT(DISTINCT GL) AS GL_Accounts,
 
     SUM(Amount) AS Q1_Net,
 
-    SUM(CASE
-        WHEN Amount > 0 THEN Amount ELSE 0
-    END) AS Positive_Amount,
+    SUM(
+        CASE
+            WHEN Amount > 0 THEN Amount
+            ELSE 0
+        END
+    ) AS Positive_Amount,
 
-    SUM(CASE
-        WHEN Amount < 0 THEN -Amount ELSE 0
-    END) AS Negative_Absolute,
+    SUM(
+        CASE
+            WHEN Amount < 0 THEN -Amount
+            ELSE 0
+        END
+    ) AS Negative_Absolute
 
-    CASE
-        WHEN GROUPING(Cost_Center) = 1
-         AND Account_Group = 'LABOR CANDIDATE'
-        THEN 1949847.71 - SUM(Amount)
-    END AS Difference_From_Priscilla
+FROM Central
 
-FROM Classified
-
-WHERE Account_Group IS NOT NULL
-
-GROUP BY GROUPING SETS (
-    (Account_Group, Cost_Center, GL),
-    (Account_Group)
-)
+GROUP BY
+    Cost_Center,
+    Account_Level_2,
+    Account_Level_3
 
 ORDER BY
-    Account_Group,
-    GROUPING(Cost_Center),
     Cost_Center,
-    GL;
+    ABS(SUM(Amount)) DESC;

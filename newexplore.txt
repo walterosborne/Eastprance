@@ -1,101 +1,124 @@
-WITH SourceRows AS (
-
-    -- Priscilla's intermediary ERP report
+WITH ERP AS (
     SELECT
-        'ERP' AS Source,
-        UPPER(LTRIM(RTRIM(e.[Cost Center]))) AS Cost_Center,
         TRY_CONVERT(BIGINT, e.[G/L Account]) AS GL,
-        TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount])
-            AS Amount
+
+        COUNT(*) AS ERP_Rows,
+
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount])
+        ) AS ERP_Amount
 
     FROM ecosystem_source.dbo.erpdata e
 
-    WHERE RIGHT(
-        LTRIM(RTRIM(e.[Fiscal Year Period])), 4
-    ) = '2026'
+    WHERE UPPER(LTRIM(RTRIM(e.[Cost Center])))
+          = 'TDA87FC0'
+
+      AND RIGHT(
+          LTRIM(RTRIM(e.[Fiscal Year Period])), 4
+      ) = '2026'
 
       AND TRY_CONVERT(
           INT,
-          LEFT(LTRIM(RTRIM(e.[Fiscal Year Period])), 3)
+          LEFT(
+              LTRIM(RTRIM(e.[Fiscal Year Period])), 3
+          )
       ) BETWEEN 1 AND 3
 
-      AND UPPER(LTRIM(RTRIM(e.[Cost Center]))) IN (
-          'TDA87FC0',
-          'TDA87FO0',
-          'TDB84FAC',
-          'TDB84FCO',
-          'TDA87FL0',
-          'TDA10H1C'
+      AND (
+          TRY_CONVERT(BIGINT, e.[G/L Account])
+              BETWEEN 4100000 AND 4109999
+
+          OR TRY_CONVERT(BIGINT, e.[G/L Account])
+              = 8320037
       )
 
-    UNION ALL
+    GROUP BY
+        TRY_CONVERT(BIGINT, e.[G/L Account])
+),
 
-    -- Raw SAP transactions
+SAP AS (
     SELECT
-        'SAP' AS Source,
-        UPPER(LTRIM(RTRIM(t.RCNTR))) AS Cost_Center,
         TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL)
-            AS Amount
+
+        MAX(t.GL_TXT20) AS Description,
+
+        COUNT(*) AS SAP_Rows,
+
+        SUM(
+            TRY_CONVERT(DECIMAL(19,2), t.KSL)
+        ) AS SAP_Amount
 
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+    WHERE UPPER(LTRIM(RTRIM(t.RCNTR)))
+          = 'TDA87FC0'
+
+      AND TRY_CONVERT(INT, t.GJAHR) = 2026
       AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-      AND UPPER(LTRIM(RTRIM(t.RCNTR))) IN (
-          'TDA87FC0',
-          'TDA87FO0',
-          'TDB84FAC',
-          'TDB84FCO',
-          'TDA87FL0',
-          'TDA10H1C'
+      AND (
+          TRY_CONVERT(BIGINT, t.RACCT)
+              BETWEEN 4100000 AND 4109999
+
+          OR TRY_CONVERT(BIGINT, t.RACCT)
+              = 8320037
       )
+
+    GROUP BY
+        TRY_CONVERT(BIGINT, t.RACCT)
+),
+
+Comparison AS (
+    SELECT
+        COALESCE(e.GL, s.GL) AS GL,
+
+        s.Description,
+
+        COALESCE(e.ERP_Rows, 0) AS ERP_Rows,
+        COALESCE(s.SAP_Rows, 0) AS SAP_Rows,
+
+        COALESCE(e.ERP_Amount, 0) AS ERP_Amount,
+        COALESCE(s.SAP_Amount, 0) AS SAP_Amount
+
+    FROM ERP e
+
+    FULL OUTER JOIN SAP s
+        ON e.GL = s.GL
 )
 
 SELECT
-    Source,
+    CASE
+        WHEN GROUPING(GL) = 1
+            THEN 'TOTAL'
+        ELSE CONVERT(VARCHAR(20), GL)
+    END AS GL_Account,
 
     CASE
-        WHEN GROUPING(Cost_Center) = 1
-        THEN 'TOTAL'
-        ELSE Cost_Center
-    END AS Cost_Center,
+        WHEN GROUPING(GL) = 1
+            THEN ''
+        ELSE MAX(Description)
+    END AS Description,
 
-    COUNT(*) AS Row_Count,
+    SUM(ERP_Rows) AS ERP_Rows,
+    SUM(SAP_Rows) AS SAP_Rows,
 
-    COUNT(DISTINCT GL) AS GL_Accounts,
+    SUM(ERP_Amount) AS ERP_Amount,
+    SUM(SAP_Amount) AS SAP_Amount,
 
-    SUM(Amount) AS All_Accounts_Net,
+    SUM(ERP_Amount - SAP_Amount)
+        AS ERP_Minus_SAP,
 
-    SUM(CASE
-        WHEN GL BETWEEN 4100000 AND 4109999
-          OR GL = 8320037
-        THEN Amount
-        ELSE 0
-    END) AS Labor_Candidates,
+    CASE
+        WHEN GROUPING(GL) = 1
+        THEN
+            SUM(ERP_Amount) - 1949847.71
+        ELSE NULL
+    END AS ERP_Minus_Priscilla
 
-    SUM(CASE
-        WHEN GL = 8320563
-        THEN Amount
-        ELSE 0
-    END) AS Facility_Labor_Allocation,
+FROM Comparison
 
-    SUM(CASE
-        WHEN GL NOT BETWEEN 4100000 AND 4109999
-         AND GL NOT IN (8320037, 8320563)
-        THEN Amount
-        ELSE 0
-    END) AS Other_Accounts
-
-FROM SourceRows
-
-GROUP BY GROUPING SETS (
-    (Source, Cost_Center),
-    (Source)
-)
+GROUP BY ROLLUP(GL)
 
 ORDER BY
-    Source,
-    GROUPING(Cost_Center),
-    Cost_Center;
+    GROUPING(GL),
+    ABS(SUM(ERP_Amount - SAP_Amount)) DESC;

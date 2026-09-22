@@ -571,6 +571,7 @@ const OTD_PERCENT_Y_AXIS = [
 ];
 const CONTROLLABLE_COSTS_Y_AXIS = [
   {
+    min: 0,
     width: 66,
     valueFormatter: formatMillionsCurrencyAxis,
     tickLabelStyle: { fontSize: 11 }
@@ -3656,6 +3657,11 @@ function buildDynamicNumericYAxis(
     maxValue = Math.min(maxValue, maxCeiling);
   }
 
+  // A zero floor must still leave a valid domain if every signed value is negative.
+  if (maxValue <= minValue) {
+    maxValue = minValue + Math.max(Math.abs(minValue) * paddingRatio, 1);
+  }
+
   return baseAxis.map((axisConfig) => ({
     ...axisConfig,
     min: minValue,
@@ -5844,15 +5850,12 @@ export default function App() {
   );
   const isControllableCostsPareto = chartVariants.controllableCosts === 'pareto';
   const isControllableCostsPalette = chartVariants.controllableCosts === 'palette';
-  const controllableCostsPaletteHasNegativeValues = controllableCostsPaletteChartData.series.some(
-    (seriesItem) => seriesItem.data.some((value) => Number(value) < 0)
-  );
   const controllableCostsPaletteChartYAxis = buildStackedNumericYAxis(
     CONTROLLABLE_COSTS_Y_AXIS,
     controllableCostsPaletteChartData.series,
     {
       includeZero: true,
-      minFloor: controllableCostsPaletteHasNegativeValues ? null : 0
+      minFloor: 0
     }
   );
   const activeControllableNewChartFilterField =
@@ -5936,16 +5939,12 @@ export default function App() {
   );
   const isControllableCostsNewPareto = chartVariants.controllableCostsNew === 'pareto';
   const isControllableCostsNewPalette = chartVariants.controllableCostsNew === 'palette';
-  const controllableCostsNewPaletteHasNegativeValues =
-    controllableCostsNewPaletteChartData.series.some(
-      (seriesItem) => seriesItem.data.some((value) => Number(value) < 0)
-    );
   const controllableCostsNewPaletteChartYAxis = buildStackedNumericYAxis(
     CONTROLLABLE_COSTS_Y_AXIS,
     controllableCostsNewPaletteChartData.series,
     {
       includeZero: true,
-      minFloor: controllableCostsNewPaletteHasNegativeValues ? null : 0
+      minFloor: 0
     }
   );
   const activeControllableHanaChartFilterField =
@@ -7032,7 +7031,8 @@ export default function App() {
     CONTROLLABLE_COSTS_Y_AXIS,
     [controllableCostsChartData.controllable, controllableCostsChartData.uncontrollable],
     {
-      includeZero: chartVariants.controllableCosts === 'bar',
+      includeZero: true,
+      minFloor: 0,
       goalLine: visibleControllableCostsGoalLine
     }
   );
@@ -7068,7 +7068,8 @@ export default function App() {
       controllableCostsNewChartData.unclassified
     ],
     {
-      includeZero: chartVariants.controllableCostsNew === 'bar',
+      includeZero: true,
+      minFloor: 0,
       goalLine: visibleControllableCostsNewGoalLine
     }
   );

@@ -1418,6 +1418,26 @@ function formatFixedMonthLabel(year, monthIndex) {
   return formatMonthStamp(getFixedMonthStamp(year, monthIndex));
 }
 
+// Count inclusive calendar months, even when a selected range crosses New Year.
+function useShortMonthlyAxisLabels(range) {
+  if (!Number.isFinite(range?.startStamp) || !Number.isFinite(range?.endStamp)
+      || range.endStamp < range.startStamp) return false;
+  const start = new Date(range.startStamp);
+  const end = new Date(range.endStamp);
+  const monthCount = (end.getUTCFullYear() - start.getUTCFullYear()) * 12
+    + end.getUTCMonth() - start.getUTCMonth() + 1;
+  return monthCount < 12;
+}
+
+function formatMonthlyAxisTick(value, context, range) {
+  // Preserve full month/year in the tooltip and underlying bucket labels.
+  if (context?.location !== 'tick' || !useShortMonthlyAxisLabels(range)) return value;
+  const match = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}$/.exec(
+    String(value)
+  );
+  return match ? match[1] : value;
+}
+
 function getTooltipBucketLabel(bucketLabel, bucketLabelLookup = null) {
   if (!bucketLabelLookup || typeof bucketLabelLookup !== 'object') {
     return bucketLabel;
@@ -1976,7 +1996,7 @@ function getOtdBuckets(rows, viewMode, selectedDateRange) {
   const years = Array.from(new Set(rows.map((row) => getOtdRowYear(row)))).sort(
     (left, right) => left - right
   );
-  const showYearInMonthlyLabels = years.length > 1;
+  const showYearInMonthlyLabels = !useShortMonthlyAxisLabels(selectedDateRange);
   const monthEntries = years.flatMap((year) =>
     OTD_MONTH_COLUMNS.map((month, monthIndex) => ({
       year,
@@ -2601,8 +2621,7 @@ function getLaborBuckets(viewMode, selectedDateRange, years) {
   const visibleYears = normalizedYears.length > 0
     ? normalizedYears
     : [FIXED_MONTH_METRIC_YEAR];
-  const showYearInMonthlyLabel =
-    visibleYears.length > 1 || visibleYears[0] !== FIXED_MONTH_METRIC_YEAR;
+  const showYearInMonthlyLabel = !useShortMonthlyAxisLabels(selectedDateRange);
 
   visibleYears.forEach((year) => {
     for (
@@ -3158,6 +3177,7 @@ function MetricTrendChart({
   margin,
   labels,
   xAxisHeight = 28,
+  selectedDateRange = null,
   yAxis,
   series,
   hideLegend = true,
@@ -3180,7 +3200,9 @@ function MetricTrendChart({
       {
         scaleType: variant === 'bar' ? 'band' : 'point',
         height: xAxisHeight,
-        data: labels
+        data: labels,
+        valueFormatter: (value, context) =>
+          formatMonthlyAxisTick(value, context, selectedDateRange)
       }
     ],
     yAxis: chartYAxis,
@@ -8250,6 +8272,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.controllableCosts === 'bar' ? 'bar' : 'line'}
                               width={controllableCostsChartWidth}
                               height={CHART_HEIGHT}
@@ -8462,6 +8485,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={
                                 chartVariants.controllableCostsNew === 'bar' ? 'bar' : 'line'
                               }
@@ -8685,6 +8709,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.controllableCostsHana === 'bar' ? 'bar' : 'line'}
                               width={controllableCostsHanaChartWidth}
                               height={CHART_HEIGHT}
@@ -8877,6 +8902,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.sif === 'bar' ? 'bar' : 'line'}
                               width={sifChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -9073,6 +9099,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.potentialSif === 'bar' ? 'bar' : 'line'}
                               width={potentialSifChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -9261,6 +9288,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.nmfr === 'bar' ? 'bar' : 'line'}
                               width={nmfrChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -9449,6 +9477,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.otd === 'bar' ? 'bar' : 'line'}
                               width={otdChartWidth}
                               height={CHART_HEIGHT}
@@ -9660,6 +9689,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                                 variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
                                 width={laborChartWidth}
                                 height={CHART_HEIGHT}
@@ -9860,6 +9890,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.laborNew === 'bar' ? 'bar' : 'line'}
                               width={laborNewChartWidth}
                               height={CHART_HEIGHT}
@@ -10065,6 +10096,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
                                 variant={chartVariants.laborHana === 'bar' ? 'bar' : 'line'}
                                 width={laborHanaChartWidth}
                                 height={CHART_HEIGHT}

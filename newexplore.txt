@@ -1,46 +1,26 @@
-WITH Overhead AS (
-    SELECT
-        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
-        t.GL_TXT20 AS Description,
-        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
-    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
-      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
-      AND LTRIM(RTRIM(t.RCNTR)) = 'TDA10H1C'
-)
+-- 1. Priscilla's central SDS Other records
+SELECT *
+FROM ecosystem_source.qmi.controllable_costs
+WHERE TRY_CONVERT(INT, [Year]) = 2026
+  AND LTRIM(RTRIM([Quarter])) = 'Q1'
+  AND [Address] LIKE '%Strategic Deterrent%'
+  AND LTRIM(RTRIM([Cost Category])) = '0 Other';
 
+
+-- 2. SAP's $4.08M overhead depreciation
 SELECT
-    GL AS GL_Account,
-    MAX(Description) AS Description,
-    COUNT(*) AS Transaction_Rows,
-
-    SUM(Amount) AS Net_Amount,
-
-    SUM(CASE
-        WHEN Amount > 0 THEN Amount
-        ELSE 0
-    END) AS Positive_Amount,
-
-    SUM(CASE
-        WHEN Amount < 0 THEN -Amount
-        ELSE 0
-    END) AS Negative_Absolute,
-
-    CASE
-        WHEN GL IN (
-            4300591, 4300625,
-            4301050, 4301049, 4301048,
-            4301102, 4300703
-        )
-        THEN 'Original seven accounts'
-        ELSE 'Other account'
-    END AS Account_Group
-
-FROM Overhead
-
-GROUP BY GL
-
-HAVING SUM(Amount) <> 0
-
+    t.RCNTR AS Cost_Center,
+    t.GJAHR AS Fiscal_Year,
+    t.POPER AS Fiscal_Period,
+    t.RACCT AS GL_Account,
+    t.GL_TXT20 AS Description,
+    TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+  AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+  AND LTRIM(RTRIM(t.RCNTR)) = 'TDA10H1C'
+  AND TRY_CONVERT(BIGINT, t.RACCT)
+      IN (4301049, 4301050)
 ORDER BY
-    ABS(SUM(Amount)) DESC;
+    TRY_CONVERT(INT, t.POPER),
+    t.RACCT;

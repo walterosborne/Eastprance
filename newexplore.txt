@@ -1,66 +1,34 @@
-WITH Classified AS (
-    SELECT
-        c.[Cost Category],
-        TRY_CONVERT(DECIMAL(19,2), c.[Cost]) AS Amount,
-
-        CASE
-            WHEN a.Addr LIKE '5770%MISSILE%' THEN 'RIC 1'
-            WHEN a.Addr LIKE '5730%MISSILE%' THEN 'RIC 2'
-            WHEN a.Addr LIKE '5690%MISSILE%' THEN 'RIC 3'
-            WHEN a.Addr LIKE '5650%MISSILE%' THEN 'RIC 4'
-
-            WHEN a.Addr LIKE '7057%MADISON%' THEN 'Old Madison Pike'
-            WHEN a.Addr LIKE '110%WYNN%' THEN '110 Wynn'
-            WHEN a.Addr LIKE '213%WYNN%' THEN '213 Wynn'
-
-            WHEN a.Addr LIKE '4336%1650%' THEN 'Kemp'
-            WHEN a.Addr LIKE '425%530%' THEN 'Ogden Warehouse'
-            WHEN a.Addr LIKE '182%1070%' THEN 'Ogden Surge'
-
-            WHEN a.Addr LIKE '888%UNIVERSITY%' THEN 'Clearfield'
-            WHEN a.Addr LIKE '2830%GRANITE%' THEN 'Cheyenne'
-            WHEN a.Addr LIKE '1467%FAIRWAY%' THEN 'Santa Maria'
-
-            WHEN a.Addr LIKE '%STRATEGIC DETERRENT FACILITY%'
-                THEN 'SDS Shared Facility/Ops'
-        END AS SDS_Site
-
-    FROM ecosystem_source.qmi.controllable_costs c
-
-    CROSS APPLY (
-        VALUES (
-            UPPER(
-                REPLACE(
-                    REPLACE(
-                        LTRIM(RTRIM(c.[Address])),
-                        '.', ''
-                    ),
-                    ',', ''
-                )
-            )
-        )
-    ) a(Addr)
-
-    WHERE TRY_CONVERT(INT, c.[Year]) = 2026
-      AND LTRIM(RTRIM(c.[Quarter])) = 'Q1'
+WITH SDS_Addresses AS (
+    SELECT DISTINCT
+        UPPER(LTRIM(RTRIM([Address]))) AS Address_Key
+    FROM ecosystem_source.qmi.costcenterkey
+    WHERE UPPER(LTRIM(RTRIM([Cost Center]))) IN (
+        'TDA87R10', 'TDA87R20',
+        'TDA87R30', 'TDA87R40',
+        'TDA87OM0', 'TDA87HN0', 'TDA87H20',
+        'TDA87KE0', 'TDA87UK0', 'TDA87SR0',
+        'TDA87UV0', 'TDA87WY0', 'TDA87VF0'
+    )
 )
 
 SELECT
-    CASE
-        WHEN GROUPING([Cost Category]) = 1
-            THEN 'TOTAL MATCHED SDS'
-        ELSE [Cost Category]
-    END AS Cost_Category,
-
+    c.[Address],
     COUNT(*) AS Report_Rows,
-    SUM(Amount) AS Priscilla_Q1_Cost
+    SUM(TRY_CONVERT(DECIMAL(19,2), c.[Cost]))
+        AS Q1_Report_Cost
 
-FROM Classified
+FROM ecosystem_source.qmi.controllable_costs c
 
-WHERE SDS_Site IS NOT NULL
+WHERE TRY_CONVERT(INT, c.[Year]) = 2026
+  AND LTRIM(RTRIM(c.[Quarter])) = 'Q1'
 
-GROUP BY ROLLUP([Cost Category])
+  AND EXISTS (
+      SELECT 1
+      FROM SDS_Addresses s
+      WHERE s.Address_Key =
+          UPPER(LTRIM(RTRIM(c.[Address])))
+  )
 
-ORDER BY
-    GROUPING([Cost Category]),
-    [Cost Category];
+GROUP BY c.[Address]
+
+ORDER BY Q1_Report_Cost DESC;

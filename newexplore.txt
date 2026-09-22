@@ -1,88 +1,87 @@
-WITH Priscilla AS (
+WITH Central AS (
     SELECT
-        TRY_CONVERT(INT, [Year]) AS Yr,
-        TRY_CONVERT(INT, REPLACE([Quarter], 'Q', '')) AS Qtr,
-
-        SUM(CASE
-            WHEN [Cost Category] = '0 Other'
-            THEN TRY_CONVERT(DECIMAL(19,2), [Cost])
-            ELSE 0
-        END) AS Other_Cost,
-
-        SUM(CASE
-            WHEN [Cost Category] = '1 Labor'
-            THEN TRY_CONVERT(DECIMAL(19,2), [Cost])
-            ELSE 0
-        END) AS Labor_Cost
-
-    FROM ecosystem_source.qmi.controllable_costs
-
-    WHERE [Address] =
-        'Strategic Deterrent Facility/Operations'
-
-    GROUP BY
-        TRY_CONVERT(INT, [Year]),
-        TRY_CONVERT(INT, REPLACE([Quarter], 'Q', ''))
+        LTRIM(RTRIM(t.RCNTR)) AS Cost_Center,
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
+        t.GL_TXT20 AS Description,
+        TRY_CONVERT(DECIMAL(19,2), t.KSL) AS Amount
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
+    WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
+      AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
+      AND LTRIM(RTRIM(t.RCNTR)) IN (
+          'TDA87FC0',
+          'TDA87FO0',
+          'TDB84FAC',
+          'TDB84FCO',
+          'TDA87FL0',
+          'TDA10H1C'
+      )
 ),
 
-SAP AS (
+Classified AS (
     SELECT
-        TRY_CONVERT(INT, GJAHR) AS Yr,
+        *,
+        CASE
+            WHEN GL BETWEEN 4100000 AND 4109999
+              OR GL = 8320037
+                THEN 'LABOR CANDIDATE'
 
-        CEILING(
-            TRY_CONVERT(DECIMAL(10,2), POPER) / 3.0
-        ) AS Qtr,
-
-        SUM(CASE
-            WHEN TRY_CONVERT(BIGINT, RACCT) = 4301049
-            THEN TRY_CONVERT(DECIMAL(19,2), KSL)
-            ELSE 0
-        END) AS Machinery_Depreciation,
-
-        SUM(CASE
-            WHEN TRY_CONVERT(BIGINT, RACCT) = 4301050
-            THEN TRY_CONVERT(DECIMAL(19,2), KSL)
-            ELSE 0
-        END) AS LHI_Amortization
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03
-
-    WHERE LTRIM(RTRIM(RCNTR)) = 'TDA10H1C'
-      AND TRY_CONVERT(INT, POPER) BETWEEN 1 AND 12
-      AND TRY_CONVERT(BIGINT, RACCT)
-          IN (4301049, 4301050)
-
-    GROUP BY
-        TRY_CONVERT(INT, GJAHR),
-
-        CEILING(
-            TRY_CONVERT(DECIMAL(10,2), POPER) / 3.0
-        )
+            WHEN GL IN (
+                8320563,
+                8320578,
+                8320584,
+                8445003
+            )
+                THEN 'FACILITY ALLOCATION'
+        END AS Account_Group
+    FROM Central
 )
 
 SELECT
-    p.Yr AS [Year],
-    CONCAT('Q', p.Qtr) AS [Quarter],
+    Account_Group,
 
-    p.Other_Cost AS Priscilla_Other,
-    s.Machinery_Depreciation,
-    s.LHI_Amortization,
+    CASE
+        WHEN GROUPING(Cost_Center) = 1
+            THEN 'TOTAL'
+        ELSE Cost_Center
+    END AS Cost_Center,
 
-    s.Machinery_Depreciation
-        + s.LHI_Amortization
-        AS SAP_Depreciation_LHI,
+    CASE
+        WHEN GROUPING(GL) = 1
+            THEN NULL
+        ELSE GL
+    END AS GL_Account,
 
-    p.Other_Cost
-        - s.Machinery_Depreciation
-        - s.LHI_Amortization
-        AS Difference,
+    MAX(Description) AS Description,
 
-    p.Labor_Cost AS Priscilla_Central_Labor
+    COUNT(*) AS Transaction_Rows,
 
-FROM Priscilla p
+    SUM(Amount) AS Q1_Net,
 
-JOIN SAP s
-    ON p.Yr = s.Yr
-   AND p.Qtr = s.Qtr
+    SUM(CASE
+        WHEN Amount > 0 THEN Amount ELSE 0
+    END) AS Positive_Amount,
 
-ORDER BY p.Yr, p.Qtr;
+    SUM(CASE
+        WHEN Amount < 0 THEN -Amount ELSE 0
+    END) AS Negative_Absolute,
+
+    CASE
+        WHEN GROUPING(Cost_Center) = 1
+         AND Account_Group = 'LABOR CANDIDATE'
+        THEN 1949847.71 - SUM(Amount)
+    END AS Difference_From_Priscilla
+
+FROM Classified
+
+WHERE Account_Group IS NOT NULL
+
+GROUP BY GROUPING SETS (
+    (Account_Group, Cost_Center, GL),
+    (Account_Group)
+)
+
+ORDER BY
+    Account_Group,
+    GROUPING(Cost_Center),
+    Cost_Center,
+    GL;

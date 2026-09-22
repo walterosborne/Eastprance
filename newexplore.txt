@@ -1,110 +1,101 @@
-WITH SDS_Hierarchy AS (
+WITH SourceRows AS (
+
+    -- Priscilla's intermediary ERP report
     SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER))) AS CC,
-        MAX(CC_DESCRIPTION) AS Cost_Center_Name
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-    WHERE LEV02 = 'NGRBT'
-      AND LEV03_DESC = 'DS Strategic Deterrent Systems'
-    GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-),
+        'ERP' AS Source,
+        UPPER(LTRIM(RTRIM(e.[Cost Center]))) AS Cost_Center,
+        TRY_CONVERT(BIGINT, e.[G/L Account]) AS GL,
+        TRY_CONVERT(DECIMAL(19,2), e.[Actual Amount])
+            AS Amount
 
-Mapped AS (
-    SELECT DISTINCT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS CC
-    FROM ecosystem_source.qmi.costcenterkey
-),
+    FROM ecosystem_source.dbo.erpdata e
 
-Allocations AS (
+    WHERE RIGHT(
+        LTRIM(RTRIM(e.[Fiscal Year Period])), 4
+    ) = '2026'
+
+      AND TRY_CONVERT(
+          INT,
+          LEFT(LTRIM(RTRIM(e.[Fiscal Year Period])), 3)
+      ) BETWEEN 1 AND 3
+
+      AND UPPER(LTRIM(RTRIM(e.[Cost Center]))) IN (
+          'TDA87FC0',
+          'TDA87FO0',
+          'TDB84FAC',
+          'TDB84FCO',
+          'TDA87FL0',
+          'TDA10H1C'
+      )
+
+    UNION ALL
+
+    -- Raw SAP transactions
     SELECT
-        UPPER(LTRIM(RTRIM(t.RCNTR))) AS CC,
-        h.Cost_Center_Name,
-
-        CASE
-            WHEN h.CC IN (
-                'TDA87FC0',
-                'TDA87FO0',
-                'TDB84FAC',
-                'TDB84FCO',
-                'TDA87FL0',
-                'TDA10H1C'
-            )
-                THEN 'Central SDS'
-
-            WHEN k.CC IS NOT NULL
-                THEN 'Mapped physical facilities'
-
-            ELSE 'Other SDS centers'
-        END AS Location_Bucket,
-
+        'SAP' AS Source,
+        UPPER(LTRIM(RTRIM(t.RCNTR))) AS Cost_Center,
+        TRY_CONVERT(BIGINT, t.RACCT) AS GL,
         TRY_CONVERT(DECIMAL(19,2), t.KSL)
             AS Amount
 
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 t
 
-    JOIN SDS_Hierarchy h
-        ON UPPER(LTRIM(RTRIM(t.RCNTR))) = h.CC
-
-    LEFT JOIN Mapped k
-        ON h.CC = k.CC
-
     WHERE TRY_CONVERT(INT, t.GJAHR) = 2026
       AND TRY_CONVERT(INT, t.POPER) BETWEEN 1 AND 3
 
-      AND TRY_CONVERT(BIGINT, t.RACCT) = 8320563
+      AND UPPER(LTRIM(RTRIM(t.RCNTR))) IN (
+          'TDA87FC0',
+          'TDA87FO0',
+          'TDB84FAC',
+          'TDB84FCO',
+          'TDA87FL0',
+          'TDA10H1C'
+      )
 )
 
 SELECT
-    CASE
-        WHEN GROUPING(Location_Bucket) = 1
-            THEN 'ALL SDS'
-
-        WHEN GROUPING(CC) = 1
-            THEN Location_Bucket + ' TOTAL'
-
-        ELSE Location_Bucket
-    END AS Location_Bucket,
+    Source,
 
     CASE
-        WHEN GROUPING(CC) = 1
-            THEN NULL
-        ELSE CC
+        WHEN GROUPING(Cost_Center) = 1
+        THEN 'TOTAL'
+        ELSE Cost_Center
     END AS Cost_Center,
 
-    CASE
-        WHEN GROUPING(CC) = 1
-            THEN NULL
-        ELSE Cost_Center_Name
-    END AS Cost_Center_Name,
+    COUNT(*) AS Row_Count,
 
-    COUNT(*) AS Transaction_Rows,
+    COUNT(DISTINCT GL) AS GL_Accounts,
 
-    COUNT(DISTINCT CC) AS Cost_Centers,
-
-    SUM(Amount) AS Net_Amount,
+    SUM(Amount) AS All_Accounts_Net,
 
     SUM(CASE
-        WHEN Amount > 0 THEN Amount
+        WHEN GL BETWEEN 4100000 AND 4109999
+          OR GL = 8320037
+        THEN Amount
         ELSE 0
-    END) AS Positive_Amount,
+    END) AS Labor_Candidates,
 
     SUM(CASE
-        WHEN Amount < 0 THEN -Amount
+        WHEN GL = 8320563
+        THEN Amount
         ELSE 0
-    END) AS Negative_Absolute
+    END) AS Facility_Labor_Allocation,
 
-FROM Allocations
+    SUM(CASE
+        WHEN GL NOT BETWEEN 4100000 AND 4109999
+         AND GL NOT IN (8320037, 8320563)
+        THEN Amount
+        ELSE 0
+    END) AS Other_Accounts
+
+FROM SourceRows
 
 GROUP BY GROUPING SETS (
-    (Location_Bucket, CC, Cost_Center_Name),
-    (Location_Bucket),
-    ()
+    (Source, Cost_Center),
+    (Source)
 )
 
-HAVING
-       GROUPING(CC) = 1
-    OR ABS(SUM(Amount)) >= 25000
-
 ORDER BY
-    GROUPING(Location_Bucket) DESC,
-    GROUPING(CC) DESC,
-    ABS(SUM(Amount)) DESC;
+    Source,
+    GROUPING(Cost_Center),
+    Cost_Center;

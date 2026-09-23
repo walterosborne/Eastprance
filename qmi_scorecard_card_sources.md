@@ -13,7 +13,8 @@ Shows the original report's controllable and uncontrollable facility costs over 
 
 Shows the working SAP facility-cost reconstruction for CWI and SDS, excluding Weapon Systems. Amounts are signed and the gross timecard labor account `4100000` is missing from the SAP extract.
 
-- **`DTO_Business_Management.src.rb_CVG_Transaction_Details_03`** — Signed `KSL` amounts, posting periods, posting cost centers (`RCNTR`), selected facility G/L accounts (`RACCT`), and descriptions.
+- **`ecosystem_source.qmi.controllable_costs_new_extract`** — Dashboard reads the precomputed, monthly CWI/SDS facility-cost extract; the app does not execute the heavy SAP reconstruction on each request.
+- **`server/sql/create_qmi_controllable_costs_new_extract.sql`** — One-time table creation and daily refresh body. The refresh derives signed `KSL` from `DTO_Business_Management.src.rb_CVG_Transaction_Details_03`, preserves the selected G/L categories and central SDS logic, and must run before the app switches to this table.
 - **`ecosystem_source.qmi.costcenterkey`** — Selects mapped physical-facility cost centers and supplies facility labels; six additional central SDS support centers are grouped under Strategic Deterrent Facility/Operations.
 - **`DTO_Business_Management.rpt.rb_load_cost_center_hierarchy`** — Maps posting cost centers to division and business unit.
 - **`cost_element_key` and `cost_category_key`** — Assign Controllable or Uncontrollable status; costs without a matching classification remain Unclassified.

@@ -388,15 +388,15 @@ async function readControllableCostsNewDbmPipelineData(config) {
   logDebug('controllable-costs-new', 'Executing DBM controllable costs query.', {
     server: config.server,
     database: config.database,
-    querySource: 'embedded-server-query'
+    querySource: 'precomputed-qmi-cost-extract'
   });
 
   const result = await pool.request().query(CONTROLLABLE_COSTS_NEW_DBM_QUERY);
 
   return buildControllableCostsNewPipelineData(result.recordset, {
     source: 'sap-sql',
-    sourceLabel: 'The SAP transaction query',
-    tableName: 'DTO_Business_Management.src.rb_CVG_Transaction_Details_03',
+    sourceLabel: 'The precomputed QMI facility-cost extract',
+    tableName: 'ecosystem_source.qmi.controllable_costs_new_extract',
     includeAllSapCosts: true
   });
 }

@@ -1,50 +1,163 @@
 # QMI Scorecard — Card Data Sources
 
-Visible scorecard cards on `entraid` (September 2026). SQL is the primary source where configured.
+Data sources used for the project are listed below, along with their database within server `RSSVAG-DB0262` in parentheses when applicable.
 
 ## Controllable Costs
 
-Shows the original report's controllable and uncontrollable facility costs over time, currently limited to records with a populated numeric Cost Element.
+- **`qmi.controllable_costs` (SQL Database: `ecosystem_source`)** — A table which is an upload of a business-provided **CRE Facility Report**, distributed [here](https://ngc.sharepoint.us/sites/NG00006569/sitepages/rates%20and%20budget.aspx?RootFolder=%2Fsites%2FNG00006569%2FRates%20and%20Budgets%2FFacility%20Reports%2FFacility%20BAV%20Detail&FolderCTID=0x012000F6F608A1E13EE34FA1C6D01D2804A7C2&View=%7B2A1C2718-2F1E-40ED-95AC-3D650969444E%7D) quarterly.
 
-- **`controllable_costs`** — Reported costs, quarters, years, addresses, categories, and cost elements.
-- **`cost_element_key` and `cost_category_key`** — Classify reported costs as controllable or uncontrollable.
+> The report linked above is generated quarterly using the upstream source titled **"CO Transaction Details - Multi-Dim (Real-Time)"** report from iERP. This covers only SDS and CWI division facilities; Weapons Systems facilities costs are obtained from individual WS POCs. The report reports costs, quarters, years, addresses, categories, and cost elements.
+
+<Callout type="info" title="Automating in i2 ecosystem">
+We pursue automation instead of direct ingest for three reasons:
+<ul>
+<li><strong>First</strong> is to improve upon the level of detail provided in the CRE Facility Report, which lacks critical details like Business Unit, Division, and Specific Dates.</li>
+<li><strong>Second</strong> is to allow for more frequent updates (daily instead of quarterly).</li>
+<li><strong>Third</strong> is to eliminate the reliance upon and cost of the manual labor associated with the current data collection process.</li>
+</ul>
+</Callout>
+
+### **controllable_costs Metadata**
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Cost Element", "Cost Element", "Coding of general ledger account which yields the type of cost. Available only for CWI/SDS."],
+    ["Cost Element Description", "Cost Element Description", "Description of the type of cost indicated by the Cost Element."],
+    ["Cost Category", "Cost Category", "Cost type of the given expense, based on Cost Element for CWI/SDS."],
+    ["Facility Address", "Address", "The street address of the record's associated facility."],
+    ["Cost Amount", "Cost", "The amount of money spent on the provided cost at the provided facility."],
+    ["Quarter", "Quarter", "The quarter in which the costs were accrued."],
+    ["Year", "Year", "The year in which the costs were accrued."]
+  ]}
+/>
+
+- **`qmi.cost_element_key` and `qmi.cost_category_key` (SQL Database: `ecosystem_source`)** — These are extracts of an assessment completed in 2022 which identified cost elements as controllable or uncontrollable. This assessment can be found at `data/controllable_assessment.xlsx`. The existing data is joined by cost element, or cost category when cost element is not assigned, to retrieve each record's controllability.
+
+### **cost_category_key Metadata**
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Cost Category", "Cost Category", "An umbrella category type, starting with a number then text."],
+    ["Controllable", "Controllable", "The category's status as generally controllable or not, as the strings 'Controllable' or 'Uncontrollable'."]
+  ]}
+/>
+
+### **cost_element_key Metadata**
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Cost Category", "Cost Category", "The umbrella category the specific cost corresponds to. Matches cost_category_key."],
+    ["Cost Element", "Cost Element", "The numerical code which identifies the cost account, and column for joining with cost data."],
+    ["Cost Element Description", "Cost Element Description", "A text description of the cost."],
+    ["Controllable", "Controllable", "The category's status as generally controllable or not, as the strings 'Controllable' or 'Uncontrollable'."]
+  ]}
+/>
 
 ## Controllable Costs — New Data
 
-Shows the working SAP facility-cost reconstruction for CWI and SDS, excluding Weapon Systems. Amounts are signed and the gross timecard labor account `4100000` is missing from the SAP extract.
+The replacement controllable cost data comes directly from SAP transaction data rather than the quarterly CRE Facility Report used above. This provides more detailed organizational information and allows the data to be updated daily instead of quarterly.
 
-- **`ecosystem_source.qmi.controllable_costs_new_extract`** — Dashboard reads the precomputed, monthly CWI/SDS facility-cost extract; the app does not execute the heavy SAP reconstruction on each request.
-- **`server/sql/create_qmi_controllable_costs_new_extract.sql`** — One-time table creation and daily refresh body. The refresh derives signed `KSL` from `DTO_Business_Management.src.rb_CVG_Transaction_Details_03`, preserves the selected G/L categories and central SDS logic, and must run before the app switches to this table.
-- **`ecosystem_source.qmi.costcenterkey`** — Selects mapped physical-facility cost centers and supplies facility labels; six additional central SDS support centers are grouped under Strategic Deterrent Facility/Operations.
-- **`DTO_Business_Management.rpt.rb_load_cost_center_hierarchy`** — Maps posting cost centers to division and business unit.
-- **`cost_element_key` and `cost_category_key`** — Assign Controllable or Uncontrollable status; costs without a matching classification remain Unclassified.
+- **`src.rb_CVG_Transaction_Details_03` (SQL Database: `DTO_Business_Management`)** — A table in `DTO_Business_Management` used for Cognos reports. Contains signed cost amounts, fiscal years and posting periods, posting cost centers, selected facility G/L accounts, and descriptions. This only includes data for the CWI and SDS divisions; when WS goes to SAP in 2027 it should be roped in. Daily reporting.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Year", "GJAHR", "Fiscal year associated with the transaction."],
+    ["Posting Period", "POPER", "Fiscal posting period used as the reporting month."],
+    ["Cost Amount", "KSL", "The signed SAP cost amount for the transaction."],
+    ["Posting Cost Center", "RCNTR", "The cost center the transaction was posted against. Used to identify facility, division, and business unit."],
+    ["G/L Account", "RACCT", "The general ledger account associated with the transaction. Used to select and classify facility-related costs."],
+    ["G/L Description", "GL_TXT20", "Description of the G/L account associated with the transaction."]
+  ]}
+/>
+
+- **`qmi.costcenterkey` (SQL Database: `ecosystem_source`)** — A combination of the previously used cost center key for CWI along with newly added SDS information to identify facility. This table is used for mapping and filtering only; cost amounts continue to come from `rb_CVG_Transaction_Details_03`.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Cost Center", "Cost Center", "Posting cost center used to join SAP transactions to a facility."],
+    ["Facility Address", "Address", "Facility associated with the cost center."],
+    ["City", "City", "City associated with the facility."],
+    ["State", "State", "State associated with the facility."]
+  ]}
+/>
+
+- **`rpt.rb_load_cost_center_hierarchy` (SQL Database: `DTO_Business_Management`)** — Maps posting cost centers to division and business unit.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Cost Center", "COST_CENTER", "Cost center used to join the hierarchy to the SAP transaction data."],
+    ["Division", "LEV03_DESC", "The division associated with the posting cost center."],
+    ["Business Unit", "LEV04_DESC", "The business unit associated with the posting cost center."]
+  ]}
+/>
+
+- **`qmi.cost_element_key` and `qmi.cost_category_key` (SQL Database: `ecosystem_source`)** — See above. These tables are used to determine whether the selected costs are controllable or uncontrollable.
+
+- **`qmi.controllable_costs_new_extract` (SQL Database: `ecosystem_source`)** — The app-facing monthly extract built from the SAP, facility, and hierarchy sources above. It stores the selected and aggregated CWI/SDS facility costs so the application does not need to run the full SAP reconstruction on every request. The refresh logic is maintained in `server/sql/create_qmi_controllable_costs_new_extract.sql`.
 
 ## Safety Metrics
 
-### SIF Incidents
+All safety metrics, including pSIF, SIF, and Near Miss are collected [here](https://oursites.myngc.com/DS/EHS/Tools/CEHS%20Metrics%20Data%20Collection/NM/NearMissCompliation.xlsx), an Excel sheet updated 2-3 times per month. The Excel sheet is then uploaded to SQL.
 
-Counts significant injury or fatality incidents over time.
+The same safety event data supports all three metrics. SIF reports events identified as an actual Significant Injury or Fatality. pSIF reports events identified as having the potential for a Significant Injury or Fatality and excludes events already classified as an actual SIF. Near Miss Frequency Rate combines recorded near miss events with Defense Systems roster information and working days.
 
-- **`safety_events`** — Event dates, SIF flags, divisions, and sites.
+<Callout type="info" title="Future Steps">
+Data will be maintained in Cority starting in 2027.
+</Callout>
 
-### Potential SIF Incidents
+- **`qmi.safety_events` (SQL Database: `ecosystem_source`)** — An extract of the Excel file linked above. Contains the event date, organizational information, location, and the classifications needed to identify SIF, pSIF, and Near Miss events.
 
-Counts incidents classified as having potential for serious injury or fatality.
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Event Date", "Date", "Date of the safety event. Used to report results by month, quarter, and year."],
+    ["Division", "Division", "Division associated with the event."],
+    ["Site", "Site", "Site associated with the event."],
+    ["SIF", "SIF", "Flag identifying an actual Significant Injury or Fatality event."],
+    ["pSIF", "pSIF", "Flag identifying an event with the potential for a Significant Injury or Fatality."],
+    ["Near Miss", "Near Miss", "Flag identifying an event recorded as a near miss."]
+  ]}
+/>
 
-- **`safety_events`** — Event dates, pSIF flags, divisions, and sites; excludes events classified as actual SIFs.
+- **`RosterExtractFarm`** — An extract of the official NG roster, refreshed with a SQL job daily. Distinct Defense Systems employees are used as the rate denominator for NMFR; the calculation also uses working days.
 
-### Near Miss Frequency Rate
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Employee ID", "MyID", "Used to count distinct employees for the NMFR denominator."],
+    ["Business Unit", "BusUnitLvl2NoCode", "Used to limit the roster denominator to Defense Systems employees."]
+  ]}
+/>
 
-Measures near-miss frequency using incidents and the Defense Systems employee count.
-
-- **`safety_events`** — Near-miss incidents by month, division, and site.
-- **`RosterExtractFarm`** — Distinct Defense Systems employees used as the rate denominator; the calculation also uses working days.
+NMFR is calculated as `(200,000 × Near Miss Count) / (Defense Systems Employee Count × 8 × Working Days)`.
 
 ## On Time Delivery (OTD)
 
-Compares delivered units against contract commitments over time.
+Absolute source of truth is [this Excel sheet](https://ngc.sharepoint.us/:x:/r/teams/DSSectorMI/Shared%20Documents/General/2%20%20ID%20Contract%20Commit%20Performance.xlsx?d=w77e1d2579302471fa8f9ba8f453d0d1b&csf=1&web=1&e=xWNObo). Updated at least monthly, contains selected business units.
 
-- **`otd`** — Program, business unit, project, site, month, committed units, and actual delivered units.
+The source workbook is normalized before being uploaded to SQL so that the different business unit sheets use a common structure. QMI compares the units identified as `Contract Commitment` against the corresponding `Actuals Delivered` values over time.
+
+- **`qmi.otd` (SQL Database: `ecosystem_source`)** — Extract of above; program, business unit, project, site, month, committed units, and actual delivered units.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Timeline", "Timeline", "Identifies whether the row contains Contract Commitment or Actuals Delivered values."],
+    ["Program", "Program", "The program associated with the delivery commitment."],
+    ["Business Unit", "BU", "The business unit associated with the program."],
+    ["Project", "Project ID", "Project identifier associated with the delivery."],
+    ["Site", "Site", "Site associated with the program or delivery."],
+    ["Type", "Type", "Delivery type or grouping supplied by the source workbook where available."],
+    ["Monthly Units", "JAN - DEC", "Monthly committed or delivered units, depending on the Timeline value."],
+    ["Year", "Year", "Reporting year associated with the monthly values."]
+  ]}
+/>
 
 ## Labor Utilization
 

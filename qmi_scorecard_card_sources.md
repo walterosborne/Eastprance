@@ -60,7 +60,7 @@ We pursue automation instead of direct ingest for three reasons:
 
 The replacement controllable cost data comes directly from SAP transaction data rather than the quarterly CRE Facility Report used above. This provides more detailed organizational information and allows the data to be updated daily instead of quarterly.
 
-- **`src.rb_CVG_Transaction_Details_03` (SQL Database: `DTO_Business_Management`)** — A table in `DTO_Business_Management` used for Cognos reports. Contains signed cost amounts, fiscal years and posting periods, posting cost centers, selected facility G/L accounts, and descriptions. This only includes data for the CWI and SDS divisions; when WS goes to SAP in 2027 it should be roped in. Daily reporting.
+- **`src.rb_CVG_Transaction_Details_03` (SQL Database: `DTO_Business_Management`)** — A table in `DTO_Business_Management` used for Cognos reports. Contains signed cost amounts, fiscal years and posting periods, posting cost centers, selected facility G/L accounts, and descriptions. This only includes data for the CWI and SDS divisions; when WS goes to SAP in 2027 it will be roped in. Daily reporting.
 
 <Table
   headers={["Field", "Column Name in Table", "Description"]}
@@ -74,7 +74,7 @@ The replacement controllable cost data comes directly from SAP transaction data 
   ]}
 />
 
-- **`qmi.costcenterkey` (SQL Database: `ecosystem_source`)** — A combination of the previously used cost center key for CWI along with newly added SDS information to identify facility. This table is used for mapping and filtering only; cost amounts continue to come from `rb_CVG_Transaction_Details_03`.
+- **`qmi.costcenterkey` (SQL Database: `ecosystem_source`)** — A hardcoded key between cost centers and facilities, obtained from Rates and Budget.
 
 <Table
   headers={["Field", "Column Name in Table", "Description"]}
@@ -99,13 +99,20 @@ The replacement controllable cost data comes directly from SAP transaction data 
 
 - **`qmi.cost_element_key` and `qmi.cost_category_key` (SQL Database: `ecosystem_source`)** — See above. These tables are used to determine whether the selected costs are controllable or uncontrollable.
 
-- **`qmi.controllable_costs_new_extract` (SQL Database: `ecosystem_source`)** — The app-facing monthly extract built from the SAP, facility, and hierarchy sources above. It stores the selected and aggregated CWI/SDS facility costs so the application does not need to run the full SAP reconstruction on every request. The refresh logic is maintained in `server/sql/create_qmi_controllable_costs_new_extract.sql`.
 
 ## Safety Metrics
 
 All safety metrics, including pSIF, SIF, and Near Miss are collected [here](https://oursites.myngc.com/DS/EHS/Tools/CEHS%20Metrics%20Data%20Collection/NM/NearMissCompliation.xlsx), an Excel sheet updated 2-3 times per month. The Excel sheet is then uploaded to SQL.
 
-The same safety event data supports all three metrics. SIF reports events identified as an actual Significant Injury or Fatality. pSIF reports events identified as having the potential for a Significant Injury or Fatality and excludes events already classified as an actual SIF. Near Miss Frequency Rate combines recorded near miss events with Defense Systems roster information and working days.
+The same safety event data supports all three metrics.
+<dl>
+<dt>SIF</dt>
+<dd>Reports events identified as an actual Significant Injury or Fatality</dd>
+<dt>pSIF</dt>
+<dd>Reports events identified as having the potential for a Significant Injury or Fatality and excludes events already classified as an actual SIF.</dd>
+<dt>Near Miss Frequency Rate</dt>
+<dd>Combines recorded near miss events with Defense Systems roster information and working days.</dd>
+</dl>
 
 <Callout type="info" title="Future Steps">
 Data will be maintained in Cority starting in 2027.
@@ -125,12 +132,12 @@ Data will be maintained in Cority starting in 2027.
   ]}
 />
 
-- **`RosterExtractFarm`** — An extract of the official NG roster, refreshed with a SQL job daily. Distinct Defense Systems employees are used as the rate denominator for NMFR; the calculation also uses working days.
+- **`RosterExtractFarm`** — An extract of the official NG roster, refreshed with a SQL job daily. Distinct Defense Systems employees are used in the rate denominator for NMFR.
 
 <Table
   headers={["Field", "Column Name in Table", "Description"]}
   rows={[
-    ["Employee ID", "MyID", "Used to count distinct employees for the NMFR denominator."],
+    ["MyID", "MyID", "Six digit code familiar to most employees and used for distinct count of employees for the NMFR denominator."],
     ["Business Unit", "BusUnitLvl2NoCode", "Used to limit the roster denominator to Defense Systems employees."]
   ]}
 />

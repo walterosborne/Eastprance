@@ -170,19 +170,12 @@ The source workbook is normalized before being uploaded to SQL so that the diffe
 
 The existing labor utilization data comes from a Cognos report and is uploaded to SQL. The report provides monthly labor hours using cost center, labor category, and workforce classifications. QMI calculates direct labor utilization as direct labor hours divided by total labor hours.
 
-- **`qmi.labor_utilization` (SQL Database: `ecosystem_source`)** — An extract of the Cognos report. The data is already aggregated by the report dimensions and contains monthly labor hours from January through December.
+- **`qmi.labor_utilization` (SQL Database: `ecosystem_source`)** — An extract of the Cognos report. The data contains monthly labor hours from January through December.
 
 <Table
   headers={["Field", "Column Name in Table", "Description"]}
   rows={[
-    ["Forecasted Cost Center", "Forecasted CC", "Forecasted cost center associated with the labor hours."],
-    ["Pool", "Pool", "Labor pool associated with the reported hours."],
-    ["Location Code", "Location Code", "Location code associated with the labor record."],
-    ["Union Type", "Union Type", "Union classification associated with the labor record."],
-    ["Worker Type", "Worker Type", "Worker classification associated with the labor record."],
-    ["Time Type", "Time Type", "Time classification associated with the labor record."],
     ["Labor Category", "Labor Category", "Labor classification used to identify direct, indirect, and other labor."],
-    ["Measure", "Measure", "Unit represented by the monthly values."],
     ["Monthly Hours", "Jan - Dec", "Monthly labor hours used to calculate labor utilization."]
   ]}
 />

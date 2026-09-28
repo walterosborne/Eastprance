@@ -1,29 +1,296 @@
+/*
+CWI old-vs-new controllable-cost reconciliation — Q1 2026
+
+Goal:
+Compare the legacy CRE/QMI controllable-cost data to the new SAP-backed
+controllable-cost data for CWI only.
+
+CWI = DS C2 & Weapons Integration.
+
+The legacy table does not contain Division, so its CWI population is identified
+through qmi.costcenterkey:
+    legacy Address -> costcenterkey Address -> current DS cost center hierarchy.
+
+The new table can be filtered directly by Division.
+
+Run the whole file and send all result sets back.
+Nothing here changes production data; only temp tables are created.
+*/
+
+SET NOCOUNT ON;
+
+IF OBJECT_ID('tempdb..#Hierarchy') IS NOT NULL DROP TABLE #Hierarchy;
+IF OBJECT_ID('tempdb..#AddressDivision') IS NOT NULL DROP TABLE #AddressDivision;
+IF OBJECT_ID('tempdb..#CWIAddresses') IS NOT NULL DROP TABLE #CWIAddresses;
+IF OBJECT_ID('tempdb..#LegacyCWI') IS NOT NULL DROP TABLE #LegacyCWI;
+IF OBJECT_ID('tempdb..#NewCWI') IS NOT NULL DROP TABLE #NewCWI;
+
+
+/* ============================================================
+   Build current Defense Systems hierarchy.
+   LEV02 must be filtered BEFORE ROW_NUMBER because cost centers
+   can be reused outside Defense Systems.
+   ============================================================ */
 SELECT
-    CASE
-        WHEN TRY_CONVERT(
-            DECIMAL(19,2), [Cost Element]
-        ) IS NULL
-            THEN 'Missing Cost Element'
-        ELSE 'Populated Cost Element'
-    END AS Cost_Element_Status,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), COST_CENTER))))
+        COLLATE DATABASE_DEFAULT AS COST_CENTER,
+    NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), LEV03_DESC))), '')
+        COLLATE DATABASE_DEFAULT AS DIVISION,
+    NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), LEV04_DESC))), '')
+        COLLATE DATABASE_DEFAULT AS BUSINESS_UNIT,
+    ROW_NUMBER() OVER (
+        PARTITION BY
+            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), COST_CENTER))))
+                COLLATE DATABASE_DEFAULT
+        ORDER BY last_modified_date DESC, created_date DESC, id DESC
+    ) AS RN
+INTO #Hierarchy
+FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
+WHERE LTRIM(RTRIM(CONVERT(nvarchar(255), LEV02))) = 'NGRBT';
 
-    COUNT(*) AS Report_Rows,
 
-    SUM(
-        TRY_CONVERT(DECIMAL(19,2), [Cost])
-    ) AS Q1_Insurance_Cost
-
-FROM ecosystem_source.qmi.controllable_costs
-
-WHERE TRY_CONVERT(INT, [Year]) = 2026
-  AND LTRIM(RTRIM([Quarter])) = 'Q1'
-  AND LTRIM(RTRIM([Cost Category])) = '5 Insurance'
-
+/* ============================================================
+   Map facility addresses in qmi.costcenterkey to current Division.
+   ============================================================ */
+SELECT
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(4000), K.[Address]))))
+        COLLATE DATABASE_DEFAULT AS ADDRESS_KEY,
+    MAX(LTRIM(RTRIM(CONVERT(nvarchar(4000), K.[Address]))))
+        COLLATE DATABASE_DEFAULT AS ADDRESS_DISPLAY,
+    H.DIVISION,
+    COUNT(DISTINCT
+        UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), K.[Cost Center]))))
+            COLLATE DATABASE_DEFAULT
+    ) AS COST_CENTER_COUNT
+INTO #AddressDivision
+FROM [ecosystem_source].[qmi].[costcenterkey] K
+JOIN #Hierarchy H
+  ON H.COST_CENTER =
+     UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), K.[Cost Center]))))
+         COLLATE DATABASE_DEFAULT
+ AND H.RN = 1
+WHERE NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(4000), K.[Address]))), '') IS NOT NULL
 GROUP BY
-    CASE
-        WHEN TRY_CONVERT(
-            DECIMAL(19,2), [Cost Element]
-        ) IS NULL
-            THEN 'Missing Cost Element'
-        ELSE 'Populated Cost Element'
-    END;
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(4000), K.[Address]))))
+        COLLATE DATABASE_DEFAULT,
+    H.DIVISION;
+
+
+/* One row per address that is linked to at least one CWI cost center. */
+SELECT
+    A.ADDRESS_KEY,
+    MAX(A.ADDRESS_DISPLAY) AS ADDRESS_DISPLAY,
+    SUM(CASE WHEN A.DIVISION = 'DS C2 & Weapons Integration'
+             THEN A.COST_CENTER_COUNT ELSE 0 END) AS CWI_COST_CENTER_COUNT,
+    COUNT(DISTINCT A.DIVISION) AS DIVISION_COUNT,
+    MAX(CASE WHEN A.DIVISION <> 'DS C2 & Weapons Integration'
+             THEN 1 ELSE 0 END) AS SHARED_WITH_OTHER_DIVISION
+INTO #CWIAddresses
+FROM #AddressDivision A
+GROUP BY A.ADDRESS_KEY
+HAVING SUM(CASE WHEN A.DIVISION = 'DS C2 & Weapons Integration'
+                THEN A.COST_CENTER_COUNT ELSE 0 END) > 0;
+
+
+/* ============================================================
+   Legacy CWI Q1 2026.
+   The old table has no Division; CWI is inferred by facility address.
+   ============================================================ */
+SELECT
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(4000), L.[Address]))))
+        COLLATE DATABASE_DEFAULT AS ADDRESS_KEY,
+    COALESCE(
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(4000), L.[Cost Category]))), ''),
+        '(blank)'
+    ) COLLATE DATABASE_DEFAULT AS COST_CATEGORY,
+    SUM(TRY_CONVERT(decimal(38,2), L.[Cost])) AS LEGACY_COST
+INTO #LegacyCWI
+FROM [ecosystem_source].[qmi].[controllable_costs] L
+JOIN #CWIAddresses A
+  ON A.ADDRESS_KEY =
+     UPPER(LTRIM(RTRIM(CONVERT(nvarchar(4000), L.[Address]))))
+         COLLATE DATABASE_DEFAULT
+WHERE TRY_CONVERT(int, L.[Year]) = 2026
+  AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), L.[Quarter])))) = 'Q1'
+GROUP BY
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(4000), L.[Address]))))
+        COLLATE DATABASE_DEFAULT,
+    COALESCE(
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(4000), L.[Cost Category]))), ''),
+        '(blank)'
+    ) COLLATE DATABASE_DEFAULT;
+
+
+/* ============================================================
+   New CWI Q1 2026.
+   Division is explicit in the new SAP-backed extract.
+   ============================================================ */
+SELECT
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(4000), N.facility))))
+        COLLATE DATABASE_DEFAULT AS ADDRESS_KEY,
+    COALESCE(
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(4000), N.cost_category))), ''),
+        '(blank)'
+    ) COLLATE DATABASE_DEFAULT AS COST_CATEGORY,
+    SUM(TRY_CONVERT(decimal(38,2), N.cost)) AS NEW_COST
+INTO #NewCWI
+FROM [ecosystem_source].[qmi].[controllable_costs_new_extract] N
+WHERE TRY_CONVERT(int, N.[year]) = 2026
+  AND TRY_CONVERT(int, N.[month]) BETWEEN 1 AND 3
+  AND LTRIM(RTRIM(CONVERT(nvarchar(255), N.division)))
+        COLLATE DATABASE_DEFAULT = 'DS C2 & Weapons Integration'
+GROUP BY
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(4000), N.facility))))
+        COLLATE DATABASE_DEFAULT,
+    COALESCE(
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(4000), N.cost_category))), ''),
+        '(blank)'
+    ) COLLATE DATABASE_DEFAULT;
+
+
+/* ============================================================
+   RESULT 1 — CWI address-key sanity.
+   Important because legacy CWI has to be inferred by address.
+   If SHARED_ADDRESS_COUNT is nonzero, we will inspect those separately.
+   ============================================================ */
+SELECT
+    SUM(CWI_COST_CENTER_COUNT) AS CWI_COST_CENTER_COUNT,
+    COUNT(*) AS CWI_ADDRESS_COUNT,
+    SUM(CASE WHEN SHARED_WITH_OTHER_DIVISION = 1 THEN 1 ELSE 0 END)
+        AS SHARED_ADDRESS_COUNT
+FROM #CWIAddresses;
+
+SELECT
+    A.ADDRESS_DISPLAY,
+    A.CWI_COST_CENTER_COUNT,
+    A.DIVISION_COUNT,
+    A.SHARED_WITH_OTHER_DIVISION
+FROM #CWIAddresses A
+WHERE A.SHARED_WITH_OTHER_DIVISION = 1
+ORDER BY A.ADDRESS_DISPLAY;
+
+
+/* ============================================================
+   RESULT 2 — Overall CWI Q1 comparison.
+
+   NET_DIFFERENCE_PCT answers the simple "how close are the totals?" question.
+
+   ADDRESS_CATEGORY_ERROR_PCT is stricter:
+   sum(abs(new-old)) across every address/category bucket
+   divided by the sum(abs(old)) across those buckets.
+   This prevents positive and negative differences from canceling each other out.
+   ============================================================ */
+WITH BucketComparison AS (
+    SELECT
+        COALESCE(L.ADDRESS_KEY, N.ADDRESS_KEY) AS ADDRESS_KEY,
+        COALESCE(L.COST_CATEGORY, N.COST_CATEGORY) AS COST_CATEGORY,
+        COALESCE(L.LEGACY_COST, 0) AS LEGACY_COST,
+        COALESCE(N.NEW_COST, 0) AS NEW_COST
+    FROM #LegacyCWI L
+    FULL OUTER JOIN #NewCWI N
+      ON N.ADDRESS_KEY = L.ADDRESS_KEY
+     AND N.COST_CATEGORY = L.COST_CATEGORY
+)
+SELECT
+    SUM(LEGACY_COST) AS LEGACY_CWI_Q1_COST,
+    SUM(NEW_COST) AS NEW_CWI_Q1_COST,
+    SUM(NEW_COST) - SUM(LEGACY_COST) AS NET_DIFFERENCE,
+    CAST(
+        100.0 * (SUM(NEW_COST) - SUM(LEGACY_COST))
+        / NULLIF(ABS(SUM(LEGACY_COST)), 0)
+        AS decimal(12,2)
+    ) AS NET_DIFFERENCE_PCT,
+    SUM(ABS(NEW_COST - LEGACY_COST)) AS ADDRESS_CATEGORY_ABS_ERROR,
+    SUM(ABS(LEGACY_COST)) AS LEGACY_ADDRESS_CATEGORY_ABS_TOTAL,
+    CAST(
+        100.0 * SUM(ABS(NEW_COST - LEGACY_COST))
+        / NULLIF(SUM(ABS(LEGACY_COST)), 0)
+        AS decimal(12,2)
+    ) AS ADDRESS_CATEGORY_ERROR_PCT
+FROM BucketComparison;
+
+
+/* ============================================================
+   RESULT 3 — Category-by-category comparison.
+   This will show whether the overall match is hiding category shifts.
+   ============================================================ */
+WITH LegacyCategory AS (
+    SELECT COST_CATEGORY, SUM(LEGACY_COST) AS LEGACY_COST
+    FROM #LegacyCWI
+    GROUP BY COST_CATEGORY
+),
+NewCategory AS (
+    SELECT COST_CATEGORY, SUM(NEW_COST) AS NEW_COST
+    FROM #NewCWI
+    GROUP BY COST_CATEGORY
+)
+SELECT
+    COALESCE(L.COST_CATEGORY, N.COST_CATEGORY) AS COST_CATEGORY,
+    COALESCE(L.LEGACY_COST, 0) AS LEGACY_Q1_COST,
+    COALESCE(N.NEW_COST, 0) AS NEW_Q1_COST,
+    COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0) AS DIFFERENCE,
+    CAST(
+        100.0 * (COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0))
+        / NULLIF(ABS(COALESCE(L.LEGACY_COST, 0)), 0)
+        AS decimal(12,2)
+    ) AS DIFFERENCE_PCT
+FROM LegacyCategory L
+FULL OUTER JOIN NewCategory N
+  ON N.COST_CATEGORY = L.COST_CATEGORY
+ORDER BY ABS(COALESCE(L.LEGACY_COST, 0)) DESC;
+
+
+/* ============================================================
+   RESULT 4 — Facility/address totals, biggest differences first.
+   ============================================================ */
+WITH LegacyAddress AS (
+    SELECT ADDRESS_KEY, SUM(LEGACY_COST) AS LEGACY_COST
+    FROM #LegacyCWI
+    GROUP BY ADDRESS_KEY
+),
+NewAddress AS (
+    SELECT ADDRESS_KEY, SUM(NEW_COST) AS NEW_COST
+    FROM #NewCWI
+    GROUP BY ADDRESS_KEY
+)
+SELECT
+    COALESCE(A.ADDRESS_DISPLAY, L.ADDRESS_KEY, N.ADDRESS_KEY) AS FACILITY_ADDRESS,
+    CASE WHEN A.ADDRESS_KEY IS NULL THEN 0 ELSE 1 END AS FOUND_IN_CWI_ADDRESS_KEY,
+    COALESCE(L.LEGACY_COST, 0) AS LEGACY_Q1_COST,
+    COALESCE(N.NEW_COST, 0) AS NEW_Q1_COST,
+    COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0) AS DIFFERENCE,
+    CAST(
+        100.0 * (COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0))
+        / NULLIF(ABS(COALESCE(L.LEGACY_COST, 0)), 0)
+        AS decimal(12,2)
+    ) AS DIFFERENCE_PCT
+FROM LegacyAddress L
+FULL OUTER JOIN NewAddress N
+  ON N.ADDRESS_KEY = L.ADDRESS_KEY
+LEFT JOIN #CWIAddresses A
+  ON A.ADDRESS_KEY = COALESCE(L.ADDRESS_KEY, N.ADDRESS_KEY)
+ORDER BY ABS(COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0)) DESC;
+
+
+/* ============================================================
+   RESULT 5 — Most important address/category mismatches.
+   Send at least the first 50 rows.
+   ============================================================ */
+SELECT TOP (100)
+    COALESCE(A.ADDRESS_DISPLAY, L.ADDRESS_KEY, N.ADDRESS_KEY) AS FACILITY_ADDRESS,
+    COALESCE(L.COST_CATEGORY, N.COST_CATEGORY) AS COST_CATEGORY,
+    COALESCE(L.LEGACY_COST, 0) AS LEGACY_Q1_COST,
+    COALESCE(N.NEW_COST, 0) AS NEW_Q1_COST,
+    COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0) AS DIFFERENCE,
+    CAST(
+        100.0 * (COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0))
+        / NULLIF(ABS(COALESCE(L.LEGACY_COST, 0)), 0)
+        AS decimal(12,2)
+    ) AS DIFFERENCE_PCT
+FROM #LegacyCWI L
+FULL OUTER JOIN #NewCWI N
+  ON N.ADDRESS_KEY = L.ADDRESS_KEY
+ AND N.COST_CATEGORY = L.COST_CATEGORY
+LEFT JOIN #CWIAddresses A
+  ON A.ADDRESS_KEY = COALESCE(L.ADDRESS_KEY, N.ADDRESS_KEY)
+ORDER BY ABS(COALESCE(N.NEW_COST, 0) - COALESCE(L.LEGACY_COST, 0)) DESC;

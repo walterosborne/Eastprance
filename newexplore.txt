@@ -1,151 +1,102 @@
-SET NOCOUNT ON;
-
-IF OBJECT_ID('tempdb..#LegacyFacilityCategory') IS NOT NULL
-    DROP TABLE #LegacyFacilityCategory;
-
-IF OBJECT_ID('tempdb..#NewFacilityCategory') IS NOT NULL
-    DROP TABLE #NewFacilityCategory;
-
-
 /* ============================================================
-   OLD Q1 2026
+   Manual bridge for obvious legacy facility aliases.
 
-   Do NOT require Cost Element.
-   This is the whole point: most of the legacy report has no GL.
+   This is diagnostic only. It does not alter any production data.
 
-   Restrict only to the eight facility-report categories represented
-   by the new SAP G/L selection.
+   Add the obvious old-report aliases to the normalized new facility
+   names, then recompute the common-facility reconciliation.
    ============================================================ */
 
-WITH LegacyRaw AS (
-    SELECT
-        LTRIM(RTRIM(CONVERT(nvarchar(1000), [Address]))) AS ADDRESS_DISPLAY,
-        LTRIM(RTRIM(CONVERT(nvarchar(255), [Cost Category]))) AS COST_CATEGORY,
-        TRY_CONVERT(decimal(38,2), [Cost]) AS COST
-    FROM ecosystem_source.qmi.controllable_costs
-    WHERE TRY_CONVERT(int, [Year]) = 2026
-      AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = 'Q1'
-      AND LTRIM(RTRIM(CONVERT(nvarchar(255), [Cost Category]))) IN (
-          '1 Labor',
-          '2 Rent - Land & Building',
-          '3 Depreciation & LHI',
-          '4 Property Taxes',
-          '5 Insurance',
-          '6 Maintenance & Repairs',
-          '7 Services',
-          '8 Utilities'
-      )
-),
-LegacyNormalized AS (
-    SELECT
-        ADDRESS_DISPLAY,
-        COST_CATEGORY,
-        COST,
+IF OBJECT_ID('tempdb..#FacilityAlias') IS NOT NULL
+    DROP TABLE #FacilityAlias;
 
-        /* Normalize obvious formatting differences only. */
-        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(ADDRESS_DISPLAY),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY')
-            AS ADDRESS_KEY
+CREATE TABLE #FacilityAlias (
+    OLD_ADDRESS_KEY nvarchar(1000) NOT NULL,
+    NEW_ADDRESS_KEY nvarchar(1000) NOT NULL
+);
 
-    FROM LegacyRaw
-    WHERE NULLIF(ADDRESS_DISPLAY, '') IS NOT NULL
+
+/* Use the same normalization convention as the prior query. */
+
+INSERT INTO #FacilityAlias (
+    OLD_ADDRESS_KEY,
+    NEW_ADDRESS_KEY
 )
+VALUES
 
-SELECT
-    ADDRESS_KEY,
-    MAX(ADDRESS_DISPLAY) AS ADDRESS_DISPLAY,
-    COST_CATEGORY,
-    SUM(COST) AS LEGACY_COST
-
-INTO #LegacyFacilityCategory
-
-FROM LegacyNormalized
-
-GROUP BY
-    ADDRESS_KEY,
-    COST_CATEGORY;
-
-
-/* ============================================================
-   NEW CWI Q1 2026
-
-   The extract has already done:
-       RCNTR -> qmi.costcenterkey -> facility
-       selected facility G/L filtering
-       category assignment
-   ============================================================ */
-
-WITH NewRaw AS (
-    SELECT
-        LTRIM(RTRIM(CONVERT(nvarchar(1000), facility))) AS ADDRESS_DISPLAY,
-        LTRIM(RTRIM(CONVERT(nvarchar(255), cost_category))) AS COST_CATEGORY,
-        TRY_CONVERT(decimal(38,2), cost) AS COST
-    FROM ecosystem_source.qmi.controllable_costs_new_extract
-    WHERE [year] = 2026
-      AND [month] BETWEEN 1 AND 3
-      AND division = 'DS C2 & Weapons Integration'
+(
+    'ONE AVIATION WAY',
+    '25167 ONE AVIATION WAY'
 ),
-NewNormalized AS (
-    SELECT
-        ADDRESS_DISPLAY,
-        COST_CATEGORY,
-        COST,
 
-        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(ADDRESS_DISPLAY),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY')
-            AS ADDRESS_KEY
+(
+    '301 VOYAGER WAY NW',
+    '301 VOYAGER WAY NORTH WEST'
+),
 
-    FROM NewRaw
-    WHERE NULLIF(ADDRESS_DISPLAY, '') IS NOT NULL
-)
+(
+    '4065 COLONEL GLENN',
+    '4065 COLONEL GLENN HWY'
+),
 
-SELECT
-    ADDRESS_KEY,
-    MAX(ADDRESS_DISPLAY) AS ADDRESS_DISPLAY,
-    COST_CATEGORY,
-    SUM(COST) AS NEW_COST
+(
+    'STRAWBERRY POINT',
+    '2828 STRAWBERRY POINT RD'
+),
 
-INTO #NewFacilityCategory
+(
+    'FAC WR PARK PLC',
+    '200 PARK PLACE DR'
+),
 
-FROM NewNormalized
+(
+    'FACILITY - WR IGNICO',
+    '98 IGNICO DR'
+),
 
-GROUP BY
-    ADDRESS_KEY,
-    COST_CATEGORY;
+(
+    '2300 DISCOVERY DR FL',
+    '2300 DISCOVERY DR'
+),
+
+(
+    '8220 SAN PEDRO DR',
+    '8220 SAN PEDRO SUITE 300'
+),
+
+(
+    '75 WEST ST WALPOLE',
+    '75 WEST ST'
+);
 
 
 /* ============================================================
-   RESULT 1 — THE NUMBER WE ACTUALLY CARE ABOUT
-
-   Only facilities represented on BOTH sides.
-
-   This tells us how close the SAP reconstruction is when comparing
-   the same physical facility population.
+   Collapse old rows onto their bridged new facility key.
    ============================================================ */
 
-WITH LegacyFacility AS (
+WITH LegacyBridged AS (
+    SELECT
+        COALESCE(A.NEW_ADDRESS_KEY, L.ADDRESS_KEY) AS ADDRESS_KEY,
+        L.COST_CATEGORY,
+        SUM(L.LEGACY_COST) AS LEGACY_COST
+    FROM #LegacyFacilityCategory L
+
+    LEFT JOIN #FacilityAlias A
+      ON A.OLD_ADDRESS_KEY = L.ADDRESS_KEY
+
+    GROUP BY
+        COALESCE(A.NEW_ADDRESS_KEY, L.ADDRESS_KEY),
+        L.COST_CATEGORY
+),
+
+LegacyFacility AS (
     SELECT
         ADDRESS_KEY,
         SUM(LEGACY_COST) AS LEGACY_COST
-    FROM #LegacyFacilityCategory
+    FROM LegacyBridged
     GROUP BY ADDRESS_KEY
 ),
+
 NewFacility AS (
     SELECT
         ADDRESS_KEY,
@@ -153,31 +104,47 @@ NewFacility AS (
     FROM #NewFacilityCategory
     GROUP BY ADDRESS_KEY
 ),
+
 CommonFacility AS (
     SELECT
         L.ADDRESS_KEY,
         L.LEGACY_COST,
         N.NEW_COST
     FROM LegacyFacility L
+
     JOIN NewFacility N
       ON N.ADDRESS_KEY = L.ADDRESS_KEY
 )
 
+
+/* ============================================================
+   RESULT 1 — Updated total after alias bridge.
+   ============================================================ */
+
 SELECT
     COUNT(*) AS COMMON_FACILITY_COUNT,
 
-    SUM(LEGACY_COST) AS LEGACY_COMMON_Q1_COST,
+    SUM(LEGACY_COST)
+        AS LEGACY_COMMON_Q1_COST,
 
-    SUM(NEW_COST) AS NEW_COMMON_Q1_COST,
+    SUM(NEW_COST)
+        AS NEW_COMMON_Q1_COST,
 
-    SUM(NEW_COST) - SUM(LEGACY_COST)
+    SUM(NEW_COST)
+      - SUM(LEGACY_COST)
         AS DIFFERENCE,
 
     CAST(
-        100.0 * (
-            SUM(NEW_COST) - SUM(LEGACY_COST)
+        100.0 *
+        (
+            SUM(NEW_COST)
+          - SUM(LEGACY_COST)
         )
-        / NULLIF(ABS(SUM(LEGACY_COST)), 0)
+        /
+        NULLIF(
+            ABS(SUM(LEGACY_COST)),
+            0
+        )
         AS decimal(12,2)
     ) AS DIFFERENCE_PCT
 
@@ -185,166 +152,64 @@ FROM CommonFacility;
 
 
 /* ============================================================
-   RESULT 2 — COMMON FACILITIES INDIVIDUALLY
-
-   This should reproduce the close matches we already saw at places
-   like Bradford, Jefferson, Avery, etc.
+   RESULT 2 — Updated facility-by-facility comparison.
    ============================================================ */
 
-WITH LegacyFacility AS (
-    SELECT
-        ADDRESS_KEY,
-        MAX(ADDRESS_DISPLAY) AS ADDRESS_DISPLAY,
-        SUM(LEGACY_COST) AS LEGACY_COST
-    FROM #LegacyFacilityCategory
-    GROUP BY ADDRESS_KEY
-),
-NewFacility AS (
-    SELECT
-        ADDRESS_KEY,
-        MAX(ADDRESS_DISPLAY) AS ADDRESS_DISPLAY,
-        SUM(NEW_COST) AS NEW_COST
-    FROM #NewFacilityCategory
-    GROUP BY ADDRESS_KEY
-)
-
 SELECT
-    COALESCE(L.ADDRESS_DISPLAY, N.ADDRESS_DISPLAY) AS FACILITY,
-    L.LEGACY_COST,
-    N.NEW_COST,
-
-    N.NEW_COST - L.LEGACY_COST AS DIFFERENCE,
-
-    CAST(
-        100.0 * (N.NEW_COST - L.LEGACY_COST)
-        / NULLIF(ABS(L.LEGACY_COST), 0)
-        AS decimal(12,2)
-    ) AS DIFFERENCE_PCT
-
-FROM LegacyFacility L
-
-JOIN NewFacility N
-  ON N.ADDRESS_KEY = L.ADDRESS_KEY
-
-ORDER BY
-    ABS(N.NEW_COST - L.LEGACY_COST) DESC;
-
-
-/* ============================================================
-   RESULT 3 — CATEGORY COMPARISON FOR COMMON FACILITIES ONLY
-   ============================================================ */
-
-WITH CommonAddresses AS (
-    SELECT DISTINCT L.ADDRESS_KEY
-    FROM #LegacyFacilityCategory L
-    JOIN #NewFacilityCategory N
-      ON N.ADDRESS_KEY = L.ADDRESS_KEY
-),
-LegacyCategory AS (
-    SELECT
-        L.COST_CATEGORY,
-        SUM(L.LEGACY_COST) AS LEGACY_COST
-    FROM #LegacyFacilityCategory L
-    JOIN CommonAddresses C
-      ON C.ADDRESS_KEY = L.ADDRESS_KEY
-    GROUP BY L.COST_CATEGORY
-),
-NewCategory AS (
-    SELECT
-        N.COST_CATEGORY,
-        SUM(N.NEW_COST) AS NEW_COST
-    FROM #NewFacilityCategory N
-    JOIN CommonAddresses C
-      ON C.ADDRESS_KEY = N.ADDRESS_KEY
-    GROUP BY N.COST_CATEGORY
-)
-
-SELECT
-    COALESCE(L.COST_CATEGORY, N.COST_CATEGORY) AS COST_CATEGORY,
-    COALESCE(L.LEGACY_COST, 0) AS LEGACY_COST,
-    COALESCE(N.NEW_COST, 0) AS NEW_COST,
-
-    COALESCE(N.NEW_COST, 0)
-      - COALESCE(L.LEGACY_COST, 0)
-        AS DIFFERENCE,
+    C.ADDRESS_KEY AS FACILITY,
+    C.LEGACY_COST,
+    C.NEW_COST,
+    C.NEW_COST - C.LEGACY_COST AS DIFFERENCE,
 
     CAST(
         100.0 *
         (
-            COALESCE(N.NEW_COST, 0)
-          - COALESCE(L.LEGACY_COST, 0)
+            C.NEW_COST
+          - C.LEGACY_COST
         )
-        / NULLIF(ABS(COALESCE(L.LEGACY_COST, 0)), 0)
+        /
+        NULLIF(
+            ABS(C.LEGACY_COST),
+            0
+        )
         AS decimal(12,2)
     ) AS DIFFERENCE_PCT
 
-FROM LegacyCategory L
+FROM CommonFacility C
 
-FULL OUTER JOIN NewCategory N
-  ON N.COST_CATEGORY = L.COST_CATEGORY
-
-ORDER BY COST_CATEGORY;
+ORDER BY
+    ABS(C.NEW_COST - C.LEGACY_COST) DESC;
 
 
 /* ============================================================
-   RESULT 4 — NEW CWI FACILITIES NOT PRESENT IN THE OLD REPORT
-
-   These were what blew the previous comparison from ~$3M to $9M.
+   RESULT 3 — What's still unmatched after bridging?
    ============================================================ */
 
-WITH LegacyAddresses AS (
-    SELECT DISTINCT ADDRESS_KEY
-    FROM #LegacyFacilityCategory
-),
-NewFacility AS (
-    SELECT
-        ADDRESS_KEY,
-        MAX(ADDRESS_DISPLAY) AS ADDRESS_DISPLAY,
-        SUM(NEW_COST) AS NEW_COST
-    FROM #NewFacilityCategory
-    GROUP BY ADDRESS_KEY
-)
-
 SELECT
-    N.ADDRESS_DISPLAY AS NEW_ONLY_FACILITY,
-    N.NEW_COST
-
-FROM NewFacility N
-
-LEFT JOIN LegacyAddresses L
-  ON L.ADDRESS_KEY = N.ADDRESS_KEY
-
-WHERE L.ADDRESS_KEY IS NULL
-
-ORDER BY N.NEW_COST DESC;
-
-
-/* ============================================================
-   RESULT 5 — OLD FACILITIES NOT PRESENT IN NEW CWI
-   ============================================================ */
-
-WITH NewAddresses AS (
-    SELECT DISTINCT ADDRESS_KEY
-    FROM #NewFacilityCategory
-),
-LegacyFacility AS (
-    SELECT
-        ADDRESS_KEY,
-        MAX(ADDRESS_DISPLAY) AS ADDRESS_DISPLAY,
-        SUM(LEGACY_COST) AS LEGACY_COST
-    FROM #LegacyFacilityCategory
-    GROUP BY ADDRESS_KEY
-)
-
-SELECT
-    L.ADDRESS_DISPLAY AS OLD_ONLY_FACILITY,
+    L.ADDRESS_KEY AS OLD_ONLY_FACILITY,
     L.LEGACY_COST
 
 FROM LegacyFacility L
 
-LEFT JOIN NewAddresses N
+LEFT JOIN NewFacility N
   ON N.ADDRESS_KEY = L.ADDRESS_KEY
 
 WHERE N.ADDRESS_KEY IS NULL
 
-ORDER BY L.LEGACY_COST DESC;
+ORDER BY
+    L.LEGACY_COST DESC;
+
+
+SELECT
+    N.ADDRESS_KEY AS NEW_ONLY_FACILITY,
+    N.NEW_COST
+
+FROM NewFacility N
+
+LEFT JOIN LegacyFacility L
+  ON L.ADDRESS_KEY = N.ADDRESS_KEY
+
+WHERE L.ADDRESS_KEY IS NULL
+
+ORDER BY
+    N.NEW_COST DESC;

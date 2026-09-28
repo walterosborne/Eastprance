@@ -168,16 +168,66 @@ The source workbook is normalized before being uploaded to SQL so that the diffe
 
 ## Labor Utilization
 
-Shows direct labor hours as a percentage of total labor hours in the original dataset.
+The existing labor utilization data comes from a Cognos report and is uploaded to SQL. The report provides monthly labor hours using cost center, labor category, and workforce classifications. QMI calculates direct labor utilization as direct labor hours divided by total labor hours.
 
-- **`labor_utilization`** — Monthly hours by labor category, forecasted cost center, pool, and worker/time classifications.
+- **`qmi.labor_utilization` (SQL Database: `ecosystem_source`)** — An extract of the Cognos report. The data is already aggregated by the report dimensions and contains monthly labor hours from January through December.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Forecasted Cost Center", "Forecasted CC", "Forecasted cost center associated with the labor hours."],
+    ["Pool", "Pool", "Labor pool associated with the reported hours."],
+    ["Location Code", "Location Code", "Location code associated with the labor record."],
+    ["Union Type", "Union Type", "Union classification associated with the labor record."],
+    ["Worker Type", "Worker Type", "Worker classification associated with the labor record."],
+    ["Time Type", "Time Type", "Time classification associated with the labor record."],
+    ["Labor Category", "Labor Category", "Labor classification used to identify direct, indirect, and other labor."],
+    ["Measure", "Measure", "Unit represented by the monthly values."],
+    ["Monthly Hours", "Jan - Dec", "Monthly labor hours used to calculate labor utilization."]
+  ]}
+/>
+
+Labor Category values containing `Labor Direct` are treated as direct, values containing `Labor Indirect` are treated as indirect, and any remaining categories are grouped as `Other`.
 
 ## Labor Utilization — New Data
 
-Shows direct hours as a percentage of direct plus indirect hours in the replacement dataset.
+The replacement labor utilization data uses actual labor hours directly from DBM instead of the existing Cognos output. Cost center is used to add Division, Business Unit, and facility information before the data is displayed in QMI.
 
-- **`DTO_Business_Management.rpt.rb_Actuals_RM_Load_Table`** — Period, cost center, direct/indirect labor category, and hours.
-- **`DTO_Business_Management.rpt.rb_load_cost_center_hierarchy`** — Division and business unit from cost center.
-- **`data/costcenterkey.xlsx`** — Optional facility labels from cost center.
+- **`rpt.rb_Actuals_RM_Load_Table` (SQL Database: `DTO_Business_Management`)** — The labor actuals source. Contains the reporting period, charged cost center, labor category, and entered hours used for the metric.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Period", "Period", "Reporting month and year associated with the labor hours."],
+    ["Cost Center", "Cost_Center", "Cost center charged by the labor actual. Used to identify Division, Business Unit, and facility."],
+    ["Labor Category", "Labor_Category", "Source labor classification. Values are normalized into direct, indirect, or other labor."],
+    ["Entered Hours", "Hours", "Actual labor hours summed for labor utilization reporting."]
+  ]}
+/>
+
+- **`rpt.rb_load_cost_center_hierarchy` (SQL Database: `DTO_Business_Management`)** — Maps each cost center to Division and Business Unit.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Cost Center", "COST_CENTER", "Cost center used to join the hierarchy to the labor actuals."],
+    ["Division", "LEV03_DESC", "The division associated with the cost center."],
+    ["Business Unit", "LEV04_DESC", "The business unit associated with the cost center."]
+  ]}
+/>
+
+- **`data/costcenterkey.xlsx`** — A hardcoded key between cost centers and facilities, obtained from Rates and Budget. The new labor data joins to this key by cost center to add facility information.
+
+<Table
+  headers={["Field", "Column Name in Table", "Description"]}
+  rows={[
+    ["Cost Center", "Cost Center", "Cost center used to join the labor data to a facility."],
+    ["Facility Address", "Address", "Address associated with the cost center."],
+    ["City", "City", "City associated with the facility and used as the facility label."],
+    ["State", "State", "State associated with the facility."]
+  ]}
+/>
+
+The replacement source groups the actual hours by year, month, Division, Business Unit, cost center, and labor category. Labor categories containing `Direct` or `Indirect` are grouped accordingly; unexpected values remain grouped as `Other`.
 
 *Legacy SQL-backed cards can fall back to bundled Excel/JSON data if their database reads fail.*

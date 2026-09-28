@@ -1,161 +1,3 @@
-/*
-CWI Q1 2026 old-vs-new reconciliation
-
-Compare:
-  OLD: legacy Q1 rows whose Cost Element is in the SAME selected G/L
-       population used by the new controllable-cost pipeline.
-  NEW: DS C2 & Weapons Integration rows from the SAP-backed extract.
-
-No facility/address matching is used here.
-
-Run the whole thing and send me all result sets.
-*/
-
-SET NOCOUNT ON;
-
-IF OBJECT_ID('tempdb..#LegacySelected') IS NOT NULL DROP TABLE #LegacySelected;
-IF OBJECT_ID('tempdb..#NewCWI') IS NOT NULL DROP TABLE #NewCWI;
-
-
-/* ============================================================
-   OLD — Q1 2026, filtered to the selected G/L population
-   ============================================================ */
-
-WITH LegacyNormalized AS (
-    SELECT
-        TRY_CONVERT(
-            BIGINT,
-            TRY_CONVERT(
-                DECIMAL(38,6),
-                REPLACE(
-                    LTRIM(RTRIM(CONVERT(varchar(100), [Cost Element]))),
-                    ',',
-                    ''
-                )
-            )
-        ) AS GL,
-
-        TRY_CONVERT(DECIMAL(38,2), [Cost]) AS COST,
-
-        LTRIM(RTRIM(CONVERT(nvarchar(4000), [Cost Category])))
-            AS LEGACY_COST_CATEGORY,
-
-        LTRIM(RTRIM(CONVERT(nvarchar(4000), [Address])))
-            AS ADDRESS
-
-    FROM ecosystem_source.qmi.controllable_costs
-
-    WHERE TRY_CONVERT(INT, [Year]) = 2026
-      AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = 'Q1'
-)
-
-SELECT
-    GL,
-
-    CASE
-        WHEN GL BETWEEN 4100000 AND 4109999
-          OR GL = 8320037
-            THEN '1 Labor'
-
-        WHEN GL IN (
-            4300591, 4300625, 4300887, 4301077
-        )
-            THEN '2 Rent - Land & Building'
-
-        WHEN GL IN (
-            4301048, 4301049, 4301050, 4301231
-        )
-            THEN '3 Depreciation & LHI'
-
-        WHEN GL = 4300626
-            THEN '4 Property Taxes'
-
-        WHEN GL IN (
-            4300852, 4300630, 8320479
-        )
-            THEN '5 Insurance'
-
-        WHEN GL IN (
-            4300884, 4300699, 4300702, 4300704,
-            4300705, 4300701, 4300700, 4300671,
-            4300643, 4300305, 4300669, 4300698,
-            4300680
-        )
-            THEN '6 Maintenance & Repairs'
-
-        WHEN GL IN (
-            4300703, 4300805, 4300666, 4300807
-        )
-            THEN '7 Services'
-
-        WHEN GL IN (
-            4301102, 4301013, 4301104, 4300628
-        )
-            THEN '8 Utilities'
-
-        ELSE NULL
-    END AS COST_CATEGORY,
-
-    LEGACY_COST_CATEGORY,
-    ADDRESS,
-    COST
-
-INTO #LegacySelected
-
-FROM LegacyNormalized
-
-WHERE
-       GL BETWEEN 4100000 AND 4109999
-    OR GL IN (
-        8320037,
-
-        4300591, 4300625, 4300887, 4301077,
-
-        4301048, 4301049, 4301050, 4301231,
-
-        4300626,
-
-        4300852, 4300630, 8320479,
-
-        4300884, 4300699, 4300702, 4300704,
-        4300705, 4300701, 4300700, 4300671,
-        4300643, 4300305, 4300669, 4300698,
-        4300680,
-
-        4300703, 4300805, 4300666, 4300807,
-
-        4301102, 4301013, 4301104, 4300628
-    );
-
-
-/* ============================================================
-   NEW — CWI Q1 2026
-   The extract already contains the selected G/L population.
-   ============================================================ */
-
-SELECT
-    TRY_CONVERT(BIGINT, gl_account_cost_element) AS GL,
-    cost_category AS COST_CATEGORY,
-    facility,
-    cost_center,
-    TRY_CONVERT(DECIMAL(38,2), cost) AS COST
-
-INTO #NewCWI
-
-FROM ecosystem_source.qmi.controllable_costs_new_extract
-
-WHERE [year] = 2026
-  AND [month] BETWEEN 1 AND 3
-  AND division = 'DS C2 & Weapons Integration';
-
-
-/* ============================================================
-   RESULT 1 — This is the main answer.
-
-   Also show the entire legacy Q1 total and populated-GL total so
-   we can verify this is the ~8.38M population we remember.
-   ============================================================ */
-
 WITH LegacyQ1 AS (
     SELECT
         TRY_CONVERT(
@@ -173,158 +15,60 @@ WITH LegacyQ1 AS (
     FROM ecosystem_source.qmi.controllable_costs
     WHERE TRY_CONVERT(INT, [Year]) = 2026
       AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = 'Q1'
+),
+LegacySelected AS (
+    SELECT COST
+    FROM LegacyQ1
+    WHERE
+           GL BETWEEN 4100000 AND 4109999
+        OR GL IN (
+            8320037,
+            4300591, 4300625, 4300887, 4301077,
+            4301048, 4301049, 4301050, 4301231,
+            4300626,
+            4300852, 4300630, 8320479,
+            4300884, 4300699, 4300702, 4300704,
+            4300705, 4300701, 4300700, 4300671,
+            4300643, 4300305, 4300669, 4300698, 4300680,
+            4300703, 4300805, 4300666, 4300807,
+            4301102, 4301013, 4301104, 4300628
+        )
+),
+NewCWI AS (
+    SELECT TRY_CONVERT(DECIMAL(38,2), cost) AS COST
+    FROM ecosystem_source.qmi.controllable_costs_new_extract
+    WHERE [year] = 2026
+      AND [month] BETWEEN 1 AND 3
+      AND division = 'DS C2 & Weapons Integration'
 )
-
 SELECT
     (SELECT SUM(COST) FROM LegacyQ1)
         AS LEGACY_ALL_Q1_COST,
 
-    (SELECT SUM(COST) FROM LegacyQ1 WHERE GL IS NOT NULL)
+    (SELECT SUM(COST)
+     FROM LegacyQ1
+     WHERE GL IS NOT NULL)
         AS LEGACY_Q1_WITH_GL_COST,
 
-    (SELECT SUM(COST) FROM #LegacySelected)
+    (SELECT SUM(COST) FROM LegacySelected)
         AS LEGACY_SELECTED_GL_COST,
 
-    (SELECT SUM(COST) FROM #NewCWI)
+    (SELECT SUM(COST) FROM NewCWI)
         AS NEW_CWI_SELECTED_GL_COST,
 
-    (SELECT SUM(COST) FROM #NewCWI)
-      - (SELECT SUM(COST) FROM #LegacySelected)
+    (SELECT SUM(COST) FROM NewCWI)
+      - (SELECT SUM(COST) FROM LegacySelected)
         AS DIFFERENCE,
 
     CAST(
         100.0 *
         (
-            (SELECT SUM(COST) FROM #NewCWI)
-          - (SELECT SUM(COST) FROM #LegacySelected)
+            (SELECT SUM(COST) FROM NewCWI)
+          - (SELECT SUM(COST) FROM LegacySelected)
         )
-        /
-        NULLIF(
-            ABS((SELECT SUM(COST) FROM #LegacySelected)),
+        / NULLIF(
+            ABS((SELECT SUM(COST) FROM LegacySelected)),
             0
         )
         AS DECIMAL(12,2)
     ) AS DIFFERENCE_PCT;
-
-
-/* ============================================================
-   RESULT 2 — Category comparison using the SAME GL-derived
-   categories on each side.
-   ============================================================ */
-
-WITH OldCategory AS (
-    SELECT
-        COST_CATEGORY,
-        SUM(COST) AS OLD_COST
-    FROM #LegacySelected
-    GROUP BY COST_CATEGORY
-),
-NewCategory AS (
-    SELECT
-        COST_CATEGORY,
-        SUM(COST) AS NEW_COST
-    FROM #NewCWI
-    GROUP BY COST_CATEGORY
-)
-
-SELECT
-    COALESCE(O.COST_CATEGORY, N.COST_CATEGORY) AS COST_CATEGORY,
-    COALESCE(O.OLD_COST, 0) AS LEGACY_Q1_COST,
-    COALESCE(N.NEW_COST, 0) AS NEW_CWI_Q1_COST,
-    COALESCE(N.NEW_COST, 0) - COALESCE(O.OLD_COST, 0)
-        AS DIFFERENCE,
-
-    CAST(
-        100.0 *
-        (
-            COALESCE(N.NEW_COST, 0)
-          - COALESCE(O.OLD_COST, 0)
-        )
-        /
-        NULLIF(ABS(COALESCE(O.OLD_COST, 0)), 0)
-        AS DECIMAL(12,2)
-    ) AS DIFFERENCE_PCT
-
-FROM OldCategory O
-
-FULL OUTER JOIN NewCategory N
-  ON N.COST_CATEGORY = O.COST_CATEGORY
-
-ORDER BY
-    COALESCE(O.COST_CATEGORY, N.COST_CATEGORY);
-
-
-/* ============================================================
-   RESULT 3 — GL-by-GL comparison.
-   Biggest dollar mismatches first.
-   ============================================================ */
-
-WITH OldGL AS (
-    SELECT
-        GL,
-        MAX(COST_CATEGORY) AS COST_CATEGORY,
-        SUM(COST) AS OLD_COST
-    FROM #LegacySelected
-    GROUP BY GL
-),
-NewGL AS (
-    SELECT
-        GL,
-        MAX(COST_CATEGORY) AS COST_CATEGORY,
-        SUM(COST) AS NEW_COST
-    FROM #NewCWI
-    GROUP BY GL
-)
-
-SELECT
-    COALESCE(O.GL, N.GL) AS GL,
-    COALESCE(O.COST_CATEGORY, N.COST_CATEGORY) AS COST_CATEGORY,
-    COALESCE(O.OLD_COST, 0) AS LEGACY_Q1_COST,
-    COALESCE(N.NEW_COST, 0) AS NEW_CWI_Q1_COST,
-    COALESCE(N.NEW_COST, 0) - COALESCE(O.OLD_COST, 0)
-        AS DIFFERENCE,
-
-    CAST(
-        100.0 *
-        (
-            COALESCE(N.NEW_COST, 0)
-          - COALESCE(O.OLD_COST, 0)
-        )
-        /
-        NULLIF(ABS(COALESCE(O.OLD_COST, 0)), 0)
-        AS DECIMAL(12,2)
-    ) AS DIFFERENCE_PCT
-
-FROM OldGL O
-
-FULL OUTER JOIN NewGL N
-  ON N.GL = O.GL
-
-ORDER BY
-    ABS(
-        COALESCE(N.NEW_COST, 0)
-      - COALESCE(O.OLD_COST, 0)
-    ) DESC;
-
-
-/* ============================================================
-   RESULT 4 — sanity check:
-   Are the legacy Cost Categories agreeing with the category
-   implied by the selected G/L mapping?
-   ============================================================ */
-
-SELECT
-    COST_CATEGORY AS GL_DERIVED_CATEGORY,
-    LEGACY_COST_CATEGORY,
-    COUNT(*) AS ROW_COUNT,
-    SUM(COST) AS COST
-
-FROM #LegacySelected
-
-GROUP BY
-    COST_CATEGORY,
-    LEGACY_COST_CATEGORY
-
-ORDER BY
-    COST_CATEGORY,
-    ABS(SUM(COST)) DESC;

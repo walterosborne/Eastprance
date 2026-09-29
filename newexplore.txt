@@ -1,33 +1,6 @@
 SET NOCOUNT ON;
 
-/* ============================================================
-   CWI Q1 2026 — MAJOR GL SCOPE CHECK
-
-   Compare legacy CRE dollars against RAW SAP dollars for the
-   biggest discrepancy GLs.
-
-   RAW SAP is intentionally NOT filtered by the current selected
-   GL list.
-
-   NO TEMP TABLES.
-   ============================================================ */
-
-;WITH CandidateGL AS (
-    SELECT GL
-    FROM (VALUES
-        (4300625), -- VarRent CAM
-        (4301049), -- Depreciation - Machinery & Equipment
-        (4300652), -- Physical Security
-        (4301101), -- Light, Power, Water, Heat
-        (4300395), -- Plant Rearrangement Expense
-        (4301103), -- Purchased Gas
-        (7000301), -- Indirect Labor (Fac Pool A)
-        (8320479), -- P&C Property
-        (4300805)  -- General Services Ex
-    ) X(GL)
-),
-
-FacilityAlias AS (
+;WITH FacilityAlias AS (
     SELECT *
     FROM (VALUES
         ('ONE AVIATION WAY',          '25167 ONE AVIATION WAY'),
@@ -42,140 +15,84 @@ FacilityAlias AS (
     ) A (OLD_ADDRESS_KEY, NEW_ADDRESS_KEY)
 ),
 
-LegacyBase AS (
-    SELECT
-        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), [Address])))),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY')
-            AS RAW_FACILITY,
-
-        TRY_CONVERT(
-            bigint,
-            TRY_CONVERT(
-                decimal(38,6),
-                NULLIF(
-                    REPLACE(
-                        LTRIM(RTRIM(CONVERT(varchar(100), [Cost Element]))),
-                        ',',
-                        ''
-                    ),
-                    ''
-                )
-            )
-        ) AS GL,
-
-        LTRIM(RTRIM(CONVERT(nvarchar(255), [Cost Category])))
-            AS COST_CATEGORY,
-
-        LTRIM(RTRIM(CONVERT(nvarchar(500), [Cost Element Description])))
-            AS GL_DESCRIPTION,
-
-        TRY_CONVERT(decimal(38,2), [Cost])
-            AS COST
-
-    FROM ecosystem_source.qmi.controllable_costs
-
-    WHERE TRY_CONVERT(int, [Year]) = 2026
-      AND UPPER(
-            LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))
-          ) = 'Q1'
-),
-
 Legacy AS (
     SELECT
-        COALESCE(A.NEW_ADDRESS_KEY, L.RAW_FACILITY)
-            AS FACILITY,
+        COALESCE(
+            A.NEW_ADDRESS_KEY,
+            X.ADDRESS_KEY
+        ) AS FACILITY,
 
-        L.GL,
-        L.COST_CATEGORY,
-        L.GL_DESCRIPTION,
-        L.COST
+        SUM(X.COST) AS LEGACY_COST
 
-    FROM LegacyBase L
+    FROM (
+        SELECT
+            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), [Address])))),
+                '.', ''),
+                ',', ''),
+                ' AVENUE', ' AVE'),
+                ' ROAD', ' RD'),
+                ' DRIVE', ' DR'),
+                ' STREET', ' ST'),
+                ' HIGHWAY', ' HWY'),
+                ' PARKWAY', ' PKWY')
+                AS ADDRESS_KEY,
+
+            TRY_CONVERT(decimal(38,2), [Cost])
+                AS COST
+
+        FROM ecosystem_source.qmi.controllable_costs
+
+        WHERE TRY_CONVERT(int, [Year]) = 2026
+          AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = 'Q1'
+          AND LTRIM(RTRIM(CONVERT(nvarchar(255), [Cost Category]))) IN (
+              '1 Labor',
+              '2 Rent - Land & Building',
+              '3 Depreciation & LHI',
+              '4 Property Taxes',
+              '5 Insurance',
+              '6 Maintenance & Repairs',
+              '7 Services',
+              '8 Utilities'
+          )
+    ) X
 
     LEFT JOIN FacilityAlias A
-      ON A.OLD_ADDRESS_KEY = L.RAW_FACILITY
+      ON A.OLD_ADDRESS_KEY = X.ADDRESS_KEY
+
+    GROUP BY
+        COALESCE(A.NEW_ADDRESS_KEY, X.ADDRESS_KEY)
 ),
 
-NewExtractFacilities AS (
-    SELECT DISTINCT
-        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), facility)))),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY')
-            AS FACILITY
-
-    FROM ecosystem_source.qmi.controllable_costs_new_extract
-
-    WHERE [year] = 2026
-      AND [month] BETWEEN 1 AND 3
-      AND division = 'DS C2 & Weapons Integration'
-),
-
-LegacyFacilities AS (
-    SELECT DISTINCT FACILITY
-    FROM Legacy
-),
-
-CommonFacilities AS (
-    SELECT L.FACILITY
-
-    FROM LegacyFacilities L
-
-    JOIN NewExtractFacilities N
-      ON N.FACILITY = L.FACILITY
-),
-
-CurrentHierarchy AS (
+Hierarchy AS (
     SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER)))
-            AS COST_CENTER,
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS COST_CENTER,
 
         ROW_NUMBER() OVER (
             PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-            ORDER BY
-                last_modified_date DESC,
-                created_date DESC,
-                id DESC
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
         ) AS RN
 
     FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
 
     WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-      AND LTRIM(RTRIM(LEV03_DESC))
-            = 'DS C2 & Weapons Integration'
+      AND LTRIM(RTRIM(LEV03_DESC)) = 'DS C2 & Weapons Integration'
 ),
 
 FacilityKey AS (
     SELECT
-        UPPER(LTRIM(RTRIM([Cost Center])))
-            AS COST_CENTER,
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS COST_CENTER,
 
         MAX(NULLIF(LTRIM(RTRIM([Address])), ''))
             AS ADDRESS
 
     FROM ecosystem_source.qmi.costcenterkey
 
-    WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
-
     GROUP BY
         UPPER(LTRIM(RTRIM([Cost Center])))
 ),
 
-RawSAP AS (
+AdjustedNew AS (
     SELECT
         REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
             UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), K.ADDRESS)))),
@@ -189,116 +106,318 @@ RawSAP AS (
             ' PARKWAY', ' PKWY')
             AS FACILITY,
 
-        TRY_CONVERT(bigint, T.RACCT)
-            AS GL,
-
-        NULLIF(LTRIM(RTRIM(T.GL_TXT20)), '')
-            AS GL_DESCRIPTION,
-
-        TRY_CONVERT(decimal(38,2), T.KSL)
-            AS COST
+        SUM(
+            TRY_CONVERT(decimal(38,2), T.KSL)
+        ) AS NEW_COST
 
     FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 T
 
-    JOIN CurrentHierarchy H
+    JOIN Hierarchy H
       ON H.COST_CENTER = UPPER(LTRIM(RTRIM(T.RCNTR)))
      AND H.RN = 1
 
     JOIN FacilityKey K
       ON K.COST_CENTER = UPPER(LTRIM(RTRIM(T.RCNTR)))
 
-    JOIN CandidateGL C
-      ON C.GL = TRY_CONVERT(bigint, T.RACCT)
-
     WHERE TRY_CONVERT(int, T.GJAHR) = 2026
       AND TRY_CONVERT(int, T.POPER) BETWEEN 1 AND 3
       AND TRY_CONVERT(decimal(38,2), T.KSL) IS NOT NULL
+
+      AND (
+
+          /* Existing labor population */
+          (
+              TRY_CONVERT(bigint, T.RACCT)
+                  BETWEEN 4100000 AND 4109999
+          )
+
+          /* Existing list, with major NEW_ONLY accounts removed */
+          OR TRY_CONVERT(bigint, T.RACCT) IN (
+
+              8320037,
+
+              /* Rent */
+              4300591,
+              -- 4300625 REMOVED
+              4300887,
+              4301077,
+
+              /* Depreciation */
+              4301048,
+              -- 4301049 REMOVED
+              4301050,
+              4301231,
+
+              /* Property Tax */
+              4300626,
+
+              /* Insurance */
+              4300852,
+              4300630,
+              -- 8320479 REMOVED
+
+              /* Maintenance */
+              4300884,
+              4300699,
+              4300702,
+              4300704,
+              4300705,
+              4300701,
+              4300700,
+              4300671,
+              4300643,
+              4300305,
+              4300669,
+              4300698,
+              4300680,
+
+              /* Services */
+              4300703,
+              -- 4300805 REMOVED
+              4300666,
+              4300807,
+
+              /* Utilities */
+              4301102,
+              4301013,
+              4301104,
+              4300628,
+
+              /* NEW: old-report GLs */
+              4300652,
+              4301101,
+              4300395,
+              4301103,
+              7000301
+          )
+      )
+
+    GROUP BY
+        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), K.ADDRESS)))),
+            '.', ''),
+            ',', ''),
+            ' AVENUE', ' AVE'),
+            ' ROAD', ' RD'),
+            ' DRIVE', ' DR'),
+            ' STREET', ' ST'),
+            ' HIGHWAY', ' HWY'),
+            ' PARKWAY', ' PKWY')
 ),
 
-LegacySummary AS (
+Comparison AS (
     SELECT
-        L.GL,
-
-        MAX(L.COST_CATEGORY)
-            AS LEGACY_CATEGORY,
-
-        MAX(NULLIF(L.GL_DESCRIPTION, ''))
-            AS LEGACY_DESCRIPTION,
-
-        COUNT(DISTINCT L.FACILITY)
-            AS LEGACY_FACILITY_COUNT,
-
-        SUM(L.COST)
-            AS LEGACY_COST
+        L.FACILITY,
+        L.LEGACY_COST,
+        N.NEW_COST,
+        N.NEW_COST - L.LEGACY_COST
+            AS DIFFERENCE
 
     FROM Legacy L
 
-    JOIN CandidateGL C
-      ON C.GL = L.GL
-
-    JOIN CommonFacilities F
-      ON F.FACILITY = L.FACILITY
-
-    GROUP BY
-        L.GL
-),
-
-SAPSummary AS (
-    SELECT
-        S.GL,
-
-        MAX(NULLIF(S.GL_DESCRIPTION, ''))
-            AS SAP_DESCRIPTION,
-
-        COUNT(DISTINCT S.FACILITY)
-            AS SAP_FACILITY_COUNT,
-
-        SUM(S.COST)
-            AS RAW_SAP_COST
-
-    FROM RawSAP S
-
-    JOIN CommonFacilities F
-      ON F.FACILITY = S.FACILITY
-
-    GROUP BY
-        S.GL
+    JOIN AdjustedNew N
+      ON N.FACILITY = L.FACILITY
 )
 
 SELECT
-    C.GL,
+    COUNT(*) AS MATCHED_FACILITY_COUNT,
 
-    L.LEGACY_CATEGORY,
+    SUM(LEGACY_COST)
+        AS LEGACY_Q1_COST,
 
-    L.LEGACY_DESCRIPTION,
-    S.SAP_DESCRIPTION,
+    SUM(NEW_COST)
+        AS ADJUSTED_NEW_Q1_COST,
 
-    COALESCE(L.LEGACY_FACILITY_COUNT, 0)
-        AS LEGACY_FACILITY_COUNT,
+    SUM(DIFFERENCE)
+        AS DIFFERENCE,
 
-    COALESCE(S.SAP_FACILITY_COUNT, 0)
-        AS SAP_FACILITY_COUNT,
+    CAST(
+        100.0 * SUM(DIFFERENCE)
+        / NULLIF(ABS(SUM(LEGACY_COST)), 0)
 
-    COALESCE(L.LEGACY_COST, 0)
-        AS LEGACY_COST,
+        AS decimal(12,2)
+    ) AS DIFFERENCE_PCT
 
-    COALESCE(S.RAW_SAP_COST, 0)
-        AS RAW_SAP_COST,
+FROM Comparison;
 
-    COALESCE(S.RAW_SAP_COST, 0)
-      - COALESCE(L.LEGACY_COST, 0)
-        AS DIFFERENCE
 
-FROM CandidateGL C
+;WITH FacilityAlias AS (
+    SELECT *
+    FROM (VALUES
+        ('ONE AVIATION WAY',          '25167 ONE AVIATION WAY'),
+        ('301 VOYAGER WAY NW',        '301 VOYAGER WAY NORTH WEST'),
+        ('4065 COLONEL GLENN',        '4065 COLONEL GLENN HWY'),
+        ('STRAWBERRY POINT',          '2828 STRAWBERRY POINT RD'),
+        ('FAC WR PARK PLC',           '200 PARK PLACE DR'),
+        ('FACILITY - WR IGNICO',      '98 IGNICO DR'),
+        ('2300 DISCOVERY DR FL',      '2300 DISCOVERY DR'),
+        ('8220 SAN PEDRO DR',         '8220 SAN PEDRO SUITE 300'),
+        ('75 WEST ST WALPOLE',        '75 WEST ST')
+    ) A (OLD_ADDRESS_KEY, NEW_ADDRESS_KEY)
+),
 
-LEFT JOIN LegacySummary L
-  ON L.GL = C.GL
+Legacy AS (
+    SELECT
+        COALESCE(A.NEW_ADDRESS_KEY, X.ADDRESS_KEY) AS FACILITY,
+        SUM(X.COST) AS LEGACY_COST
 
-LEFT JOIN SAPSummary S
-  ON S.GL = C.GL
+    FROM (
+        SELECT
+            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), [Address])))),
+                '.', ''),
+                ',', ''),
+                ' AVENUE', ' AVE'),
+                ' ROAD', ' RD'),
+                ' DRIVE', ' DR'),
+                ' STREET', ' ST'),
+                ' HIGHWAY', ' HWY'),
+                ' PARKWAY', ' PKWY')
+                AS ADDRESS_KEY,
+
+            TRY_CONVERT(decimal(38,2), [Cost]) AS COST
+
+        FROM ecosystem_source.qmi.controllable_costs
+
+        WHERE TRY_CONVERT(int, [Year]) = 2026
+          AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = 'Q1'
+          AND LTRIM(RTRIM(CONVERT(nvarchar(255), [Cost Category]))) IN (
+              '1 Labor',
+              '2 Rent - Land & Building',
+              '3 Depreciation & LHI',
+              '4 Property Taxes',
+              '5 Insurance',
+              '6 Maintenance & Repairs',
+              '7 Services',
+              '8 Utilities'
+          )
+    ) X
+
+    LEFT JOIN FacilityAlias A
+      ON A.OLD_ADDRESS_KEY = X.ADDRESS_KEY
+
+    GROUP BY
+        COALESCE(A.NEW_ADDRESS_KEY, X.ADDRESS_KEY)
+),
+
+Hierarchy AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS COST_CENTER,
+
+        ROW_NUMBER() OVER (
+            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS RN
+
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+      AND LTRIM(RTRIM(LEV03_DESC)) = 'DS C2 & Weapons Integration'
+),
+
+FacilityKey AS (
+    SELECT
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS COST_CENTER,
+        MAX(NULLIF(LTRIM(RTRIM([Address])), '')) AS ADDRESS
+
+    FROM ecosystem_source.qmi.costcenterkey
+
+    GROUP BY UPPER(LTRIM(RTRIM([Cost Center])))
+),
+
+AdjustedNew AS (
+    SELECT
+        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), K.ADDRESS)))),
+            '.', ''),
+            ',', ''),
+            ' AVENUE', ' AVE'),
+            ' ROAD', ' RD'),
+            ' DRIVE', ' DR'),
+            ' STREET', ' ST'),
+            ' HIGHWAY', ' HWY'),
+            ' PARKWAY', ' PKWY')
+            AS FACILITY,
+
+        SUM(TRY_CONVERT(decimal(38,2), T.KSL))
+            AS NEW_COST
+
+    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 T
+
+    JOIN Hierarchy H
+      ON H.COST_CENTER = UPPER(LTRIM(RTRIM(T.RCNTR)))
+     AND H.RN = 1
+
+    JOIN FacilityKey K
+      ON K.COST_CENTER = UPPER(LTRIM(RTRIM(T.RCNTR)))
+
+    WHERE TRY_CONVERT(int, T.GJAHR) = 2026
+      AND TRY_CONVERT(int, T.POPER) BETWEEN 1 AND 3
+
+      AND (
+          TRY_CONVERT(bigint, T.RACCT) BETWEEN 4100000 AND 4109999
+
+          OR TRY_CONVERT(bigint, T.RACCT) IN (
+              8320037,
+
+              4300591, 4300887, 4301077,
+              4301048, 4301050, 4301231,
+              4300626,
+              4300852, 4300630,
+
+              4300884, 4300699, 4300702, 4300704,
+              4300705, 4300701, 4300700, 4300671,
+              4300643, 4300305, 4300669, 4300698,
+              4300680,
+
+              4300703, 4300666, 4300807,
+
+              4301102, 4301013, 4301104, 4300628,
+
+              /* Added old-only */
+              4300652,
+              4301101,
+              4300395,
+              4301103,
+              7000301
+          )
+      )
+
+    GROUP BY
+        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), K.ADDRESS)))),
+            '.', ''),
+            ',', ''),
+            ' AVENUE', ' AVE'),
+            ' ROAD', ' RD'),
+            ' DRIVE', ' DR'),
+            ' STREET', ' ST'),
+            ' HIGHWAY', ' HWY'),
+            ' PARKWAY', ' PKWY')
+)
+
+SELECT
+    L.FACILITY,
+
+    L.LEGACY_COST,
+
+    N.NEW_COST AS ADJUSTED_NEW_COST,
+
+    N.NEW_COST - L.LEGACY_COST
+        AS DIFFERENCE,
+
+    CAST(
+        100.0 *
+        (N.NEW_COST - L.LEGACY_COST)
+        / NULLIF(ABS(L.LEGACY_COST), 0)
+
+        AS decimal(12,2)
+    ) AS DIFFERENCE_PCT
+
+FROM Legacy L
+
+JOIN AdjustedNew N
+  ON N.FACILITY = L.FACILITY
 
 ORDER BY
-    ABS(
-        COALESCE(S.RAW_SAP_COST, 0)
-      - COALESCE(L.LEGACY_COST, 0)
-    ) DESC;
+    ABS(N.NEW_COST - L.LEGACY_COST) DESC;

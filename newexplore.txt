@@ -1,18 +1,13 @@
 SET NOCOUNT ON;
 
 /* ============================================================
-   Q1 2026 CWI — MAJOR GL SCOPE CHECK
+   CWI Q1 2026 — MAJOR GL SCOPE CHECK
 
-   For the biggest old-only/new-only accounts:
-   compare legacy CRE dollars directly against RAW SAP dollars.
+   Compare legacy CRE dollars against RAW SAP dollars for the
+   biggest discrepancy GLs.
 
-   Important:
-   RAW SAP is NOT restricted by our current selected-GL list.
-
-   This answers:
-   - Are old-only GLs actually present in fresh SAP and just omitted
-     from our selection?
-   - Are new-only GLs genuinely in SAP but absent from legacy?
+   RAW SAP is intentionally NOT filtered by the current selected
+   GL list.
 
    NO TEMP TABLES.
    ============================================================ */
@@ -20,17 +15,15 @@ SET NOCOUNT ON;
 ;WITH CandidateGL AS (
     SELECT GL
     FROM (VALUES
-        (4300625), -- VarRent CAM - new only
-        (4301049), -- Depreciation machinery/equipment - new only
-
-        (4300652), -- Physical Security - old only
-        (4301101), -- Light/Power/Water/Heat - old only
-        (4300395), -- Plant Rearrangement Expense - old only
-        (4301103), -- Purchased Gas - old only
-        (7000301), -- Indirect Labor Fac Pool A - old only
-
-        (8320479), -- P&C Property - new only
-        (4300805)  -- General Services Ex - new only
+        (4300625), -- VarRent CAM
+        (4301049), -- Depreciation - Machinery & Equipment
+        (4300652), -- Physical Security
+        (4301101), -- Light, Power, Water, Heat
+        (4300395), -- Plant Rearrangement Expense
+        (4301103), -- Purchased Gas
+        (7000301), -- Indirect Labor (Fac Pool A)
+        (8320479), -- P&C Property
+        (4300805)  -- General Services Ex
     ) X(GL)
 ),
 
@@ -49,7 +42,7 @@ FacilityAlias AS (
     ) A (OLD_ADDRESS_KEY, NEW_ADDRESS_KEY)
 ),
 
-LegacyRaw AS (
+LegacyBase AS (
     SELECT
         REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
             UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), [Address])))),
@@ -90,7 +83,9 @@ LegacyRaw AS (
     FROM ecosystem_source.qmi.controllable_costs
 
     WHERE TRY_CONVERT(int, [Year]) = 2026
-      AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))) = 'Q1'
+      AND UPPER(
+            LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))
+          ) = 'Q1'
 ),
 
 Legacy AS (
@@ -103,22 +98,51 @@ Legacy AS (
         L.GL_DESCRIPTION,
         L.COST
 
-    FROM LegacyRaw L
+    FROM LegacyBase L
 
     LEFT JOIN FacilityAlias A
       ON A.OLD_ADDRESS_KEY = L.RAW_FACILITY
+),
+
+NewExtractFacilities AS (
+    SELECT DISTINCT
+        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), facility)))),
+            '.', ''),
+            ',', ''),
+            ' AVENUE', ' AVE'),
+            ' ROAD', ' RD'),
+            ' DRIVE', ' DR'),
+            ' STREET', ' ST'),
+            ' HIGHWAY', ' HWY'),
+            ' PARKWAY', ' PKWY')
+            AS FACILITY
+
+    FROM ecosystem_source.qmi.controllable_costs_new_extract
+
+    WHERE [year] = 2026
+      AND [month] BETWEEN 1 AND 3
+      AND division = 'DS C2 & Weapons Integration'
+),
+
+LegacyFacilities AS (
+    SELECT DISTINCT FACILITY
+    FROM Legacy
+),
+
+CommonFacilities AS (
+    SELECT L.FACILITY
+
+    FROM LegacyFacilities L
+
+    JOIN NewExtractFacilities N
+      ON N.FACILITY = L.FACILITY
 ),
 
 CurrentHierarchy AS (
     SELECT
         UPPER(LTRIM(RTRIM(COST_CENTER)))
             AS COST_CENTER,
-
-        LTRIM(RTRIM(LEV03_DESC))
-            AS DIVISION,
-
-        LTRIM(RTRIM(LEV04_DESC))
-            AS BUSINESS_UNIT,
 
         ROW_NUMBER() OVER (
             PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
@@ -165,20 +189,11 @@ RawSAP AS (
             ' PARKWAY', ' PKWY')
             AS FACILITY,
 
-        UPPER(LTRIM(RTRIM(T.RCNTR)))
-            AS COST_CENTER,
-
-        H.BUSINESS_UNIT,
-
         TRY_CONVERT(bigint, T.RACCT)
             AS GL,
 
         NULLIF(LTRIM(RTRIM(T.GL_TXT20)), '')
             AS GL_DESCRIPTION,
-
-        T.ACCT_LEVEL02_TEXT,
-        T.ACCT_LEVEL03_TEXT,
-        T.ACCT_LEVEL04_TEXT,
 
         TRY_CONVERT(decimal(38,2), T.KSL)
             AS COST
@@ -200,43 +215,8 @@ RawSAP AS (
       AND TRY_CONVERT(decimal(38,2), T.KSL) IS NOT NULL
 ),
 
-LegacyFacilities AS (
-    SELECT DISTINCT FACILITY
-    FROM Legacy
-),
-
-NewFacilities AS (
-    SELECT DISTINCT
-        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), facility)))),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY')
-            AS FACILITY
-
-    FROM ecosystem_source.qmi.controllable_costs_new_extract
-
-    WHERE [year] = 2026
-      AND [month] BETWEEN 1 AND 3
-      AND division = 'DS C2 & Weapons Integration'
-),
-
-CommonFacilities AS (
-    SELECT L.FACILITY
-    FROM LegacyFacilities L
-
-    JOIN NewFacilities N
-      ON N.FACILITY = L.FACILITY
-),
-
-LegacyGL AS (
+LegacySummary AS (
     SELECT
-        L.FACILITY,
         L.GL,
 
         MAX(L.COST_CATEGORY)
@@ -245,41 +225,33 @@ LegacyGL AS (
         MAX(NULLIF(L.GL_DESCRIPTION, ''))
             AS LEGACY_DESCRIPTION,
 
+        COUNT(DISTINCT L.FACILITY)
+            AS LEGACY_FACILITY_COUNT,
+
         SUM(L.COST)
             AS LEGACY_COST
 
     FROM Legacy L
 
-    JOIN CommonFacilities F
-      ON F.FACILITY = L.FACILITY
-
     JOIN CandidateGL C
       ON C.GL = L.GL
 
+    JOIN CommonFacilities F
+      ON F.FACILITY = L.FACILITY
+
     GROUP BY
-        L.FACILITY,
         L.GL
 ),
 
-SAPGL AS (
+SAPSummary AS (
     SELECT
-        S.FACILITY,
         S.GL,
 
         MAX(NULLIF(S.GL_DESCRIPTION, ''))
             AS SAP_DESCRIPTION,
 
-        MAX(S.ACCT_LEVEL02_TEXT)
-            AS ACCT_LEVEL02_TEXT,
-
-        MAX(S.ACCT_LEVEL03_TEXT)
-            AS ACCT_LEVEL03_TEXT,
-
-        MAX(S.ACCT_LEVEL04_TEXT)
-            AS ACCT_LEVEL04_TEXT,
-
-        COUNT(DISTINCT S.COST_CENTER)
-            AS COST_CENTER_COUNT,
+        COUNT(DISTINCT S.FACILITY)
+            AS SAP_FACILITY_COUNT,
 
         SUM(S.COST)
             AS RAW_SAP_COST
@@ -290,324 +262,30 @@ SAPGL AS (
       ON F.FACILITY = S.FACILITY
 
     GROUP BY
-        S.FACILITY,
         S.GL
-),
-
-Comparison AS (
-    SELECT
-        COALESCE(L.FACILITY, S.FACILITY)
-            AS FACILITY,
-
-        COALESCE(L.GL, S.GL)
-            AS GL,
-
-        L.LEGACY_CATEGORY,
-        L.LEGACY_DESCRIPTION,
-
-        S.SAP_DESCRIPTION,
-
-        S.ACCT_LEVEL02_TEXT,
-        S.ACCT_LEVEL03_TEXT,
-        S.ACCT_LEVEL04_TEXT,
-
-        COALESCE(S.COST_CENTER_COUNT, 0)
-            AS SAP_COST_CENTER_COUNT,
-
-        COALESCE(L.LEGACY_COST, 0)
-            AS LEGACY_COST,
-
-        COALESCE(S.RAW_SAP_COST, 0)
-            AS RAW_SAP_COST,
-
-        COALESCE(S.RAW_SAP_COST, 0)
-          - COALESCE(L.LEGACY_COST, 0)
-            AS DIFFERENCE
-
-    FROM LegacyGL L
-
-    FULL OUTER JOIN SAPGL S
-      ON S.FACILITY = L.FACILITY
-     AND S.GL = L.GL
-)
-
-
-/* ============================================================
-   RESULT 1 — Facility + GL detail
-   ============================================================ */
-
-SELECT
-    FACILITY,
-    GL,
-
-    LEGACY_CATEGORY,
-
-    LEGACY_DESCRIPTION,
-    SAP_DESCRIPTION,
-
-    ACCT_LEVEL02_TEXT,
-    ACCT_LEVEL03_TEXT,
-    ACCT_LEVEL04_TEXT,
-
-    SAP_COST_CENTER_COUNT,
-
-    LEGACY_COST,
-    RAW_SAP_COST,
-    DIFFERENCE
-
-FROM Comparison
-
-ORDER BY
-    ABS(DIFFERENCE) DESC;
-
-
-/* ============================================================
-   RESULT 2 — Aggregate by GL across matched facilities
-
-   This is the decision table for the GL list.
-   ============================================================ */
-
-;WITH FacilityAlias AS (
-    SELECT *
-    FROM (VALUES
-        ('ONE AVIATION WAY',          '25167 ONE AVIATION WAY'),
-        ('301 VOYAGER WAY NW',        '301 VOYAGER WAY NORTH WEST'),
-        ('4065 COLONEL GLENN',        '4065 COLONEL GLENN HWY'),
-        ('STRAWBERRY POINT',          '2828 STRAWBERRY POINT RD'),
-        ('FAC WR PARK PLC',           '200 PARK PLACE DR'),
-        ('FACILITY - WR IGNICO',      '98 IGNICO DR'),
-        ('2300 DISCOVERY DR FL',      '2300 DISCOVERY DR'),
-        ('8220 SAN PEDRO DR',         '8220 SAN PEDRO SUITE 300'),
-        ('75 WEST ST WALPOLE',        '75 WEST ST')
-    ) A (OLD_ADDRESS_KEY, NEW_ADDRESS_KEY)
-),
-
-CandidateGL AS (
-    SELECT GL
-    FROM (VALUES
-        (4300625),
-        (4301049),
-        (4300652),
-        (4301101),
-        (4300395),
-        (4301103),
-        (7000301),
-        (8320479),
-        (4300805)
-    ) X(GL)
-),
-
-Legacy AS (
-    SELECT
-        COALESCE(
-            A.NEW_ADDRESS_KEY,
-            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), L.[Address])))),
-                '.', ''),
-                ',', ''),
-                ' AVENUE', ' AVE'),
-                ' ROAD', ' RD'),
-                ' DRIVE', ' DR'),
-                ' STREET', ' ST'),
-                ' HIGHWAY', ' HWY'),
-                ' PARKWAY', ' PKWY')
-        ) AS FACILITY,
-
-        TRY_CONVERT(
-            bigint,
-            TRY_CONVERT(
-                decimal(38,6),
-                NULLIF(
-                    REPLACE(
-                        LTRIM(RTRIM(CONVERT(varchar(100), L.[Cost Element]))),
-                        ',',
-                        ''
-                    ),
-                    ''
-                )
-            )
-        ) AS GL,
-
-        TRY_CONVERT(decimal(38,2), L.[Cost])
-            AS COST
-
-    FROM ecosystem_source.qmi.controllable_costs L
-
-    LEFT JOIN FacilityAlias A
-      ON A.OLD_ADDRESS_KEY =
-         REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), L.[Address])))),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY')
-
-    WHERE TRY_CONVERT(int, L.[Year]) = 2026
-      AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), L.[Quarter])))) = 'Q1'
-),
-
-CurrentHierarchy AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER)))
-            AS COST_CENTER,
-
-        ROW_NUMBER() OVER (
-            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-            ORDER BY
-                last_modified_date DESC,
-                created_date DESC,
-                id DESC
-        ) AS RN
-
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-      AND LTRIM(RTRIM(LEV03_DESC))
-            = 'DS C2 & Weapons Integration'
-),
-
-FacilityKey AS (
-    SELECT
-        UPPER(LTRIM(RTRIM([Cost Center])))
-            AS COST_CENTER,
-
-        MAX(NULLIF(LTRIM(RTRIM([Address])), ''))
-            AS ADDRESS
-
-    FROM ecosystem_source.qmi.costcenterkey
-
-    GROUP BY
-        UPPER(LTRIM(RTRIM([Cost Center])))
-),
-
-SAP AS (
-    SELECT
-        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), K.ADDRESS)))),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY')
-            AS FACILITY,
-
-        TRY_CONVERT(bigint, T.RACCT)
-            AS GL,
-
-        MAX(NULLIF(LTRIM(RTRIM(T.GL_TXT20)), ''))
-            AS SAP_DESCRIPTION,
-
-        SUM(TRY_CONVERT(decimal(38,2), T.KSL))
-            AS SAP_COST
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 T
-
-    JOIN CurrentHierarchy H
-      ON H.COST_CENTER = UPPER(LTRIM(RTRIM(T.RCNTR)))
-     AND H.RN = 1
-
-    JOIN FacilityKey K
-      ON K.COST_CENTER = UPPER(LTRIM(RTRIM(T.RCNTR)))
-
-    JOIN CandidateGL C
-      ON C.GL = TRY_CONVERT(bigint, T.RACCT)
-
-    WHERE TRY_CONVERT(int, T.GJAHR) = 2026
-      AND TRY_CONVERT(int, T.POPER) BETWEEN 1 AND 3
-
-    GROUP BY
-        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), K.ADDRESS)))),
-            '.', ''),
-            ',', ''),
-            ' AVENUE', ' AVE'),
-            ' ROAD', ' RD'),
-            ' DRIVE', ' DR'),
-            ' STREET', ' ST'),
-            ' HIGHWAY', ' HWY'),
-            ' PARKWAY', ' PKWY'),
-
-        TRY_CONVERT(bigint, T.RACCT)
-),
-
-CommonFacilities AS (
-    SELECT DISTINCT L.FACILITY
-
-    FROM Legacy L
-
-    JOIN (
-        SELECT DISTINCT FACILITY
-        FROM ecosystem_source.qmi.controllable_costs_new_extract E
-        CROSS APPLY (
-            SELECT
-                REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), E.facility)))),
-                    '.', ''),
-                    ',', ''),
-                    ' AVENUE', ' AVE'),
-                    ' ROAD', ' RD'),
-                    ' DRIVE', ' DR'),
-                    ' STREET', ' ST'),
-                    ' HIGHWAY', ' HWY'),
-                    ' PARKWAY', ' PKWY')
-                    AS NORMALIZED_FACILITY
-        ) N
-        WHERE E.[year] = 2026
-          AND E.[month] BETWEEN 1 AND 3
-          AND E.division = 'DS C2 & Weapons Integration'
-    ) X
-      ON X.NORMALIZED_FACILITY = L.FACILITY
-),
-
-LegacySummary AS (
-    SELECT
-        L.GL,
-        SUM(L.COST) AS LEGACY_COST
-
-    FROM Legacy L
-
-    JOIN CandidateGL C
-      ON C.GL = L.GL
-
-    JOIN CommonFacilities F
-      ON F.FACILITY = L.FACILITY
-
-    GROUP BY L.GL
-),
-
-SAPSummary AS (
-    SELECT
-        S.GL,
-        MAX(S.SAP_DESCRIPTION) AS SAP_DESCRIPTION,
-        SUM(S.SAP_COST) AS SAP_COST
-
-    FROM SAP S
-
-    JOIN CommonFacilities F
-      ON F.FACILITY = S.FACILITY
-
-    GROUP BY S.GL
 )
 
 SELECT
     C.GL,
 
+    L.LEGACY_CATEGORY,
+
+    L.LEGACY_DESCRIPTION,
     S.SAP_DESCRIPTION,
+
+    COALESCE(L.LEGACY_FACILITY_COUNT, 0)
+        AS LEGACY_FACILITY_COUNT,
+
+    COALESCE(S.SAP_FACILITY_COUNT, 0)
+        AS SAP_FACILITY_COUNT,
 
     COALESCE(L.LEGACY_COST, 0)
         AS LEGACY_COST,
 
-    COALESCE(S.SAP_COST, 0)
+    COALESCE(S.RAW_SAP_COST, 0)
         AS RAW_SAP_COST,
 
-    COALESCE(S.SAP_COST, 0)
+    COALESCE(S.RAW_SAP_COST, 0)
       - COALESCE(L.LEGACY_COST, 0)
         AS DIFFERENCE
 
@@ -621,6 +299,6 @@ LEFT JOIN SAPSummary S
 
 ORDER BY
     ABS(
-        COALESCE(S.SAP_COST, 0)
+        COALESCE(S.RAW_SAP_COST, 0)
       - COALESCE(L.LEGACY_COST, 0)
     ) DESC;

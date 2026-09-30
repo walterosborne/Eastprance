@@ -5,7 +5,7 @@
 const METRIC_INFO = {
   controllableCosts: 'Legacy controllable costs with only rows having a populated numeric Cost Element; this removes Weapon Systems rows without Cost Elements for the interim comparison.',
   controllableCostsNew: [
-    'Working SAP facility-cost estimate for CWI and SDS; Weapon Systems excluded. It is not the final controllability metric.',
+    'Working SAP facility-cost estimate for CWI and SDS; Weapon Systems data is not present and will not be available until 2027. It is not the final controllability metric.',
     'Uses signed KSL from DTO_Business_Management.src.rb_CVG_Transaction_Details_03, matched by posting cost center RCNTR to the current organization hierarchy.',
     'Includes physical-facility cost centers from the live ecosystem_source.qmi.costcenterkey and the six central SDS support centers under Strategic Deterrent Facility/Operations.',
     'Uses selected facility G/L accounts for labor, rent, depreciation/LHI, taxes, insurance, maintenance, services and utilities. Other and review-only facility accounts are excluded; credits and reversals remain signed.',

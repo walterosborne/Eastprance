@@ -19,7 +19,7 @@ const METRIC_INFO = {
   nmfr: 'Tracks near miss frequency rate across periods.',
   otd: 'Compares committed units against actual delivered units.',
   labor: 'Shows direct labor hours as percent of total.',
-  laborNew: 'Shows direct labor hours as percent of direct plus indirect hours in the replacement dataset.',
+  laborNew: 'Shows direct labor hours as percent of direct plus indirect hours.',
   laborHana: 'Shows HANA direct labor hours as percent of total.'
 };
 

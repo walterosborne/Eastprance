@@ -434,6 +434,8 @@ const GLOBAL_FILTER_FIELD_MAP = {
 };
 
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
+const LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED = false;
+const LEGACY_LABOR_CARD_ENABLED = false;
 const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = false;
 const LABOR_HANA_CARD_ENABLED = false;
 
@@ -443,14 +445,14 @@ const CARD_CHIP_OPTIONS = [
     label: 'All',
     icon: faAsterisk,
     cardKeys: [
-      'controllableCosts',
+      ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
       'controllableCostsNew',
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
       'sif',
       'potentialSif',
       'nmfr',
       'otd',
-      'labor',
+      ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
@@ -460,10 +462,10 @@ const CARD_CHIP_OPTIONS = [
     label: 'Business Management',
     icon: faCalculator,
     cardKeys: [
-      'controllableCosts',
+      ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
       'controllableCostsNew',
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
-      'labor',
+      ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
@@ -4860,7 +4862,7 @@ export default function App() {
   });
   const [controllableCostsState, setControllableCostsState] = useState({
     rows: [],
-    loading: true,
+    loading: LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED,
     error: '',
     source: ''
   });
@@ -4902,7 +4904,7 @@ export default function App() {
   });
   const [laborState, setLaborState] = useState({
     rows: [],
-    loading: true,
+    loading: LEGACY_LABOR_CARD_ENABLED,
     error: '',
     source: ''
   });
@@ -5564,7 +5566,9 @@ export default function App() {
 
     logClientDebug('dashboard', 'Starting dashboard data load.');
 
-    loadControllableCostsData();
+    if (LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED) {
+      loadControllableCostsData();
+    }
     loadControllableCostsNewData();
     if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED) {
       loadControllableCostsHanaData();
@@ -5573,7 +5577,9 @@ export default function App() {
     loadPotentialSifData();
     loadNmfrData();
     loadOtdData();
-    loadLaborData();
+    if (LEGACY_LABOR_CARD_ENABLED) {
+      loadLaborData();
+    }
     loadLaborNewData();
     if (LABOR_HANA_CARD_ENABLED) {
       loadLaborHanaData();
@@ -5686,14 +5692,14 @@ export default function App() {
   }, [chartVariants, hasShownPaletteInfoToast]);
 
   const availableTimelineStamps = getAvailableTimelineStamps({
-    controllableCostsRows: controllableCostsState.rows,
+    controllableCostsRows: [],
     controllableCostsNewRows: controllableCostsNewState.rows,
     controllableCostsHanaRows: controllableCostsHanaState.rows,
     sifRows: sifState.rows,
     potentialSifRows: potentialSifState.rows,
     nmfrRows: nmfrState.rows,
     otdRows: otdState.rows,
-    laborRows: laborState.rows,
+    laborRows: [],
     laborNewRows: laborNewState.rows,
     laborHanaRows: laborHanaState.rows
   });
@@ -5798,14 +5804,12 @@ export default function App() {
       ? formatDateSliderValue(activeDateRangeIndices[1])
       : '';
   const dashboardRowsByMetric = {
-    controllableCosts: controllableCostsState.rows,
     controllableCostsNew: controllableCostsNewState.rows,
     controllableCostsHana: controllableCostsHanaState.rows,
     sif: sifState.rows,
     potentialSif: potentialSifState.rows,
     nmfr: nmfrState.rows,
     otd: otdState.rows,
-    labor: laborState.rows,
     laborNew: laborNewState.rows,
     laborHana: laborHanaState.rows
   };
@@ -7298,7 +7302,8 @@ export default function App() {
       .cardKeys
   );
   const visibleCards = {
-    controllableCosts: activeCardKeys.has('controllableCosts'),
+    controllableCosts:
+      LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED && activeCardKeys.has('controllableCosts'),
     controllableCostsNew: activeCardKeys.has('controllableCostsNew'),
     controllableCostsHana:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsHana'),
@@ -7306,7 +7311,7 @@ export default function App() {
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
     otd: activeCardKeys.has('otd'),
-    labor: activeCardKeys.has('labor'),
+    labor: LEGACY_LABOR_CARD_ENABLED && activeCardKeys.has('labor'),
     laborNew: activeCardKeys.has('laborNew'),
     laborHana: LABOR_HANA_CARD_ENABLED && activeCardKeys.has('laborHana')
   };

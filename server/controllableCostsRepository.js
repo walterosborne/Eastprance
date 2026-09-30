@@ -127,13 +127,12 @@ async function readFallbackControllableCostsData(reason) {
   const costRows = XLSX.utils.sheet_to_json(costsWorksheet, { defval: null, raw: true });
   const categoryKeyRows = XLSX.utils.sheet_to_json(categoryKeyWorksheet, { defval: null, raw: true });
   const elementKeyRows = XLSX.utils.sheet_to_json(elementKeyWorksheet, { defval: null, raw: true });
-  const rows = costRows
-    .filter((row) => normalizeNumber(row['Cost Element']) !== null)
-    .map((row) => normalizeControllableCostsRow({
-      ...row,
-      'Resolved Controllable': resolveControllableStatus(row, elementKeyRows, categoryKeyRows)
-    })
-  );
+  // Keep the full legacy facility-report population. Rows without a Cost Element
+  // are classified from the category key instead of being discarded.
+  const rows = costRows.map((row) => normalizeControllableCostsRow({
+    ...row,
+    'Resolved Controllable': resolveControllableStatus(row, elementKeyRows, categoryKeyRows)
+  }));
 
   const payload = {
     source: 'excel',
@@ -238,7 +237,8 @@ export async function readControllableCostsData() {
       ) AS elementMatch
       LEFT JOIN normalized_category_key AS categoryMatch
         ON categoryMatch.[Cost Category] = costs.[Cost Category]
-      WHERE TRY_CONVERT(DECIMAL(19,2), NULLIF(costs.[Cost Element], '')) IS NOT NULL
+      -- Keep the full legacy facility-report population. Missing Cost Element
+      -- values fall back to cost-category controllability via categoryMatch.
       ORDER BY
         costs.[Year] ASC,
         costs.[Quarter] ASC,

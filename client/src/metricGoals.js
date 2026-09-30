@@ -28,9 +28,9 @@ const METRIC_GOALS = {
     yearly: 4
   },
   nmfr: {
-    monthly: 4.5,
-    quarterly: 4.5,
-    yearly: 4.5
+    monthly: 5.3,
+    quarterly: 5.3,
+    yearly: 5.3
   },
   otd: {
     monthly: 0.95,
@@ -38,19 +38,19 @@ const METRIC_GOALS = {
     yearly: 0.95
   },
   labor: {
-    monthly: 0.65,
-    quarterly: 0.65,
-    yearly: 0.65
+    monthly: 0.85,
+    quarterly: 0.85,
+    yearly: 0.85
   },
   laborNew: {
-    monthly: 0.65,
-    quarterly: 0.65,
-    yearly: 0.65
+    monthly: 0.85,
+    quarterly: 0.85,
+    yearly: 0.85
   },
   laborHana: {
-    monthly: 0.65,
-    quarterly: 0.65,
-    yearly: 0.65
+    monthly: 0.85,
+    quarterly: 0.85,
+    yearly: 0.85
   }
 };
 

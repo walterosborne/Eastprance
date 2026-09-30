@@ -5772,8 +5772,6 @@ export default function App() {
       endStamp: lastCompletedPerformanceMonthStamp
     }
     : null;
-  const selectedRangeSublabel = formatMonthRangeLabel(selectedDateRange);
-  const completedSelectedRangeSublabel = formatMonthRangeLabel(historicalPerformanceDateRange);
   const dateSliderMarks =
     availableTimelineStamps.length > 1
       ? [
@@ -6227,7 +6225,7 @@ export default function App() {
   const isSifPareto = chartVariants.sif === 'pareto';
   const isSifPalette = chartVariants.sif === 'palette';
   const sifSummaryRows = (isSifPareto || isSifPalette ? baseFilteredSifRows : filteredSifRows).filter(
-    (row) => isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+    (row) => isStampWithinDateRange(getIncidentRowStamp(row), ytdSummaryDateRange)
   );
   const sifSummaryValue = formatIncidentCount(sumActualValues(sifSummaryRows));
 
@@ -6315,7 +6313,7 @@ export default function App() {
   const isPotentialSifPalette = chartVariants.potentialSif === 'palette';
   const potentialSifSummaryRows = (
     isPotentialSifPareto || isPotentialSifPalette ? baseFilteredPotentialSifRows : filteredPotentialSifRows
-  ).filter((row) => isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange));
+  ).filter((row) => isStampWithinDateRange(getIncidentRowStamp(row), ytdSummaryDateRange));
   const potentialSifSummaryValue = formatIncidentCount(
     sumActualValues(potentialSifSummaryRows)
   );
@@ -6405,7 +6403,7 @@ export default function App() {
   const isNmfrPareto = chartVariants.nmfr === 'pareto';
   const isNmfrPalette = chartVariants.nmfr === 'palette';
   const nmfrSummaryRows = (isNmfrPareto || isNmfrPalette ? baseFilteredNmfrRows : filteredNmfrRows).filter(
-    (row) => isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+    (row) => isStampWithinDateRange(getIncidentRowStamp(row), ytdSummaryDateRange)
   );
   const nmfrOverallValue = calculateNmfrValueFromRows(nmfrSummaryRows);
   const nmfrSummaryValue = nmfrOverallValue == null ? '--' : formatNumber(nmfrOverallValue);
@@ -6454,7 +6452,7 @@ export default function App() {
   const otdMonthlySummaryData = buildOtdChartData(
     filteredOtdRows,
     'monthly',
-    selectedDateRange
+    ytdSummaryDateRange
   );
   const otdMonthlyPerformanceData = buildOtdChartData(
     filteredOtdRows,
@@ -8935,7 +8933,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
                       label="SIF Incidents"
-                      sublabel={selectedRangeSublabel}
+                      sublabel="YTD"
                       performanceStatus={sifPerformanceStatus}
                       ariaLabel="SIF incidents overview"
                     />
@@ -9129,7 +9127,7 @@ export default function App() {
                           : potentialSifSummaryValue
                       }
                       label="Potential SIFs"
-                      sublabel={selectedRangeSublabel}
+                      sublabel="YTD"
                       performanceStatus={potentialSifPerformanceStatus}
                       ariaLabel="Potential SIF incidents overview"
                     />
@@ -9323,7 +9321,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
                       label="NMFR"
-                      sublabel={selectedRangeSublabel}
+                      sublabel="YTD"
                       performanceStatus={nmfrPerformanceStatus}
                       ariaLabel="Near miss frequency rate overview"
                     />
@@ -9513,7 +9511,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={otdState.loading || otdState.error ? '--' : otdSummaryValue}
                       label="Percent Delivered"
-                      sublabel={completedSelectedRangeSublabel}
+                      sublabel="YTD"
                       performanceStatus={otdPerformanceStatus}
                       ariaLabel="On time delivery overview"
                     />

@@ -1,659 +1,82 @@
 SET NOCOUNT ON;
 
-/*
-FAST CWI Q1 2026 DIFFERENCE REPORT — FIXED
-
-Uses the 14 confirmed facility mappings explicitly.
-
-Revised CWI logic:
-CURRENT EXTRACT
-MINUS:
-    4300625 VarRent CAM
-    4301049 Dep Mach & Equip
-    8320479 P&C Property
-    4300805 General Services Ex
-
-PLUS RAW SAP:
-    4300652 Physical Security       -> 7 Services
-    4300395 Plant Rearrangement     -> 6 Maintenance & Repairs
-    4301101 Light/Power/Water/Heat  -> 8 Utilities
-    4301103 Purchased Gas           -> 8 Utilities
-
-NO TEMP TABLES.
-*/
-
-
-;WITH FacilityMap AS (
-    SELECT *
-    FROM (VALUES
-
-        /* canonical, legacy address, new address */
-
-        (
-            '25167 ONE AVIATION WAY',
-            'ONE AVIATION WAY',
-            '25167 ONE AVIATION WAY'
-        ),
-
-        (
-            '301 VOYAGER WAY NORTH WEST',
-            '301 VOYAGER WAY NW',
-            '301 VOYAGER WAY NORTH WEST'
-        ),
-
-        (
-            '355 QUALITY CIRCLE',
-            '355 QUALITY CIRCLE',
-            '355 QUALITY CIRCLE'
-        ),
-
-        (
-            '5000 BRADFORD DR',
-            '5000 BRADFORD DR',
-            '5000 BRADFORD DR'
-        ),
-
-        (
-            '2828 STRAWBERRY POINT RD',
-            'STRAWBERRY POINT',
-            '2828 STRAWBERRY POINT RD'
-        ),
-
-        (
-            '200 PARK PLACE DR',
-            'FAC WR PARK PLC',
-            '200 PARK PLACE DRIVE'
-        ),
-
-        (
-            '98 IGNICO DR',
-            'FACILITY - WR IGNICO',
-            '98 IGNICO DR.'
-        ),
-
-        (
-            '75 WEST ST',
-            '75 WEST ST WALPOLE',
-            '75 WEST STREET'
-        ),
-
-        (
-            '12350 JEFFERSON AVE',
-            '12350 JEFFERSON AVE',
-            '12350 JEFFERSON AVE'
-        ),
-
-        (
-            '2300 DISCOVERY DR',
-            '2300 DISCOVERY DR FL',
-            '2300 DISCOVERY DRIVE'
-        ),
-
-        (
-            '500 AVERY LANE',
-            '500 AVERY LANE',
-            '500 AVERY LANE'
-        ),
-
-        (
-            '8220 SAN PEDRO SUITE 300',
-            '8220 SAN PEDRO DRIVE',
-            '8220 SAN PEDRO, SUITE 300'
-        ),
-
-        (
-            '4065 COLONEL GLENN HWY',
-            '4065 COLONEL GLENN',
-            '4065 COLONEL GLENN HIGHWAY'
-        ),
-
-        (
-            '3200 SAMSON WAY',
-            '3200 SAMSON WAY',
-            '3200 SAMSON WAY'
-        )
-
-    ) F (
-        FACILITY,
-        LEGACY_ADDRESS,
-        NEW_ADDRESS
-    )
-),
-
 
 /* ============================================================
-   LEGACY Q1
-   ============================================================ */
+   RESULT 1 — OLD DASHBOARD Q1 TOTAL
 
-LegacyRows AS (
-    SELECT
-        F.FACILITY,
-
-        TRY_CONVERT(
-            bigint,
-            TRY_CONVERT(
-                decimal(38,6),
-                NULLIF(
-                    REPLACE(
-                        LTRIM(RTRIM(CONVERT(varchar(100), L.[Cost Element]))),
-                        ',',
-                        ''
-                    ),
-                    ''
-                )
-            )
-        ) AS GL,
-
-        LTRIM(RTRIM(CONVERT(nvarchar(255), L.[Cost Category])))
-            AS COST_CATEGORY,
-
-        NULLIF(
-            LTRIM(RTRIM(
-                CONVERT(nvarchar(500), L.[Cost Element Description])
-            )),
-            ''
-        ) AS GL_DESCRIPTION,
-
-        TRY_CONVERT(decimal(38,2), L.[Cost])
-            AS COST
-
-    FROM ecosystem_source.qmi.controllable_costs L
-
-    JOIN FacilityMap F
-      ON UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), L.[Address]))))
-         = F.LEGACY_ADDRESS
-
-    WHERE TRY_CONVERT(int, L.[Year]) = 2026
-
-      AND UPPER(
-            LTRIM(RTRIM(CONVERT(nvarchar(100), L.[Quarter])))
-          ) = 'Q1'
-
-      AND LTRIM(RTRIM(
-            CONVERT(nvarchar(255), L.[Cost Category])
-          )) IN (
-            '1 Labor',
-            '2 Rent - Land & Building',
-            '3 Depreciation & LHI',
-            '4 Property Taxes',
-            '5 Insurance',
-            '6 Maintenance & Repairs',
-            '7 Services',
-            '8 Utilities'
-      )
-),
-
-LegacyGL AS (
-    SELECT
-        FACILITY,
-        GL,
-
-        MAX(COST_CATEGORY)
-            AS LEGACY_CATEGORY,
-
-        MAX(GL_DESCRIPTION)
-            AS LEGACY_DESCRIPTION,
-
-        SUM(COST)
-            AS LEGACY_COST
-
-    FROM LegacyRows
-
-    WHERE GL IS NOT NULL
-
-    GROUP BY
-        FACILITY,
-        GL
-),
-
-LegacyNoGL AS (
-    SELECT
-        FACILITY,
-
-        COST_CATEGORY
-            AS LEGACY_CATEGORY,
-
-        SUM(COST)
-            AS LEGACY_COST
-
-    FROM LegacyRows
-
-    WHERE GL IS NULL
-
-    GROUP BY
-        FACILITY,
-        COST_CATEGORY
-),
-
-
-/* ============================================================
-   CURRENT NEW EXTRACT
-
-   Remove the four accounts we determined are new-only.
-   ============================================================ */
-
-ExistingNew AS (
-    SELECT
-        F.FACILITY,
-
-        TRY_CONVERT(bigint, E.gl_account_cost_element)
-            AS GL,
-
-        MAX(E.cost_category)
-            AS COST_CATEGORY,
-
-        MAX(E.cost_element_description)
-            AS GL_DESCRIPTION,
-
-        SUM(TRY_CONVERT(decimal(38,2), E.cost))
-            AS COST
-
-    FROM ecosystem_source.qmi.controllable_costs_new_extract E
-
-    JOIN FacilityMap F
-      ON UPPER(LTRIM(RTRIM(CONVERT(nvarchar(1000), E.facility))))
-         = F.NEW_ADDRESS
-
-    WHERE E.[year] = 2026
-      AND E.[month] BETWEEN 1 AND 3
-
-      AND E.division
-          = 'DS C2 & Weapons Integration'
-
-      AND TRY_CONVERT(bigint, E.gl_account_cost_element)
-          NOT IN (
-              4300625,
-              4301049,
-              8320479,
-              4300805
-          )
-
-    GROUP BY
-        F.FACILITY,
-        TRY_CONVERT(bigint, E.gl_account_cost_element)
-),
-
-
-/* ============================================================
-   CURRENT CWI HIERARCHY
-   ============================================================ */
-
-Hierarchy AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER)))
-            AS COST_CENTER,
-
-        ROW_NUMBER() OVER (
-            PARTITION BY
-                UPPER(LTRIM(RTRIM(COST_CENTER)))
-
-            ORDER BY
-                last_modified_date DESC,
-                created_date DESC,
-                id DESC
-        ) AS RN
-
-    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
-
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-
-      AND LTRIM(RTRIM(LEV03_DESC))
-          = 'DS C2 & Weapons Integration'
-),
-
-FacilityKey AS (
-    SELECT
-        UPPER(LTRIM(RTRIM([Cost Center])))
-            AS COST_CENTER,
-
-        MAX(
-            UPPER(LTRIM(RTRIM([Address])))
-        ) AS ADDRESS
-
-    FROM ecosystem_source.qmi.costcenterkey
-
-    WHERE NULLIF(
-        LTRIM(RTRIM([Cost Center])),
-        ''
-    ) IS NOT NULL
-
-    GROUP BY
-        UPPER(LTRIM(RTRIM([Cost Center])))
-),
-
-
-/* ============================================================
-   FOUR GLS WE ARE ADDING
-
-   Raw SAP only needs to be touched for these four accounts.
-   ============================================================ */
-
-AddedGLs AS (
-    SELECT
-        F.FACILITY,
-
-        TRY_CONVERT(bigint, T.RACCT)
-            AS GL,
-
-        CASE TRY_CONVERT(bigint, T.RACCT)
-
-            WHEN 4300395
-                THEN '6 Maintenance & Repairs'
-
-            WHEN 4300652
-                THEN '7 Services'
-
-            WHEN 4301101
-                THEN '8 Utilities'
-
-            WHEN 4301103
-                THEN '8 Utilities'
-
-        END AS COST_CATEGORY,
-
-        MAX(
-            NULLIF(
-                LTRIM(RTRIM(T.GL_TXT20)),
-                ''
-            )
-        ) AS GL_DESCRIPTION,
-
-        SUM(
-            TRY_CONVERT(decimal(38,2), T.KSL)
-        ) AS COST
-
-    FROM DTO_Business_Management.src.rb_CVG_Transaction_Details_03 T
-
-    JOIN Hierarchy H
-      ON H.COST_CENTER =
-         UPPER(LTRIM(RTRIM(T.RCNTR)))
-
-     AND H.RN = 1
-
-    JOIN FacilityKey K
-      ON K.COST_CENTER =
-         UPPER(LTRIM(RTRIM(T.RCNTR)))
-
-    JOIN FacilityMap F
-      ON K.ADDRESS = F.NEW_ADDRESS
-
-    WHERE TRY_CONVERT(int, T.GJAHR) = 2026
-
-      AND TRY_CONVERT(int, T.POPER)
-          BETWEEN 1 AND 3
-
-      AND TRY_CONVERT(bigint, T.RACCT) IN (
-          4300652,
-          4300395,
-          4301101,
-          4301103
-      )
-
-      AND TRY_CONVERT(decimal(38,2), T.KSL)
-          IS NOT NULL
-
-    GROUP BY
-        F.FACILITY,
-        TRY_CONVERT(bigint, T.RACCT)
-),
-
-
-/* ============================================================
-   REVISED NEW =
-   EXISTING EXTRACT + FOUR ADDED GLS
-   ============================================================ */
-
-RevisedNewRaw AS (
-    SELECT
-        FACILITY,
-        GL,
-        COST_CATEGORY,
-        GL_DESCRIPTION,
-        COST
-    FROM ExistingNew
-
-    UNION ALL
-
-    SELECT
-        FACILITY,
-        GL,
-        COST_CATEGORY,
-        GL_DESCRIPTION,
-        COST
-    FROM AddedGLs
-),
-
-RevisedNew AS (
-    SELECT
-        FACILITY,
-        GL,
-
-        MAX(COST_CATEGORY)
-            AS NEW_CATEGORY,
-
-        MAX(GL_DESCRIPTION)
-            AS NEW_DESCRIPTION,
-
-        SUM(COST)
-            AS NEW_COST
-
-    FROM RevisedNewRaw
-
-    GROUP BY
-        FACILITY,
-        GL
-),
-
-
-/* ============================================================
-   FACILITY + GL COMPARISON
-   ============================================================ */
-
-Comparison AS (
-    SELECT
-        COALESCE(L.FACILITY, N.FACILITY)
-            AS FACILITY,
-
-        COALESCE(L.GL, N.GL)
-            AS GL,
-
-        CASE
-            WHEN L.GL IS NOT NULL
-             AND N.GL IS NOT NULL
-                THEN 'BOTH'
-
-            WHEN L.GL IS NOT NULL
-                THEN 'LEGACY_ONLY_GL'
-
-            ELSE 'NEW_ONLY_GL'
-        END AS MATCH_STATUS,
-
-        L.LEGACY_CATEGORY,
-        N.NEW_CATEGORY,
-
-        L.LEGACY_DESCRIPTION,
-        N.NEW_DESCRIPTION,
-
-        COALESCE(L.LEGACY_COST, 0)
-            AS LEGACY_COST,
-
-        COALESCE(N.NEW_COST, 0)
-            AS NEW_COST,
-
-        COALESCE(N.NEW_COST, 0)
-          - COALESCE(L.LEGACY_COST, 0)
-            AS DIFFERENCE
-
-    FROM LegacyGL L
-
-    FULL OUTER JOIN RevisedNew N
-      ON N.FACILITY = L.FACILITY
-     AND N.GL = L.GL
-),
-
-ReportRows AS (
-    SELECT
-        FACILITY,
-        MATCH_STATUS,
-        GL,
-
-        LEGACY_CATEGORY,
-        NEW_CATEGORY,
-
-        LEGACY_DESCRIPTION,
-        NEW_DESCRIPTION,
-
-        LEGACY_COST,
-        NEW_COST,
-        DIFFERENCE
-
-    FROM Comparison
-
-    UNION ALL
-
-    SELECT
-        FACILITY,
-        'LEGACY_NO_GL',
-        NULL,
-
-        LEGACY_CATEGORY,
-        NULL,
-
-        NULL,
-        NULL,
-
-        LEGACY_COST,
-        0,
-
-        -LEGACY_COST
-
-    FROM LegacyNoGL
-),
-
-FacilityTotals AS (
-    SELECT
-        FACILITY,
-
-        SUM(LEGACY_COST)
-            AS FACILITY_LEGACY_COST,
-
-        SUM(NEW_COST)
-            AS FACILITY_NEW_COST,
-
-        SUM(DIFFERENCE)
-            AS FACILITY_DIFFERENCE
-
-    FROM ReportRows
-
-    GROUP BY FACILITY
-),
-
-GrandTotal AS (
-    SELECT
-        SUM(FACILITY_LEGACY_COST)
-            AS TOTAL_LEGACY_COST,
-
-        SUM(FACILITY_NEW_COST)
-            AS TOTAL_NEW_COST,
-
-        SUM(FACILITY_DIFFERENCE)
-            AS TOTAL_DIFFERENCE
-
-    FROM FacilityTotals
-)
-
-
-/* ============================================================
-   FINAL EXCEPTION REPORT
+   Reproduces the exact Cost Element filter currently used
+   by server/controllableCostsRepository.js.
    ============================================================ */
 
 SELECT
-    R.FACILITY,
+    SUM(TRY_CONVERT(decimal(38,2), [Cost]))
+        AS OLD_DASHBOARD_Q1_COST
 
-    R.MATCH_STATUS,
-    R.GL,
+FROM ecosystem_source.qmi.controllable_costs
 
-    R.LEGACY_CATEGORY,
-    R.NEW_CATEGORY,
+WHERE TRY_CONVERT(int, [Year]) = 2026
 
-    R.LEGACY_DESCRIPTION,
-    R.NEW_DESCRIPTION,
+  AND UPPER(
+        LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))
+      ) = 'Q1'
 
-    R.LEGACY_COST,
-    R.NEW_COST,
-
-    R.DIFFERENCE,
-
-    CAST(
-        CASE
-            WHEN R.LEGACY_COST = 0
-                THEN NULL
-
-            ELSE
-                100.0 * R.DIFFERENCE
-                / ABS(R.LEGACY_COST)
-        END
-        AS decimal(12,2)
-    ) AS DIFFERENCE_PCT,
-
-    F.FACILITY_LEGACY_COST,
-    F.FACILITY_NEW_COST,
-    F.FACILITY_DIFFERENCE,
-
-    G.TOTAL_LEGACY_COST,
-    G.TOTAL_NEW_COST,
-    G.TOTAL_DIFFERENCE,
-
-    CAST(
-        100.0 * G.TOTAL_DIFFERENCE
-        / NULLIF(ABS(G.TOTAL_LEGACY_COST), 0)
-        AS decimal(12,2)
-    ) AS TOTAL_DIFFERENCE_PCT,
-
-    CASE
-        WHEN R.MATCH_STATUS = 'LEGACY_NO_GL'
-            THEN 'LEGACY HAS NO GL'
-
-        WHEN R.MATCH_STATUS = 'LEGACY_ONLY_GL'
-            THEN 'LEGACY ONLY'
-
-        WHEN R.MATCH_STATUS = 'NEW_ONLY_GL'
-            THEN 'NEW ONLY'
-
-        WHEN ISNULL(R.LEGACY_CATEGORY, '')
-           <> ISNULL(R.NEW_CATEGORY, '')
-            AND ABS(R.DIFFERENCE) <= 0.01
-            THEN 'CATEGORY MISMATCH'
-
-        ELSE 'AMOUNT MISMATCH'
-    END AS MISMATCH_REASON
-
-FROM ReportRows R
-
-JOIN FacilityTotals F
-  ON F.FACILITY = R.FACILITY
-
-CROSS JOIN GrandTotal G
-
-WHERE
-
-    /* Actual dollar mismatch */
-    ABS(R.DIFFERENCE) > 0.01
-
-    OR
-
-    /* Same dollars but assigned to different categories */
-    (
-        (
-            ABS(R.LEGACY_COST) > 0.01
-            OR ABS(R.NEW_COST) > 0.01
+  AND TRY_CONVERT(
+        decimal(19,2),
+        NULLIF(
+            LTRIM(RTRIM(CONVERT(varchar(100), [Cost Element]))),
+            ''
         )
+      ) IS NOT NULL;
 
-        AND ISNULL(R.LEGACY_CATEGORY, '')
-            <> ISNULL(R.NEW_CATEGORY, '')
-    )
 
-ORDER BY
-    ABS(F.FACILITY_DIFFERENCE) DESC,
-    R.FACILITY,
-    ABS(R.DIFFERENCE) DESC;
+/* ============================================================
+   RESULT 2 — FULL LEGACY Q1 TOTAL
+
+   Shows how much the old dashboard filter is discarding.
+   ============================================================ */
+
+SELECT
+    SUM(TRY_CONVERT(decimal(38,2), [Cost]))
+        AS FULL_LEGACY_Q1_COST
+
+FROM ecosystem_source.qmi.controllable_costs
+
+WHERE TRY_CONVERT(int, [Year]) = 2026
+
+  AND UPPER(
+        LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))
+      ) = 'Q1';
+
+
+/* ============================================================
+   RESULT 3 — NEW DASHBOARD Q1 TOTAL
+
+   This is what the right card is essentially summing.
+   ============================================================ */
+
+SELECT
+    SUM(cost)
+        AS NEW_DASHBOARD_Q1_COST
+
+FROM ecosystem_source.qmi.controllable_costs_new_extract
+
+WHERE [year] = 2026
+  AND [month] BETWEEN 1 AND 3;
+
+
+/* ============================================================
+   RESULT 4 — BREAK NEW TOTAL DOWN BY DIVISION
+   ============================================================ */
+
+SELECT
+    division,
+    SUM(cost) AS Q1_COST
+
+FROM ecosystem_source.qmi.controllable_costs_new_extract
+
+WHERE [year] = 2026
+  AND [month] BETWEEN 1 AND 3
+
+GROUP BY division
+
+ORDER BY SUM(cost) DESC;

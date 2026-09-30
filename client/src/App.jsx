@@ -1065,6 +1065,22 @@ function sumNumericValues(values) {
   }, 0);
 }
 
+function getFivePercentReductionFromAverageGoalLine(values) {
+  const numericValues = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+
+  if (numericValues.length === 0) {
+    return null;
+  }
+
+  const average = sumNumericValues(numericValues) / numericValues.length;
+
+  return {
+    value: average * 0.95
+  };
+}
+
 function formatIncidentCount(value) {
   const numericValue = Number(value ?? 0);
 
@@ -7032,7 +7048,7 @@ export default function App() {
   const controllableCostsGoalLine = labelGoalLineValue(
     isControllableCostsPareto || isControllableCostsPalette
       ? null
-      : getMetricGoalLine('controllableCosts', controllableCostsViewMode),
+      : getFivePercentReductionFromAverageGoalLine(controllableCostsChartData.total),
     formatMillionsCurrencyAxis
   );
   const controllableCostsMetricInfo = buildControllableCostsMetricInfo(
@@ -7061,7 +7077,7 @@ export default function App() {
   const controllableCostsNewGoalLine = labelGoalLineValue(
     isControllableCostsNewPareto || isControllableCostsNewPalette
       ? null
-      : getMetricGoalLine('controllableCostsNew', controllableCostsNewViewMode),
+      : getFivePercentReductionFromAverageGoalLine(controllableCostsNewChartData.total),
     formatMillionsCurrencyAxis
   );
   const controllableCostsNewMetricInfo = buildControllableCostsMetricInfo(

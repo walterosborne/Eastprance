@@ -1406,7 +1406,8 @@ h1 {
 }
 
 .metric-overview-value,
-.metric-overview-label {
+.metric-overview-label,
+.metric-overview-sublabel {
   margin: 0;
 }
 
@@ -1430,6 +1431,18 @@ h1 {
   line-height: 1.1;
   text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.metric-overview-sublabel {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.52rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  line-height: 1.05;
+  opacity: 0.82;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

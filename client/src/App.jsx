@@ -1461,7 +1461,7 @@ function getQuarterLabelForStamp(stamp) {
 // Count inclusive calendar months, even when a selected range crosses New Year.
 function useShortMonthlyAxisLabels(range) {
   if (!Number.isFinite(range?.startStamp) || !Number.isFinite(range?.endStamp)
-      || range.endStamp < range.startStamp) return false;
+    || range.endStamp < range.startStamp) return false;
   const start = new Date(range.startStamp);
   const end = new Date(range.endStamp);
   const monthCount = (end.getUTCFullYear() - start.getUTCFullYear()) * 12
@@ -3113,32 +3113,32 @@ function renderTooltipTable({
       </caption>
       <tbody>
         {visibleSeriesItems.map((seriesItem) => (
-            <tr key={seriesItem.seriesId}>
-              <th
-                style={{
-                  padding: '8px 12px',
-                  textAlign: 'left',
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                <TooltipMark color={seriesItem.color} />
-                <span title={seriesItem.formattedLabel || ''}>
-                  {truncateTooltipLabel(seriesItem.formattedLabel || '')}
-                </span>
-              </th>
-              <td
-                style={{
-                  padding: '8px 12px',
-                  textAlign: 'right',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                {seriesItem.formattedValue}
-              </td>
-            </tr>
-          ))}
+          <tr key={seriesItem.seriesId}>
+            <th
+              style={{
+                padding: '8px 12px',
+                textAlign: 'left',
+                fontWeight: 500,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <TooltipMark color={seriesItem.color} />
+              <span title={seriesItem.formattedLabel || ''}>
+                {truncateTooltipLabel(seriesItem.formattedLabel || '')}
+              </span>
+            </th>
+            <td
+              style={{
+                padding: '8px 12px',
+                textAlign: 'right',
+                fontWeight: 600,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {seriesItem.formattedValue}
+            </td>
+          </tr>
+        ))}
         {extraRows.map((row) => (
           <tr key={row.label}>
             <th
@@ -3148,12 +3148,12 @@ function renderTooltipTable({
                 fontWeight: 500,
                 whiteSpace: 'nowrap'
               }}
-              >
-                <TooltipMark color={row.color} />
-                <span title={row.label}>
-                  {truncateTooltipLabel(row.label)}
-                </span>
-              </th>
+            >
+              <TooltipMark color={row.color} />
+              <span title={row.label}>
+                {truncateTooltipLabel(row.label)}
+              </span>
+            </th>
             <td
               style={{
                 padding: '8px 12px',
@@ -4125,9 +4125,8 @@ function MetricOverviewBand({
             <div
               key={key}
               className="metric-overview-status"
-              aria-label={`${indicatorLabel}: ${status?.toneLabel ?? 'Unavailable'}; ${
-                status?.detail ?? '--'
-              }`}
+              aria-label={`${indicatorLabel}: ${status?.toneLabel ?? 'Unavailable'}; ${status?.detail ?? '--'
+                }`}
               title={`${status?.toneLabel ?? 'Unavailable'}: ${status?.detail ?? '--'}`}
             >
               <span
@@ -6489,8 +6488,8 @@ export default function App() {
   const otdLastDeliveredIndex = otdGoalForecastData.delivered.reduce(
     (lastIndex, deliveredValue, index) =>
       otdGoalForecastData.bucketEndStamps[index] < currentOtdMonthStamp &&
-      deliveredValue > 0 &&
-      otdGoalForecastData.contract[index] > 0
+        deliveredValue > 0 &&
+        otdGoalForecastData.contract[index] > 0
         ? index
         : lastIndex,
     -1
@@ -8060,50 +8059,50 @@ export default function App() {
                     aria-label="Display controls"
                   >
                     <div className="chart-mode-controls" aria-label="Chart type">
-                    <button
-                      type="button"
-                      className={`chart-mode-button${allChartsLine ? ' chart-mode-button-active' : ''}`}
-                      aria-label="Show all line charts"
-                      aria-pressed={allChartsLine}
-                      onClick={() => {
-                        setAllChartVariants('line');
-                      }}
-                    >
-                      <FontAwesomeIcon icon={faChartLine} className="chart-mode-icon" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`chart-mode-button${allChartsBar ? ' chart-mode-button-active' : ''}`}
-                      aria-label="Show all bar charts"
-                      aria-pressed={allChartsBar}
-                      onClick={() => {
-                        setAllChartVariants('bar');
-                      }}
-                    >
-                      <FontAwesomeIcon icon={faChartColumn} className="chart-mode-icon" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`chart-mode-button${allChartsPalette ? ' chart-mode-button-active' : ''}`}
-                      aria-label="Show all stacked bar charts"
-                      aria-pressed={allChartsPalette}
-                      onClick={() => {
-                        setAllChartVariants('palette');
-                      }}
-                    >
-                      <PaletteChartToggleIcon />
-                    </button>
-                    <button
-                      type="button"
-                      className={`chart-mode-button${allChartsPareto ? ' chart-mode-button-active' : ''}`}
-                      aria-label="Show all pareto charts"
-                      aria-pressed={allChartsPareto}
-                      onClick={() => {
-                        setAllChartVariants('pareto');
-                      }}
-                    >
-                      <ParetoChartToggleIcon />
-                    </button>
+                      <button
+                        type="button"
+                        className={`chart-mode-button${allChartsLine ? ' chart-mode-button-active' : ''}`}
+                        aria-label="Show all line charts"
+                        aria-pressed={allChartsLine}
+                        onClick={() => {
+                          setAllChartVariants('line');
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faChartLine} className="chart-mode-icon" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`chart-mode-button${allChartsBar ? ' chart-mode-button-active' : ''}`}
+                        aria-label="Show all bar charts"
+                        aria-pressed={allChartsBar}
+                        onClick={() => {
+                          setAllChartVariants('bar');
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faChartColumn} className="chart-mode-icon" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`chart-mode-button${allChartsPalette ? ' chart-mode-button-active' : ''}`}
+                        aria-label="Show all stacked bar charts"
+                        aria-pressed={allChartsPalette}
+                        onClick={() => {
+                          setAllChartVariants('palette');
+                        }}
+                      >
+                        <PaletteChartToggleIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className={`chart-mode-button${allChartsPareto ? ' chart-mode-button-active' : ''}`}
+                        aria-label="Show all pareto charts"
+                        aria-pressed={allChartsPareto}
+                        onClick={() => {
+                          setAllChartVariants('pareto');
+                        }}
+                      >
+                        <ParetoChartToggleIcon />
+                      </button>
                     </div>
 
                     <button
@@ -8539,7 +8538,7 @@ export default function App() {
                             {controllableCostsNewState.rows.length === 0
                               ? 'No SAP transactions matched the selected cost centers and date range.'
                               : filteredControllableCostsNewRows.length === 0
-                                  && controllableNewFilterApplies
+                                && controllableNewFilterApplies
                                 ? 'No controllable cost rows match the selected filters.'
                                 : 'No controllable cost rows fall within the selected date range.'}
                           </p>
@@ -8764,7 +8763,7 @@ export default function App() {
                             {controllableCostsHanaState.rows.length === 0
                               ? 'No HANA cost rows are available for charting.'
                               : filteredControllableCostsHanaRows.length === 0
-                                  && controllableHanaFilterApplies
+                                && controllableHanaFilterApplies
                                 ? 'No HANA cost rows match the selected filters.'
                                 : 'No HANA cost rows fall within the selected date range.'}
                           </p>
@@ -9727,7 +9726,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={laborState.loading || laborState.error ? '--' : laborSummaryValue}
                       label="Direct Labor"
-                      sublabel="YTD Avg"
+                      sublabel="YTD"
                       performanceStatus={laborPerformanceStatus}
                       ariaLabel="Direct labor utilization overview"
                     />
@@ -9796,23 +9795,23 @@ export default function App() {
                           ) : (
                             <MetricTrendChart
                               selectedDateRange={selectedDateRange}
-                                variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
-                                width={laborChartWidth}
-                                height={CHART_HEIGHT}
-                                margin={LABOR_CHART_MARGIN}
-                                labels={laborChartData.labels}
-                                yAxis={LABOR_Y_AXIS}
-                                series={laborChartSeries}
-                                sx={sharedChartSx}
-                                tooltipComponent={
-                                  isLaborBarChart ? LaborBarChartTooltip : LaborChartTooltip
-                                }
-                                tooltipTrigger={isLaborBarChart ? 'item' : 'axis'}
-                                tooltipProps={{
-                                  chartData: laborChartData
-                                }}
-                                goalLine={laborGoalLine}
-                              />
+                              variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
+                              width={laborChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              labels={laborChartData.labels}
+                              yAxis={LABOR_Y_AXIS}
+                              series={laborChartSeries}
+                              sx={sharedChartSx}
+                              tooltipComponent={
+                                isLaborBarChart ? LaborBarChartTooltip : LaborChartTooltip
+                              }
+                              tooltipTrigger={isLaborBarChart ? 'item' : 'axis'}
+                              tooltipProps={{
+                                chartData: laborChartData
+                              }}
+                              goalLine={laborGoalLine}
+                            />
                           )
                         )}
                     </div>
@@ -9924,7 +9923,7 @@ export default function App() {
                           : laborNewSummaryValue
                       }
                       label="Direct Labor"
-                      sublabel="YTD Avg"
+                      sublabel="YTD"
                       performanceStatus={laborNewPerformanceStatus}
                       ariaLabel="Labor utilization overview"
                     />
@@ -9947,7 +9946,7 @@ export default function App() {
                             : isLaborNewPalette
                               ? laborNewPaletteChartData.labels.length === 0
                               : filteredLaborNewRows.length === 0
-                                || laborNewChartData.labels.length === 0)) && (
+                              || laborNewChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {laborNewState.rows.length === 0
                               ? 'No labor utilization rows are available for charting.'
@@ -10130,7 +10129,7 @@ export default function App() {
                           : laborHanaSummaryValue
                       }
                       label="Direct Labor"
-                      sublabel="YTD Avg"
+                      sublabel="YTD"
                       performanceStatus={laborHanaPerformanceStatus}
                       ariaLabel="HANA direct labor utilization overview"
                     />
@@ -10156,7 +10155,7 @@ export default function App() {
                             : isLaborHanaPalette
                               ? laborHanaPaletteChartData.labels.length === 0
                               : filteredLaborHanaRows.length === 0
-                                || laborHanaChartData.labels.length === 0)) && (
+                              || laborHanaChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {laborHanaState.rows.length === 0
                               ? 'No HANA labor rows are available for charting.'
@@ -10205,23 +10204,23 @@ export default function App() {
                           ) : (
                             <MetricTrendChart
                               selectedDateRange={selectedDateRange}
-                                variant={chartVariants.laborHana === 'bar' ? 'bar' : 'line'}
-                                width={laborHanaChartWidth}
-                                height={CHART_HEIGHT}
-                                margin={LABOR_CHART_MARGIN}
-                                labels={laborHanaChartData.labels}
-                                yAxis={LABOR_Y_AXIS}
-                                series={laborHanaChartSeries}
-                                sx={sharedChartSx}
-                                tooltipComponent={
-                                  isLaborHanaBarChart ? LaborBarChartTooltip : LaborChartTooltip
-                                }
-                                tooltipTrigger={isLaborHanaBarChart ? 'item' : 'axis'}
-                                tooltipProps={{
-                                  chartData: laborHanaChartData
-                                }}
-                                goalLine={laborHanaGoalLine}
-                              />
+                              variant={chartVariants.laborHana === 'bar' ? 'bar' : 'line'}
+                              width={laborHanaChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={LABOR_CHART_MARGIN}
+                              labels={laborHanaChartData.labels}
+                              yAxis={LABOR_Y_AXIS}
+                              series={laborHanaChartSeries}
+                              sx={sharedChartSx}
+                              tooltipComponent={
+                                isLaborHanaBarChart ? LaborBarChartTooltip : LaborChartTooltip
+                              }
+                              tooltipTrigger={isLaborHanaBarChart ? 'item' : 'axis'}
+                              tooltipProps={{
+                                chartData: laborHanaChartData
+                              }}
+                              goalLine={laborHanaGoalLine}
+                            />
                           )
                         )}
                     </div>

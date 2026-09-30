@@ -5175,7 +5175,7 @@ export default function App() {
         setControllableCostsNewState({
           rows: [],
           loading: false,
-          error: error.message || 'Unable to load the new controllable costs dataset.',
+          error: error.message || 'Unable to load controllable costs data.',
           source: ''
         });
 
@@ -5506,7 +5506,7 @@ export default function App() {
         setLaborNewState({
           rows: [],
           loading: false,
-          error: error.message || 'Unable to load the new labor utilization dataset.',
+          error: error.message || 'Unable to load labor utilization data.',
           source: ''
         });
 
@@ -8497,7 +8497,7 @@ export default function App() {
             {visibleCards.controllableCostsNew && (
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
-                  title="Controllable Costs — New Data"
+                  title="Controllable Costs"
                   info={controllableCostsNewMetricInfo}
                   tooltipLegend={controllableCostsNewCardTooltipLegend}
                   performanceStatus={controllableCostsNewPerformanceStatus}
@@ -8514,7 +8514,7 @@ export default function App() {
                       label="Total Cost"
                       sublabel={priorCompletedMonthLabel}
                       performanceStatus={controllableCostsNewPerformanceStatus}
-                      ariaLabel="New controllable costs dataset overview"
+                      ariaLabel="Controllable costs overview"
                     />
                     <div ref={controllableCostsNewChartHostRef} className="chart-host">
                       {controllableCostsNewState.loading && (
@@ -8540,8 +8540,8 @@ export default function App() {
                               ? 'No SAP transactions matched the selected cost centers and date range.'
                               : filteredControllableCostsNewRows.length === 0
                                   && controllableNewFilterApplies
-                                ? 'No new controllable cost rows match the selected filters.'
-                                : 'No new controllable cost rows fall within the selected date range.'}
+                                ? 'No controllable cost rows match the selected filters.'
+                                : 'No controllable cost rows fall within the selected date range.'}
                           </p>
                         )}
 
@@ -8644,11 +8644,11 @@ export default function App() {
                           supportsFilter
                           supportsPalette
                           supportsPareto
-                          filterToggleAriaLabel="New controllable costs time series"
+                          filterToggleAriaLabel="Controllable costs time series"
                           filterFieldValue={activeControllableNewChartFilterField.value}
                           filterFieldOptions={CONTROLLABLE_NEW_CHART_FILTER_FIELDS}
                           paretoFieldOptions={CONTROLLABLE_NEW_PARETO_FILTER_FIELDS}
-                          filterFieldAriaLabel="Select new controllable costs filter field"
+                          filterFieldAriaLabel="Select controllable costs filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedControllableNewChartFilterField(nextField);
                             setSelectedControllableNewChartFilterValue([]);
@@ -8656,12 +8656,12 @@ export default function App() {
                           filterValue={activeControllableNewChartFilterValue}
                           filterValueOptions={controllableNewChartFilterValueOptions}
                           filterValueAllLabel={activeControllableNewChartFilterField.allLabel}
-                          filterValueAriaLabel="Select new controllable costs filter value"
+                          filterValueAriaLabel="Select controllable costs filter value"
                           onFilterValueChange={setSelectedControllableNewChartFilterValue}
-                          paletteToggleAriaLabel="New controllable costs grouped palette chart"
+                          paletteToggleAriaLabel="Controllable costs grouped palette chart"
                           paletteGroupFieldValue={activeControllableNewPaletteGroupField.value}
                           paletteGroupFieldOptions={controllableNewPaletteGroupFieldOptions}
-                          paletteGroupFieldAriaLabel="Select new controllable costs group field"
+                          paletteGroupFieldAriaLabel="Select controllable costs group field"
                           onPaletteGroupFieldChange={(nextField) => {
                             setSelectedControllableNewPaletteGroupField(nextField);
 
@@ -8676,7 +8676,7 @@ export default function App() {
                           }}
                           paletteColorFieldValue={activeControllableNewPaletteColorField.value}
                           paletteColorFieldOptions={controllableNewPaletteColorFieldOptions}
-                          paletteColorFieldAriaLabel="Select new controllable costs color field"
+                          paletteColorFieldAriaLabel="Select controllable costs color field"
                           onPaletteColorFieldChange={(nextField) => {
                             setSelectedControllableNewPaletteColorField(nextField);
 
@@ -9909,7 +9909,7 @@ export default function App() {
             {visibleCards.laborNew && (
               <article className="analytics-card" style={{ order: 4 }}>
                 <CardHeader
-                  title="Labor Utilization — New Data"
+                  title="Labor Utilization"
                   info={laborNewMetricInfo}
                   tooltipLegend={laborNewCardTooltipLegend}
                   performanceStatus={laborNewPerformanceStatus}
@@ -9926,11 +9926,11 @@ export default function App() {
                       label="Direct Labor"
                       sublabel="YTD Avg"
                       performanceStatus={laborNewPerformanceStatus}
-                      ariaLabel="New labor utilization dataset overview"
+                      ariaLabel="Labor utilization overview"
                     />
                     <div ref={laborNewChartHostRef} className="chart-host">
                       {laborNewState.loading && (
-                        <p className="chart-message">Loading new labor utilization workbook...</p>
+                        <p className="chart-message">Loading labor utilization data...</p>
                       )}
 
                       {!laborNewState.loading && laborNewState.error && (
@@ -9950,11 +9950,11 @@ export default function App() {
                                 || laborNewChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {laborNewState.rows.length === 0
-                              ? 'No rows were loaded from the new labor workbook.'
+                              ? 'No labor utilization rows are available for charting.'
                               : filteredLaborNewRows.length === 0 && laborNewFilterApplies
-                                ? 'No new labor rows match the selected filters.'
+                                ? 'No labor rows match the selected filters.'
                                 : visibleLaborNewRows.length === 0
-                                  ? 'No new labor rows fall within the selected date range.'
+                                  ? 'No labor rows fall within the selected date range.'
                                   : 'No Labor Direct or Labor Indirect rows are available to chart.'}
                           </p>
                         )}
@@ -10039,11 +10039,11 @@ export default function App() {
                           supportsFilter
                           supportsPalette
                           supportsPareto
-                          filterToggleAriaLabel="Filter new labor utilization chart"
+                          filterToggleAriaLabel="Filter labor utilization chart"
                           filterFieldValue={activeLaborNewChartFilterField.value}
                           filterFieldOptions={LABOR_NEW_CHART_FILTER_FIELDS}
                           paretoFieldOptions={LABOR_NEW_PARETO_FILTER_FIELDS}
-                          filterFieldAriaLabel="Select new labor filter field"
+                          filterFieldAriaLabel="Select labor filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedLaborNewChartFilterField(nextField);
                             setSelectedLaborNewChartFilterValue([]);
@@ -10051,12 +10051,12 @@ export default function App() {
                           filterValue={activeLaborNewChartFilterValue}
                           filterValueOptions={laborNewChartFilterValueOptions}
                           filterValueAllLabel={activeLaborNewChartFilterField.allLabel}
-                          filterValueAriaLabel="Select new labor filter values"
+                          filterValueAriaLabel="Select labor filter values"
                           onFilterValueChange={setSelectedLaborNewChartFilterValue}
-                          paletteToggleAriaLabel="New labor grouped palette chart"
+                          paletteToggleAriaLabel="Labor grouped palette chart"
                           paletteGroupFieldValue={activeLaborNewPaletteGroupField.value}
                           paletteGroupFieldOptions={laborNewPaletteGroupFieldOptions}
-                          paletteGroupFieldAriaLabel="Select new labor group field"
+                          paletteGroupFieldAriaLabel="Select labor group field"
                           onPaletteGroupFieldChange={(nextField) => {
                             setSelectedLaborNewPaletteGroupField(nextField);
 
@@ -10071,7 +10071,7 @@ export default function App() {
                           }}
                           paletteColorFieldValue={activeLaborNewPaletteColorField.value}
                           paletteColorFieldOptions={laborNewPaletteColorFieldOptions}
-                          paletteColorFieldAriaLabel="Select new labor color field"
+                          paletteColorFieldAriaLabel="Select labor color field"
                           onPaletteColorFieldChange={(nextField) => {
                             setSelectedLaborNewPaletteColorField(nextField);
 

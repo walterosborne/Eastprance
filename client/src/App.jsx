@@ -272,9 +272,14 @@ const OTD_CHART_FILTER_FIELDS = [
     allLabel: 'All programs'
   },
   {
-    value: 'bu',
-    label: 'BU',
-    allLabel: 'All BUs'
+    value: 'division',
+    label: 'Division',
+    allLabel: 'All divisions'
+  },
+  {
+    value: 'business_unit',
+    label: 'Business Unit',
+    allLabel: 'All business units'
   },
   {
     value: 'site',
@@ -288,7 +293,9 @@ const OTD_CHART_FILTER_FIELDS = [
   }
 ];
 
-const OTD_PARETO_FILTER_FIELDS = [OTD_CHART_FILTER_FIELDS[1]];
+const OTD_PARETO_FILTER_FIELDS = [
+  OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'business_unit')
+].filter(Boolean);
 const OTD_PALETTE_FIELDS = OTD_CHART_FILTER_FIELDS.map((option) => ({
   value: option.value,
   label: option.label
@@ -418,7 +425,8 @@ const GLOBAL_FILTER_FIELD_MAP = {
     facility: 'site'
   },
   otd: {
-    businessUnit: 'bu',
+    division: 'division',
+    businessUnit: 'business_unit',
     facility: 'site'
   },
   labor: {
@@ -5059,7 +5067,7 @@ export default function App() {
     SAFETY_PALETTE_FIELDS[1].value
   );
   const [selectedOtdChartFilterField, setSelectedOtdChartFilterField] = useState(
-    OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'bu')?.value ?? OTD_CHART_FILTER_FIELDS[0].value
+    OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'business_unit')?.value ?? OTD_CHART_FILTER_FIELDS[0].value
   );
   const [selectedOtdChartFilterValue, setSelectedOtdChartFilterValue] = useState([]);
   const [selectedOtdPaletteGroupField, setSelectedOtdPaletteGroupField] = useState(

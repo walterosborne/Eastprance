@@ -52,7 +52,8 @@ function normalizeYear(value, fallbackYear = null) {
 function normalizeOtdRow(row, fallbackYear = null) {
   const normalizedRow = {
     program: row.Program ?? '',
-    bu: row.BU ?? '',
+    division: row.Division ?? '',
+    business_unit: row['Business Unit'] ?? '',
     project_id: row['Project ID'] ?? '',
     site: row.Site ?? '',
     type: row.Type ?? '',
@@ -135,7 +136,8 @@ export async function readOtdData() {
       SELECT
         [Timeline],
         [Program],
-        [BU],
+        [Division],
+        [Business Unit],
         [Project ID],
         [Site],
         [Type],

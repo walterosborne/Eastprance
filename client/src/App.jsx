@@ -6639,6 +6639,13 @@ export default function App() {
   const isLaborPalette = chartVariants.labor === 'palette';
   const isLaborPareto = chartVariants.labor === 'pareto';
   const isLaborBarChart = chartVariants.labor === 'bar';
+  const laborHasChartValues = isLaborPareto
+    ? laborParetoChartData.values.some((value) => Number(value) > 0)
+    : isLaborPalette
+      ? laborPaletteChartData.series.some((seriesItem) =>
+        seriesItem.data.some((value) => Number(value) > 0)
+      )
+      : laborChartData.totals.some((value) => Number(value) > 0);
   const laborChartSeries = [
     {
       id: 'directShare',
@@ -6739,6 +6746,13 @@ export default function App() {
   const isLaborNewPalette = chartVariants.laborNew === 'palette';
   const isLaborNewPareto = chartVariants.laborNew === 'pareto';
   const isLaborNewBarChart = chartVariants.laborNew === 'bar';
+  const laborNewHasChartValues = isLaborNewPareto
+    ? laborNewParetoChartData.values.some((value) => Number(value) > 0)
+    : isLaborNewPalette
+      ? laborNewPaletteChartData.series.some((seriesItem) =>
+        seriesItem.data.some((value) => Number(value) > 0)
+      )
+      : laborNewChartData.totals.some((value) => Number(value) > 0);
   const laborNewChartSeries = [
     {
       id: 'directShareNew',
@@ -6839,6 +6853,13 @@ export default function App() {
   const isLaborHanaPalette = chartVariants.laborHana === 'palette';
   const isLaborHanaPareto = chartVariants.laborHana === 'pareto';
   const isLaborHanaBarChart = chartVariants.laborHana === 'bar';
+  const laborHanaHasChartValues = isLaborHanaPareto
+    ? laborHanaParetoChartData.values.some((value) => Number(value) > 0)
+    : isLaborHanaPalette
+      ? laborHanaPaletteChartData.series.some((seriesItem) =>
+        seriesItem.data.some((value) => Number(value) > 0)
+      )
+      : laborHanaChartData.totals.some((value) => Number(value) > 0);
   const laborHanaChartSeries = [
     {
       id: 'directShareHana',
@@ -9727,6 +9748,7 @@ export default function App() {
                       {!laborState.loading &&
                         !laborState.error &&
                         (laborState.rows.length === 0
+                          || !laborHasChartValues
                           || (isLaborPareto
                             ? laborParetoChartData.labels.length === 0
                             : isLaborPalette
@@ -9737,12 +9759,15 @@ export default function App() {
                               ? 'No labor rows are available for charting.'
                               : filteredLaborRows.length === 0 && laborFilterApplies
                                 ? 'No labor rows match the selected filters.'
-                                : 'No labor months fall within the selected date range.'}
+                                : !laborHasChartValues
+                                  ? 'No labor values are available for the selected date range.'
+                                  : 'No labor months fall within the selected date range.'}
                           </p>
                         )}
 
                       {!laborState.loading &&
                         !laborState.error &&
+                        laborHasChartValues &&
                         (isLaborPareto
                           ? laborParetoChartData.labels.length > 0
                           : isLaborPalette
@@ -9926,6 +9951,7 @@ export default function App() {
                       {!laborNewState.loading
                         && !laborNewState.error
                         && (laborNewState.rows.length === 0
+                          || !laborNewHasChartValues
                           || (isLaborNewPareto
                             ? laborNewParetoChartData.labels.length === 0
                             : isLaborNewPalette
@@ -9939,12 +9965,15 @@ export default function App() {
                                 ? 'No labor rows match the selected filters.'
                                 : visibleLaborNewRows.length === 0
                                   ? 'No labor rows fall within the selected date range.'
-                                  : 'No Labor Direct or Labor Indirect rows are available to chart.'}
+                                  : !laborNewHasChartValues
+                                    ? 'No labor values are available for the selected date range.'
+                                    : 'No Labor Direct or Labor Indirect rows are available to chart.'}
                           </p>
                         )}
 
                       {!laborNewState.loading
                         && !laborNewState.error
+                        && laborNewHasChartValues
                         && (isLaborNewPareto
                           ? laborNewParetoChartData.labels.length > 0
                           : isLaborNewPalette
@@ -10135,6 +10164,7 @@ export default function App() {
                       {!laborHanaState.loading &&
                         !laborHanaState.error &&
                         (laborHanaState.rows.length === 0
+                          || !laborHanaHasChartValues
                           || (isLaborHanaPareto
                             ? laborHanaParetoChartData.labels.length === 0
                             : isLaborHanaPalette
@@ -10146,12 +10176,15 @@ export default function App() {
                               ? 'No HANA labor rows are available for charting.'
                               : filteredLaborHanaRows.length === 0 && laborHanaFilterApplies
                                 ? 'No HANA labor rows match the selected filters.'
-                                : 'No HANA labor months fall within the selected date range.'}
+                                : !laborHanaHasChartValues
+                                  ? 'No HANA labor values are available for the selected date range.'
+                                  : 'No HANA labor months fall within the selected date range.'}
                           </p>
                         )}
 
                       {!laborHanaState.loading &&
                         !laborHanaState.error &&
+                        laborHanaHasChartValues &&
                         (isLaborHanaPareto
                           ? laborHanaParetoChartData.labels.length > 0
                           : isLaborHanaPalette

@@ -1376,10 +1376,18 @@ function normalizeGlobalFilters(value, optionsByDimension = null) {
 }
 
 function applyGlobalFilters(rows, metricKey, globalFilters) {
+  if (!Array.isArray(rows)) {
+    return rows;
+  }
+
   const metricFieldMap = GLOBAL_FILTER_FIELD_MAP[metricKey];
 
-  if (!metricFieldMap || !Array.isArray(rows)) {
-    return rows;
+  if (!metricFieldMap) {
+    const hasActiveGlobalFilter = GLOBAL_FILTER_DIMENSIONS.some(
+      ({ key }) => (globalFilters[key] ?? []).length > 0
+    );
+
+    return hasActiveGlobalFilter ? [] : rows;
   }
 
   const divisionFieldName = metricFieldMap.division;

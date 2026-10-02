@@ -5757,6 +5757,12 @@ export default function App() {
       }
       : null;
   const currentPerformanceMonth = new Date();
+  const currentPerformanceMonthStamp = getMonthStartStamp(currentPerformanceMonth);
+  const currentPerformanceMonthLabel = formatMonthStamp(currentPerformanceMonthStamp);
+  const currentMonthSummaryDateRange = {
+    startStamp: currentPerformanceMonthStamp,
+    endStamp: currentPerformanceMonthStamp
+  };
   const lastCompletedPerformanceMonthStamp = Date.UTC(
     currentPerformanceMonth.getUTCFullYear(),
     currentPerformanceMonth.getUTCMonth() - 1,
@@ -5766,15 +5772,6 @@ export default function App() {
     ? {
       startStamp: selectedDateRange.startStamp,
       endStamp: Math.min(selectedDateRange.endStamp, lastCompletedPerformanceMonthStamp)
-    }
-    : null;
-  const priorCompletedMonthLabel = formatMonthStamp(lastCompletedPerformanceMonthStamp);
-  const priorCompletedQuarterLabel = getQuarterLabelForStamp(lastCompletedPerformanceMonthStamp);
-  const currentPerformanceYear = currentPerformanceMonth.getUTCFullYear();
-  const ytdSummaryDateRange = lastCompletedPerformanceMonthStamp >= Date.UTC(currentPerformanceYear, 0, 1)
-    ? {
-      startStamp: Date.UTC(currentPerformanceYear, 0, 1),
-      endStamp: lastCompletedPerformanceMonthStamp
     }
     : null;
   const dateSliderMarks =
@@ -5908,17 +5905,12 @@ export default function App() {
     error: controllableCostsState.error,
     calculateGoalLine: forecastControllableCostsGoalLineFromSeries
   });
-  const priorCompletedMonthDate = new Date(lastCompletedPerformanceMonthStamp);
-  const priorCompletedQuarterNumber = Math.floor(priorCompletedMonthDate.getUTCMonth() / 3) + 1;
-  const priorCompletedQuarterYear = priorCompletedMonthDate.getUTCFullYear();
-  const controllableCostsPriorQuarterRows = filteredControllableCostsRows.filter(
-    (row) =>
-      Number(row.year) === priorCompletedQuarterYear
-      && getQuarterNumber(row.quarter) === priorCompletedQuarterNumber
+  const controllableCostsCurrentMonthRows = filteredControllableCostsRows.filter(
+    (row) => getControllableCostsRowStamp(row) === currentPerformanceMonthStamp
   );
-  const controllableCostsSummaryValue = controllableCostsPriorQuarterRows.length > 0
+  const controllableCostsSummaryValue = controllableCostsCurrentMonthRows.length > 0
     ? formatOverviewCurrency(
-      controllableCostsPriorQuarterRows.reduce((sum, row) => {
+      controllableCostsCurrentMonthRows.reduce((sum, row) => {
         const cost = Number(row.cost);
         return Number.isFinite(cost) ? sum + cost : sum;
       }, 0)
@@ -6010,12 +6002,12 @@ export default function App() {
     error: controllableCostsNewState.error,
     calculateGoalLine: forecastControllableCostsGoalLineFromSeries
   });
-  const controllableCostsNewPriorMonthRows = filteredControllableCostsNewRows.filter(
-    (row) => getControllableCostsRowStamp(row) === lastCompletedPerformanceMonthStamp
+  const controllableCostsNewCurrentMonthRows = filteredControllableCostsNewRows.filter(
+    (row) => getControllableCostsRowStamp(row) === currentPerformanceMonthStamp
   );
-  const controllableCostsNewSummaryValue = controllableCostsNewPriorMonthRows.length > 0
+  const controllableCostsNewSummaryValue = controllableCostsNewCurrentMonthRows.length > 0
     ? formatOverviewCurrency(
-      controllableCostsNewPriorMonthRows.reduce((sum, row) => {
+      controllableCostsNewCurrentMonthRows.reduce((sum, row) => {
         const cost = Number(row.cost);
         return Number.isFinite(cost) ? sum + cost : sum;
       }, 0)
@@ -6113,12 +6105,12 @@ export default function App() {
     error: controllableCostsHanaState.error,
     calculateGoalLine: forecastControllableCostsGoalLineFromSeries
   });
-  const controllableCostsHanaPriorMonthRows = filteredControllableCostsHanaRows.filter(
-    (row) => getControllableCostsRowStamp(row) === lastCompletedPerformanceMonthStamp
+  const controllableCostsHanaCurrentMonthRows = filteredControllableCostsHanaRows.filter(
+    (row) => getControllableCostsRowStamp(row) === currentPerformanceMonthStamp
   );
-  const controllableCostsHanaSummaryValue = controllableCostsHanaPriorMonthRows.length > 0
+  const controllableCostsHanaSummaryValue = controllableCostsHanaCurrentMonthRows.length > 0
     ? formatOverviewCurrency(
-      controllableCostsHanaPriorMonthRows.reduce((sum, row) => {
+      controllableCostsHanaCurrentMonthRows.reduce((sum, row) => {
         const cost = Number(row.cost);
         return Number.isFinite(cost) ? sum + cost : sum;
       }, 0)
@@ -6228,7 +6220,7 @@ export default function App() {
   const isSifPareto = chartVariants.sif === 'pareto';
   const isSifPalette = chartVariants.sif === 'palette';
   const sifSummaryRows = (isSifPareto || isSifPalette ? baseFilteredSifRows : filteredSifRows).filter(
-    (row) => isStampWithinDateRange(getIncidentRowStamp(row), ytdSummaryDateRange)
+    (row) => isStampWithinDateRange(getIncidentRowStamp(row), currentMonthSummaryDateRange)
   );
   const sifSummaryValue = formatIncidentCount(sumActualValues(sifSummaryRows));
 
@@ -6316,7 +6308,7 @@ export default function App() {
   const isPotentialSifPalette = chartVariants.potentialSif === 'palette';
   const potentialSifSummaryRows = (
     isPotentialSifPareto || isPotentialSifPalette ? baseFilteredPotentialSifRows : filteredPotentialSifRows
-  ).filter((row) => isStampWithinDateRange(getIncidentRowStamp(row), ytdSummaryDateRange));
+  ).filter((row) => isStampWithinDateRange(getIncidentRowStamp(row), currentMonthSummaryDateRange));
   const potentialSifSummaryValue = formatIncidentCount(
     sumActualValues(potentialSifSummaryRows)
   );
@@ -6406,7 +6398,7 @@ export default function App() {
   const isNmfrPareto = chartVariants.nmfr === 'pareto';
   const isNmfrPalette = chartVariants.nmfr === 'palette';
   const nmfrSummaryRows = (isNmfrPareto || isNmfrPalette ? baseFilteredNmfrRows : filteredNmfrRows).filter(
-    (row) => isStampWithinDateRange(getIncidentRowStamp(row), ytdSummaryDateRange)
+    (row) => isStampWithinDateRange(getIncidentRowStamp(row), currentMonthSummaryDateRange)
   );
   const nmfrOverallValue = calculateNmfrValueFromRows(nmfrSummaryRows);
   const nmfrSummaryValue = nmfrOverallValue == null ? '--' : formatNumber(nmfrOverallValue);
@@ -6455,7 +6447,7 @@ export default function App() {
   const otdMonthlySummaryData = buildOtdChartData(
     filteredOtdRows,
     'monthly',
-    ytdSummaryDateRange
+    currentMonthSummaryDateRange
   );
   const otdMonthlyPerformanceData = buildOtdChartData(
     filteredOtdRows,
@@ -6463,25 +6455,9 @@ export default function App() {
     historicalPerformanceDateRange
   );
   const otdGoalForecastData = otdChartData;
-  const currentOtdMonthStamp = getMonthStartStamp(new Date());
-  const completedOtdMonthIndices = otdMonthlySummaryData.bucketEndStamps.reduce(
-    (indices, bucketStamp, index) => {
-      if (bucketStamp < currentOtdMonthStamp) {
-        indices.push(index);
-      }
-
-      return indices;
-    },
-    []
-  );
-  const otdOverallContract = completedOtdMonthIndices.reduce(
-    (sum, index) => sum + Number(otdMonthlySummaryData.contract[index] ?? 0),
-    0
-  );
-  const otdOverallDelivered = completedOtdMonthIndices.reduce(
-    (sum, index) => sum + Number(otdMonthlySummaryData.delivered[index] ?? 0),
-    0
-  );
+  const currentOtdMonthStamp = currentPerformanceMonthStamp;
+  const otdOverallContract = sumNumericValues(otdMonthlySummaryData.contract);
+  const otdOverallDelivered = sumNumericValues(otdMonthlySummaryData.delivered);
   const otdSummaryValue = otdOverallContract > 0
     ? formatPercentValue(otdOverallDelivered / otdOverallContract)
     : '--';
@@ -6619,13 +6595,13 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
-  const laborYtdSummaryData = buildLaborUtilizationChartData(
+  const laborCurrentMonthSummaryData = buildLaborUtilizationChartData(
     filteredLaborRows,
     'monthly',
-    ytdSummaryDateRange
+    currentMonthSummaryDateRange
   );
-  const laborOverallHours = sumNumericValues(laborYtdSummaryData.totals);
-  const laborOverallDirectHours = sumNumericValues(laborYtdSummaryData.direct);
+  const laborOverallHours = sumNumericValues(laborCurrentMonthSummaryData.totals);
+  const laborOverallDirectHours = sumNumericValues(laborCurrentMonthSummaryData.direct);
   const laborSummaryValue = laborOverallHours > 0
     ? formatPercentValue(laborOverallDirectHours / laborOverallHours)
     : '--';
@@ -6719,13 +6695,13 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
-  const laborNewYtdSummaryData = buildLaborUtilizationNewChartData(
+  const laborNewCurrentMonthSummaryData = buildLaborUtilizationNewChartData(
     filteredLaborNewRows,
     'monthly',
-    ytdSummaryDateRange
+    currentMonthSummaryDateRange
   );
-  const laborNewOverallHours = sumNumericValues(laborNewYtdSummaryData.totals);
-  const laborNewOverallDirectHours = sumNumericValues(laborNewYtdSummaryData.direct);
+  const laborNewOverallHours = sumNumericValues(laborNewCurrentMonthSummaryData.totals);
+  const laborNewOverallDirectHours = sumNumericValues(laborNewCurrentMonthSummaryData.direct);
   const laborNewSummaryValue = laborNewOverallHours > 0
     ? formatPercentValue(laborNewOverallDirectHours / laborNewOverallHours)
     : '--';
@@ -6818,13 +6794,13 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
-  const laborHanaYtdSummaryData = buildLaborUtilizationChartData(
+  const laborHanaCurrentMonthSummaryData = buildLaborUtilizationChartData(
     filteredLaborHanaRows,
     'monthly',
-    ytdSummaryDateRange
+    currentMonthSummaryDateRange
   );
-  const laborHanaOverallHours = sumNumericValues(laborHanaYtdSummaryData.totals);
-  const laborHanaOverallDirectHours = sumNumericValues(laborHanaYtdSummaryData.direct);
+  const laborHanaOverallHours = sumNumericValues(laborHanaCurrentMonthSummaryData.totals);
+  const laborHanaOverallDirectHours = sumNumericValues(laborHanaCurrentMonthSummaryData.direct);
   const laborHanaSummaryValue = laborHanaOverallHours > 0
     ? formatPercentValue(laborHanaOverallDirectHours / laborHanaOverallHours)
     : '--';
@@ -8300,7 +8276,7 @@ export default function App() {
                           : controllableCostsSummaryValue
                       }
                       label="Total Cost"
-                      sublabel={priorCompletedQuarterLabel}
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={controllableCostsPerformanceStatus}
                       ariaLabel="Controllable costs overview"
                     />
@@ -8511,7 +8487,7 @@ export default function App() {
                           : controllableCostsNewSummaryValue
                       }
                       label="Total Cost"
-                      sublabel={priorCompletedMonthLabel}
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={controllableCostsNewPerformanceStatus}
                       ariaLabel="Controllable costs overview"
                     />
@@ -8736,7 +8712,7 @@ export default function App() {
                           : controllableCostsHanaSummaryValue
                       }
                       label="Total Cost"
-                      sublabel={priorCompletedMonthLabel}
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={controllableCostsHanaPerformanceStatus}
                       ariaLabel="HANA controllable costs overview"
                     />
@@ -8937,7 +8913,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
                       label="SIF Incidents"
-                      sublabel="YTD"
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={sifPerformanceStatus}
                       ariaLabel="SIF incidents overview"
                     />
@@ -9131,7 +9107,7 @@ export default function App() {
                           : potentialSifSummaryValue
                       }
                       label="Potential SIFs"
-                      sublabel="YTD"
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={potentialSifPerformanceStatus}
                       ariaLabel="Potential SIF incidents overview"
                     />
@@ -9325,7 +9301,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
                       label="NMFR"
-                      sublabel="YTD"
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={nmfrPerformanceStatus}
                       ariaLabel="Near miss frequency rate overview"
                     />
@@ -9515,7 +9491,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={otdState.loading || otdState.error ? '--' : otdSummaryValue}
                       label="Percent Delivered"
-                      sublabel="YTD"
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={otdPerformanceStatus}
                       ariaLabel="On time delivery overview"
                     />
@@ -9726,7 +9702,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={laborState.loading || laborState.error ? '--' : laborSummaryValue}
                       label="Direct Labor"
-                      sublabel="YTD"
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={laborPerformanceStatus}
                       ariaLabel="Direct labor utilization overview"
                     />
@@ -9923,7 +9899,7 @@ export default function App() {
                           : laborNewSummaryValue
                       }
                       label="Direct Labor"
-                      sublabel="YTD"
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={laborNewPerformanceStatus}
                       ariaLabel="Labor utilization overview"
                     />
@@ -10129,7 +10105,7 @@ export default function App() {
                           : laborHanaSummaryValue
                       }
                       label="Direct Labor"
-                      sublabel="YTD"
+                      sublabel={currentPerformanceMonthLabel}
                       performanceStatus={laborHanaPerformanceStatus}
                       ariaLabel="HANA direct labor utilization overview"
                     />

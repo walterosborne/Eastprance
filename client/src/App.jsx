@@ -1309,14 +1309,24 @@ function normalizeDivisionValue(value) {
   return normalizeGlobalFilterValue(value).replace(/^DS\s+/i, '').trim();
 }
 
+function normalizeBusinessUnitValue(value) {
+  return normalizeGlobalFilterValue(value).replace(/^DS\s+/i, '').trim();
+}
+
 function isExcludedDivision(value) {
   return normalizeDivisionValue(value).toLowerCase() === 'future concepts';
 }
 
 function normalizeDimensionValue(dimensionKey, value) {
-  return dimensionKey === 'division'
-    ? normalizeDivisionValue(value)
-    : normalizeGlobalFilterValue(value);
+  if (dimensionKey === 'division') {
+    return normalizeDivisionValue(value);
+  }
+
+  if (dimensionKey === 'businessUnit') {
+    return normalizeBusinessUnitValue(value);
+  }
+
+  return normalizeGlobalFilterValue(value);
 }
 
 function getGlobalFilterOptions(rowsByMetric, dimensionKey) {
@@ -1373,29 +1383,45 @@ function applyGlobalFilters(rows, metricKey, globalFilters) {
   }
 
   const divisionFieldName = metricFieldMap.division;
+  const businessUnitFieldName = metricFieldMap.businessUnit;
 
   return rows
     .filter((row) => !divisionFieldName || !isExcludedDivision(row?.[divisionFieldName]))
     .filter((row) => GLOBAL_FILTER_DIMENSIONS.every(({ key }) => {
       const selectedValues = globalFilters[key] ?? [];
+
+      if (selectedValues.length === 0) {
+        return true;
+      }
+
       const fieldName = metricFieldMap[key];
 
-      if (selectedValues.length === 0 || !fieldName) {
-        return true;
+      if (!fieldName) {
+        return false;
       }
 
       return selectedValues.includes(normalizeDimensionValue(key, row?.[fieldName]));
     }))
     .map((row) => {
-      if (!divisionFieldName) {
-        return row;
+      const updates = {};
+
+      if (divisionFieldName) {
+        const normalizedDivision = normalizeDivisionValue(row?.[divisionFieldName]);
+
+        if (normalizedDivision !== row?.[divisionFieldName]) {
+          updates[divisionFieldName] = normalizedDivision;
+        }
       }
 
-      const normalizedDivision = normalizeDivisionValue(row?.[divisionFieldName]);
+      if (businessUnitFieldName) {
+        const normalizedBusinessUnit = normalizeBusinessUnitValue(row?.[businessUnitFieldName]);
 
-      return normalizedDivision === row?.[divisionFieldName]
-        ? row
-        : { ...row, [divisionFieldName]: normalizedDivision };
+        if (normalizedBusinessUnit !== row?.[businessUnitFieldName]) {
+          updates[businessUnitFieldName] = normalizedBusinessUnit;
+        }
+      }
+
+      return Object.keys(updates).length > 0 ? { ...row, ...updates } : row;
     });
 }
 

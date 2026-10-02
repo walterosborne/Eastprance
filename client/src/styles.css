@@ -1394,6 +1394,10 @@ h1 {
   padding-right: 0;
 }
 
+.metric-overview-summary-kpi-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .metric-overview-primary,
 .metric-overview-status-list {
   display: grid;

@@ -1305,6 +1305,20 @@ function normalizeGlobalFilterValue(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeDivisionValue(value) {
+  return normalizeGlobalFilterValue(value).replace(/^DS\s+/i, '').trim();
+}
+
+function isExcludedDivision(value) {
+  return normalizeDivisionValue(value).toLowerCase() === 'future concepts';
+}
+
+function normalizeDimensionValue(dimensionKey, value) {
+  return dimensionKey === 'division'
+    ? normalizeDivisionValue(value)
+    : normalizeGlobalFilterValue(value);
+}
+
 function getGlobalFilterOptions(rowsByMetric, dimensionKey) {
   const values = new Set();
 
@@ -1316,7 +1330,11 @@ function getGlobalFilterOptions(rowsByMetric, dimensionKey) {
     }
 
     rows.forEach((row) => {
-      const normalizedValue = normalizeGlobalFilterValue(row?.[fieldName]);
+      if (dimensionKey === 'division' && isExcludedDivision(row?.[fieldName])) {
+        return;
+      }
+
+      const normalizedValue = normalizeDimensionValue(dimensionKey, row?.[fieldName]);
 
       if (normalizedValue) {
         values.add(normalizedValue);
@@ -1330,7 +1348,11 @@ function getGlobalFilterOptions(rowsByMetric, dimensionKey) {
 function normalizeGlobalFilters(value, optionsByDimension = null) {
   return Object.fromEntries(
     GLOBAL_FILTER_DIMENSIONS.map(({ key }) => {
-      const selectedValues = coerceFilterValues(value?.[key]);
+      const selectedValues = Array.from(new Set(
+        coerceFilterValues(value?.[key])
+          .map((selectedValue) => normalizeDimensionValue(key, selectedValue))
+          .filter((selectedValue) => selectedValue && !(key === 'division' && isExcludedDivision(selectedValue)))
+      ));
       const availableOptions = optionsByDimension?.[key];
 
       return [
@@ -1350,16 +1372,31 @@ function applyGlobalFilters(rows, metricKey, globalFilters) {
     return rows;
   }
 
-  return rows.filter((row) => GLOBAL_FILTER_DIMENSIONS.every(({ key }) => {
-    const selectedValues = globalFilters[key] ?? [];
-    const fieldName = metricFieldMap[key];
+  const divisionFieldName = metricFieldMap.division;
 
-    if (selectedValues.length === 0 || !fieldName) {
-      return true;
-    }
+  return rows
+    .filter((row) => !divisionFieldName || !isExcludedDivision(row?.[divisionFieldName]))
+    .filter((row) => GLOBAL_FILTER_DIMENSIONS.every(({ key }) => {
+      const selectedValues = globalFilters[key] ?? [];
+      const fieldName = metricFieldMap[key];
 
-    return selectedValues.includes(normalizeGlobalFilterValue(row?.[fieldName]));
-  }));
+      if (selectedValues.length === 0 || !fieldName) {
+        return true;
+      }
+
+      return selectedValues.includes(normalizeDimensionValue(key, row?.[fieldName]));
+    }))
+    .map((row) => {
+      if (!divisionFieldName) {
+        return row;
+      }
+
+      const normalizedDivision = normalizeDivisionValue(row?.[divisionFieldName]);
+
+      return normalizedDivision === row?.[divisionFieldName]
+        ? row
+        : { ...row, [divisionFieldName]: normalizedDivision };
+    });
 }
 
 function clampGoalLineToVisibleSeries(goalLine, seriesCollections, maxScaleMultiplier = 5) {

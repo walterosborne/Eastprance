@@ -72,6 +72,9 @@ const AUTHENTICATION_EXPIRED_ERROR = 'authentication_expired';
 const AUTHENTICATION_RETRY_SESSION_KEY = 'qmi-authentication-reauthentication-attempted';
 const AUTHENTICATION_RETRY_QUERY_PARAMETER = 'qmi_reauthentication_attempted';
 const NG_TOAST_BLUE = '#0057b8';
+// Reserved for a future scorecard version. Keep the calculations and UI code in place,
+// but do not expose historical/estimated performance indicators in the current release.
+const SHOW_PERFORMANCE_INDICATORS = false;
 const SCORECARD_START_STAMP = Date.UTC(2025, 0, 1);
 const scorecardCurrentDate = new Date();
 const SCORECARD_END_STAMP = Date.UTC(
@@ -3999,7 +4002,9 @@ function CardHeader({ title, info, tooltipLegend = null, performanceStatus = nul
           ?
         </button>
         <div className="card-info-tooltip" role="tooltip">
-          <PerformanceIndicatorTooltipSection performanceStatus={performanceStatus} />
+          {SHOW_PERFORMANCE_INDICATORS && (
+            <PerformanceIndicatorTooltipSection performanceStatus={performanceStatus} />
+          )}
           {tooltipLegend?.items?.length > 0 && (
             <div className="metric-info-legend">
               <p className="metric-info-legend-title">{tooltipLegend.title || 'Chart legend'}</p>
@@ -4114,32 +4119,36 @@ function MetricOverviewBand({
       className="metric-overview-band"
       aria-label={ariaLabel || undefined}
     >
-      <div className="metric-overview-summary">
+      <div
+        className={`metric-overview-summary${SHOW_PERFORMANCE_INDICATORS ? '' : ' metric-overview-summary-kpi-only'}`}
+      >
         <div className="metric-overview-primary">
           <ResponsivePrimaryKpiValue value={value} />
           <p className="metric-overview-label">{label}</p>
           {sublabel && <p className="metric-overview-sublabel">{sublabel}</p>}
         </div>
-        <div className="metric-overview-status-list">
-          {indicators.map(({ key, label: indicatorLabel, status }) => (
-            <div
-              key={key}
-              className="metric-overview-status"
-              aria-label={`${indicatorLabel}: ${status?.toneLabel ?? 'Unavailable'}; ${status?.detail ?? '--'
-                }`}
-              title={`${status?.toneLabel ?? 'Unavailable'}: ${status?.detail ?? '--'}`}
-            >
-              <span
-                aria-hidden="true"
-                className={`metric-overview-status-dot performance-${status?.tone ?? 'unavailable'}`}
-              />
-              <span className="metric-overview-status-copy">
-                <span className="metric-overview-status-label">{indicatorLabel}</span>
-                <span className="metric-overview-status-detail">{status?.detail ?? '--'}</span>
-              </span>
-            </div>
-          ))}
-        </div>
+        {SHOW_PERFORMANCE_INDICATORS && (
+          <div className="metric-overview-status-list">
+            {indicators.map(({ key, label: indicatorLabel, status }) => (
+              <div
+                key={key}
+                className="metric-overview-status"
+                aria-label={`${indicatorLabel}: ${status?.toneLabel ?? 'Unavailable'}; ${status?.detail ?? '--'
+                  }`}
+                title={`${status?.toneLabel ?? 'Unavailable'}: ${status?.detail ?? '--'}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`metric-overview-status-dot performance-${status?.tone ?? 'unavailable'}`}
+                />
+                <span className="metric-overview-status-copy">
+                  <span className="metric-overview-status-label">{indicatorLabel}</span>
+                  <span className="metric-overview-status-detail">{status?.detail ?? '--'}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

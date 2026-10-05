@@ -41,6 +41,7 @@ import {
   readDashboardPresetsOverview,
   saveDashboardPreset
 } from './dashboardPresetsRepository.js';
+import { applyFacilityGroupingsToPayload } from './facilityGroupingsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
 import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
@@ -154,17 +155,18 @@ async function sendDatasetResponse(request, response, scope, loadDataset, failur
 
   try {
     const payload = await loadDataset();
+    const groupedPayload = await applyFacilityGroupingsToPayload(payload, scope);
 
     logDebug(scope, `Request #${request.requestId ?? 'n/a'} loaded dataset.`, {
-      source: payload.source,
-      rowCount: payload.rowCount,
-      tableName: payload.tableName,
-      fileName: payload.fileName,
-      fallbackReason: payload.fallbackReason,
+      source: groupedPayload.source,
+      rowCount: groupedPayload.rowCount,
+      tableName: groupedPayload.tableName,
+      fileName: groupedPayload.fileName,
+      fallbackReason: groupedPayload.fallbackReason,
       duration: formatDuration(stopTimer())
     });
 
-    response.json(payload);
+    response.json(groupedPayload);
   } catch (error) {
     logError(scope, `Request #${request.requestId ?? 'n/a'} failed.`, error, {
       duration: formatDuration(stopTimer())

@@ -63,7 +63,9 @@ import {
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
 import FacilityHierarchyFilter from './FacilityHierarchyFilter';
+import BusinessUnitHierarchyFilter from './BusinessUnitHierarchyFilter';
 import { facilityFilterMatches } from './facilityFilterUtils';
+import { businessUnitFilterMatches } from './businessUnitFilterUtils';
 
 const ALL_FILTER_VALUE = '__all__';
 const PALETTE_MAX_GROUPS = 20;
@@ -1365,6 +1367,46 @@ function getGlobalFilterOptions(rowsByMetric, dimensionKey) {
   return Array.from(values).sort((left, right) => left.localeCompare(right));
 }
 
+function getBusinessUnitHierarchy(rowsByMetric) {
+  const divisionsByKey = new Map();
+
+  Object.entries(rowsByMetric).forEach(([metricKey, rows]) => {
+    const metricFieldMap = GLOBAL_FILTER_FIELD_MAP[metricKey];
+    const divisionFieldName = metricFieldMap?.division;
+    const businessUnitFieldName = metricFieldMap?.businessUnit;
+
+    if (!divisionFieldName || !businessUnitFieldName || !Array.isArray(rows)) {
+      return;
+    }
+
+    rows.forEach((row) => {
+      const division = normalizeDivisionValue(row?.[divisionFieldName]);
+      const businessUnit = normalizeBusinessUnitValue(row?.[businessUnitFieldName]);
+
+      if (!division || !businessUnit || isExcludedDivision(division)) {
+        return;
+      }
+
+      const divisionKey = division.toLowerCase();
+      const entry = divisionsByKey.get(divisionKey) ?? {
+        division,
+        businessUnits: new Set()
+      };
+
+      entry.businessUnits.add(businessUnit);
+      divisionsByKey.set(divisionKey, entry);
+    });
+  });
+
+  return [...divisionsByKey.values()]
+    .map((entry) => ({
+      division: entry.division,
+      businessUnits: [...entry.businessUnits]
+        .sort((left, right) => left.localeCompare(right))
+    }))
+    .sort((left, right) => left.division.localeCompare(right.division));
+}
+
 function normalizeGlobalFilters(value, optionsByDimension = null) {
   return Object.fromEntries(
     GLOBAL_FILTER_DIMENSIONS.map(({ key }) => {
@@ -1375,7 +1417,7 @@ function normalizeGlobalFilters(value, optionsByDimension = null) {
       ));
       const availableOptions = optionsByDimension?.[key];
 
-      const normalizedSelectedValues = key === 'facility'
+      const normalizedSelectedValues = key === 'facility' || key === 'businessUnit'
         ? selectedValues
         : Array.isArray(availableOptions)
           ? selectedValues.filter((selectedValue) => availableOptions.includes(selectedValue))
@@ -1429,6 +1471,16 @@ function applyGlobalFilters(rows, metricKey, globalFilters) {
 
         return selectedValues.some((selectedValue) =>
           facilityFilterMatches(selectedValue, normalizedRowValue, originalFacilityValue)
+        );
+      }
+
+      if (key === 'businessUnit') {
+        const normalizedDivision = divisionFieldName
+          ? normalizeDivisionValue(row?.[divisionFieldName])
+          : '';
+
+        return selectedValues.some((selectedValue) =>
+          businessUnitFilterMatches(selectedValue, normalizedDivision, normalizedRowValue)
         );
       }
 
@@ -4827,7 +4879,13 @@ function resolvePresetDateRangeIndices(availableTimelineStamps, presetState) {
   return [startIndex, endIndex];
 }
 
-function GlobalFilterField({ dimension, options, value, onChange }) {
+function GlobalFilterField({
+  dimension,
+  options,
+  value,
+  onChange,
+  businessUnitHierarchy = []
+}) {
   if (dimension.key === 'facility') {
     return (
       <div className="global-filter-field">
@@ -4836,6 +4894,24 @@ function GlobalFilterField({ dimension, options, value, onChange }) {
         </label>
         <FacilityHierarchyFilter
           inputId={`global-filter-${dimension.key}`}
+          options={options}
+          value={value}
+          allLabel={dimension.allLabel}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
+
+  if (dimension.key === 'businessUnit') {
+    return (
+      <div className="global-filter-field">
+        <label className="global-filter-field-label" htmlFor={`global-filter-${dimension.key}`}>
+          {dimension.label}
+        </label>
+        <BusinessUnitHierarchyFilter
+          inputId={`global-filter-${dimension.key}`}
+          hierarchy={businessUnitHierarchy}
           options={options}
           value={value}
           allLabel={dimension.allLabel}
@@ -5935,6 +6011,7 @@ export default function App() {
       getGlobalFilterOptions(dashboardRowsByMetric, key)
     ])
   );
+  const businessUnitHierarchy = getBusinessUnitHierarchy(dashboardRowsByMetric);
   const activeGlobalFilters = normalizeGlobalFilters(globalFilters, globalFilterOptions);
   const activeGlobalFilterCount = Object.values(activeGlobalFilters).reduce(
     (count, selectedValues) => count + selectedValues.length,
@@ -8302,6 +8379,7 @@ export default function App() {
                           key={dimension.key}
                           dimension={dimension}
                           options={globalFilterOptions[dimension.key]}
+                          businessUnitHierarchy={businessUnitHierarchy}
                           value={activeGlobalFilters[dimension.key]}
                           onChange={(nextValues) => {
                             setGlobalFilters((currentFilters) => ({

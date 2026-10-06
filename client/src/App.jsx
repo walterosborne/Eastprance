@@ -85,9 +85,10 @@ const NG_TOAST_BLUE = '#0057b8';
 const SHOW_PERFORMANCE_INDICATORS = false;
 const SCORECARD_START_STAMP = Date.UTC(2025, 0, 1);
 const scorecardCurrentDate = new Date();
+// Charts and the global date range only include fully completed calendar months.
 const SCORECARD_END_STAMP = Date.UTC(
   scorecardCurrentDate.getUTCFullYear(),
-  scorecardCurrentDate.getUTCMonth(),
+  scorecardCurrentDate.getUTCMonth() - 1,
   1
 );
 const PALETTE_INFO_TOAST_OPTIONS = {

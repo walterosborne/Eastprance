@@ -64,7 +64,8 @@ import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
 import {
   BusinessUnitHierarchyFilter,
-  FacilityHierarchyFilter
+  FacilityHierarchyFilter,
+  FlatCheckboxFilter
 } from './HierarchyFilters';
 import {
   businessUnitFilterMatches,
@@ -4891,6 +4892,27 @@ function GlobalFilterField({
   onChange,
   businessUnitHierarchy = []
 }) {
+  if (dimension.key === 'division') {
+    return (
+      <div className="global-filter-field">
+        <label className="global-filter-field-label" htmlFor={`global-filter-${dimension.key}`}>
+          {dimension.label}
+        </label>
+        <FlatCheckboxFilter
+          inputId={`global-filter-${dimension.key}`}
+          options={options}
+          value={value}
+          allLabel={dimension.allLabel}
+          ariaLabel="Filter dashboard by Division"
+          menuAriaLabel="Divisions"
+          searchPlaceholder="Search divisions"
+          searchAriaLabel="Search divisions"
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
+
   if (dimension.key === 'facility') {
     return (
       <div className="global-filter-field">

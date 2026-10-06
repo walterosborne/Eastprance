@@ -272,3 +272,18 @@
     max-width: none;
   }
 }
+
+
+/* Flat mode uses the same control/menu as the hierarchical filters without parent indentation. */
+.hierarchy-filter-flat .hierarchy-filter-group-row {
+  grid-template-columns: minmax(0, 1fr);
+  padding-left: 0.65rem;
+}
+
+.hierarchy-filter-flat .hierarchy-filter-expand {
+  display: none;
+}
+
+.hierarchy-filter-flat .hierarchy-filter-group-name {
+  font-weight: 600;
+}

@@ -39,7 +39,8 @@ function HierarchyFilter({
   makeChildToken,
   getTokenLabel,
   loading = false,
-  warning = ''
+  warning = '',
+  flat = false
 }) {
   const rootRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -165,7 +166,7 @@ function HierarchyFilter({
   })();
 
   return (
-    <div className="hierarchy-filter" ref={rootRef}>
+    <div className={`hierarchy-filter${flat ? ' hierarchy-filter-flat' : ''}`} ref={rootRef}>
       <div className="hierarchy-filter-control-wrap">
         <button
           id={inputId}
@@ -584,6 +585,62 @@ export function BusinessUnitHierarchyFilter({
         makeBusinessUnitChildToken(entry.matchParent ?? entry.parent, child)
       }
       getTokenLabel={(token) => parseBusinessUnitFilterToken(token).label}
+    />
+  );
+}
+
+
+export function FlatCheckboxFilter({
+  options = [],
+  value = [],
+  onChange,
+  allLabel = 'All options',
+  inputId = 'global-filter-flat',
+  ariaLabel = 'Filter dashboard',
+  menuAriaLabel = 'Filter options',
+  searchPlaceholder = 'Search options',
+  searchAriaLabel = 'Search options'
+}) {
+  const normalizedOptions = useMemo(() => [...new Set(
+    (Array.isArray(options) ? options : [])
+      .map(normalizeLabel)
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right)), [options]);
+
+  const optionByKey = useMemo(
+    () => new Map(normalizedOptions.map((option) => [normalizeKey(option), option])),
+    [normalizedOptions]
+  );
+
+  const canonicalValue = useMemo(() => [...new Set(
+    (Array.isArray(value) ? value : [])
+      .map((selectedValue) => {
+        const normalizedValue = normalizeLabel(selectedValue);
+        return optionByKey.get(normalizeKey(normalizedValue)) ?? normalizedValue;
+      })
+      .filter(Boolean)
+  )], [value, optionByKey]);
+
+  const entries = useMemo(
+    () => normalizedOptions.map((option) => ({ parent: option, children: [] })),
+    [normalizedOptions]
+  );
+
+  return (
+    <HierarchyFilter
+      entries={entries}
+      value={canonicalValue}
+      onChange={onChange}
+      allLabel={allLabel}
+      inputId={inputId}
+      ariaLabel={ariaLabel}
+      menuAriaLabel={menuAriaLabel}
+      searchPlaceholder={searchPlaceholder}
+      searchAriaLabel={searchAriaLabel}
+      makeParentToken={(entry) => entry.parent}
+      makeChildToken={() => ''}
+      getTokenLabel={(token) => normalizeLabel(token)}
+      flat
     />
   );
 }

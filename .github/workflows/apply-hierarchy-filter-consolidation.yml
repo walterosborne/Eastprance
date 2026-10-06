@@ -1,0 +1,42 @@
+name: Apply hierarchy filter consolidation
+
+on:
+  push:
+    branches:
+      - entraid
+    paths:
+      - .github/workflows/apply-hierarchy-filter-consolidation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: entraid
+          fetch-depth: 0
+
+      - name: Apply source patch
+        run: node tools/apply-hierarchy-filter-consolidation.mjs
+
+      - name: Validate patch
+        run: |
+          git diff --check
+          npm ci
+          npm run build
+
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Consolidate hierarchy filters and align chevrons"
+          git push origin HEAD:entraid

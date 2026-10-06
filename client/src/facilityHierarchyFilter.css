@@ -1,0 +1,249 @@
+.facility-hierarchy-filter {
+  position: relative;
+  min-width: 0;
+}
+
+.facility-hierarchy-control-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.facility-hierarchy-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 40px;
+  padding: 0.4rem 2.2rem 0.4rem 0.72rem;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--input-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.facility-hierarchy-control:hover,
+.facility-hierarchy-control-open {
+  border-color: var(--selected-bg);
+}
+
+.facility-hierarchy-control:focus-visible,
+.facility-hierarchy-clear:focus-visible,
+.facility-hierarchy-expand:focus-visible,
+.facility-hierarchy-search:focus-visible {
+  outline: 2px solid var(--selected-bg);
+  outline-offset: 2px;
+}
+
+.facility-hierarchy-summary {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facility-hierarchy-summary-placeholder {
+  color: var(--text-secondary);
+}
+
+.facility-hierarchy-chevron {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  transform: translateY(-1px);
+}
+
+.facility-hierarchy-clear {
+  position: absolute;
+  top: 50%;
+  right: 1.55rem;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.facility-hierarchy-clear:hover {
+  background: var(--surface-soft);
+  color: var(--text-primary);
+}
+
+.facility-hierarchy-menu {
+  position: absolute;
+  z-index: 1500;
+  top: calc(100% + 5px);
+  left: 0;
+  width: max(100%, 360px);
+  max-width: min(520px, calc(100vw - 2rem));
+  max-height: min(520px, 65vh);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--input-bg);
+  color: var(--input-text);
+  box-shadow: 0 16px 36px var(--popover-shadow);
+}
+
+.facility-hierarchy-search-wrap {
+  padding: 0.55rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--input-bg);
+}
+
+.facility-hierarchy-search {
+  width: 100%;
+  min-height: 36px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--input-text);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.facility-hierarchy-list {
+  max-height: min(430px, 54vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem 0;
+}
+
+.facility-hierarchy-group {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.facility-hierarchy-group:last-child {
+  border-bottom: 0;
+}
+
+.facility-hierarchy-group-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  min-height: 38px;
+  padding: 0.15rem 0.5rem 0.15rem 0.25rem;
+}
+
+.facility-hierarchy-group-row:hover,
+.facility-hierarchy-child:hover {
+  background: var(--surface-muted);
+}
+
+.facility-hierarchy-expand {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.facility-hierarchy-expand:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--text-primary);
+}
+
+.facility-hierarchy-expand:disabled {
+  cursor: default;
+}
+
+.facility-hierarchy-group-label,
+.facility-hierarchy-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.facility-hierarchy-group-label input,
+.facility-hierarchy-child input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--selected-bg);
+}
+
+.facility-hierarchy-group-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.79rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facility-hierarchy-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0.1rem 0.38rem;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.facility-hierarchy-children {
+  padding: 0 0 0.25rem 2.1rem;
+}
+
+.facility-hierarchy-child {
+  min-height: 32px;
+  padding: 0.2rem 0.65rem 0.2rem 0.55rem;
+  border-radius: 7px 0 0 7px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.facility-hierarchy-child span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facility-hierarchy-empty,
+.facility-hierarchy-warning {
+  padding: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  text-align: center;
+}
+
+.facility-hierarchy-warning {
+  border-top: 1px solid var(--border);
+  background: var(--surface-muted);
+  text-align: left;
+}
+
+@media (max-width: 720px) {
+  .facility-hierarchy-menu {
+    width: 100%;
+    max-width: none;
+  }
+}

@@ -39,6 +39,29 @@ function normalizeLookupKey(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function buildHierarchy(entries) {
+  const groupsByKey = new Map();
+
+  entries.forEach(({ original, group }) => {
+    const groupKey = normalizeLookupKey(group);
+    const existingGroup = groupsByKey.get(groupKey) ?? {
+      group,
+      originals: []
+    };
+
+    existingGroup.originals.push(original);
+    groupsByKey.set(groupKey, existingGroup);
+  });
+
+  return [...groupsByKey.values()]
+    .map((groupEntry) => ({
+      ...groupEntry,
+      originals: [...new Set(groupEntry.originals)]
+        .sort((left, right) => left.localeCompare(right))
+    }))
+    .sort((left, right) => left.group.localeCompare(right.group));
+}
+
 async function loadFacilityGroupings() {
   const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig();
@@ -75,6 +98,7 @@ async function loadFacilityGroupings() {
     `);
 
     const lookup = new Map();
+    const entries = [];
     let duplicateCount = 0;
 
     result.recordset.forEach((row) => {
@@ -93,7 +117,7 @@ async function loadFacilityGroupings() {
 
         if (normalizeLookupKey(existingGroup) !== normalizeLookupKey(group)) {
           throw new Error(
-            `Facility grouping table contains conflicting groups for one Original value.`
+            'Facility grouping table contains conflicting groups for one Original value.'
           );
         }
 
@@ -101,12 +125,17 @@ async function loadFacilityGroupings() {
       }
 
       lookup.set(key, group);
+      entries.push({ original, group });
     });
 
+    const groups = buildHierarchy(entries);
     const payload = {
       lookup,
+      entries,
+      groups,
       rowCount: result.recordset.length,
       mappedFacilityCount: lookup.size,
+      groupCount: groups.length,
       duplicateCount,
       loadedAt: Date.now()
     };
@@ -115,6 +144,7 @@ async function loadFacilityGroupings() {
       tableName: FACILITY_GROUPINGS_TABLE_NAME,
       rowCount: payload.rowCount,
       mappedFacilityCount: payload.mappedFacilityCount,
+      groupCount: payload.groupCount,
       duplicateCount,
       duration: formatDuration(stopTimer())
     });
@@ -151,6 +181,20 @@ async function getFacilityGroupings() {
   return facilityGroupingsLoadPromise;
 }
 
+export async function readFacilityGroupingHierarchy() {
+  const payload = await getFacilityGroupings();
+
+  return {
+    source: 'mssql',
+    tableName: FACILITY_GROUPINGS_TABLE_NAME,
+    rowCount: payload.rowCount,
+    mappedFacilityCount: payload.mappedFacilityCount,
+    groupCount: payload.groupCount,
+    duplicateCount: payload.duplicateCount,
+    groups: payload.groups
+  };
+}
+
 export async function applyFacilityGroupingsToPayload(payload, scope) {
   const facilityFields = FACILITY_FIELDS_BY_SCOPE[scope] ?? [];
 
@@ -164,6 +208,7 @@ export async function applyFacilityGroupingsToPayload(payload, scope) {
 
   const rows = payload.rows.map((row) => {
     let groupedRow = row;
+    let rememberedOriginal = normalizeText(row.__facility_original);
 
     facilityFields.forEach((fieldName) => {
       if (!Object.prototype.hasOwnProperty.call(row, fieldName)) {
@@ -176,6 +221,15 @@ export async function applyFacilityGroupingsToPayload(payload, scope) {
         return;
       }
 
+      if (groupedRow === row) {
+        groupedRow = { ...row };
+      }
+
+      if (!rememberedOriginal) {
+        rememberedOriginal = original;
+        groupedRow.__facility_original = original;
+      }
+
       const groupedFacility = lookup.get(normalizeLookupKey(original));
 
       if (!groupedFacility) {
@@ -183,11 +237,8 @@ export async function applyFacilityGroupingsToPayload(payload, scope) {
         return;
       }
 
-      if (groupedRow === row) {
-        groupedRow = { ...row };
-      }
-
       groupedRow[fieldName] = groupedFacility;
+      groupedRow.__facility_group = groupedFacility;
       mappedValueCount += 1;
     });
 

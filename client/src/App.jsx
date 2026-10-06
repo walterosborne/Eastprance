@@ -62,10 +62,14 @@ import {
 } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
-import FacilityHierarchyFilter from './FacilityHierarchyFilter';
-import BusinessUnitHierarchyFilter from './BusinessUnitHierarchyFilter';
-import { facilityFilterMatches } from './facilityFilterUtils';
-import { businessUnitFilterMatches } from './businessUnitFilterUtils';
+import {
+  BusinessUnitHierarchyFilter,
+  FacilityHierarchyFilter
+} from './HierarchyFilters';
+import {
+  businessUnitFilterMatches,
+  facilityFilterMatches
+} from './hierarchyFilterUtils';
 
 const ALL_FILTER_VALUE = '__all__';
 const PALETTE_MAX_GROUPS = 20;

@@ -6420,6 +6420,7 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
+  const sifHasIncidents = sifChartData.some((bucket) => Number(bucket.total) > 0);
   const sifForecastCalculation = useCalculatedMetricGoalLine({
     metricKey: 'sif-forecast',
     timeline: sifViewMode,
@@ -6507,6 +6508,7 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
+  const potentialSifHasIncidents = potentialSifChartData.some((bucket) => Number(bucket.total) > 0);
   const potentialSifForecastCalculation = useCalculatedMetricGoalLine({
     metricKey: 'potential-sif-forecast',
     timeline: potentialSifViewMode,
@@ -8547,10 +8549,10 @@ export default function App() {
                               : globallyFilteredControllableCostsRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsState.rows.length === 0
-                              ? 'No controllable cost rows are available for charting.'
+                              ? 'No controllable costs are available for charting.'
                               : filteredControllableCostsRows.length === 0 && controllableFilterApplies
-                                ? 'No controllable cost rows match the selected filters.'
-                                : 'No controllable cost rows fall within the selected date range.'}
+                                ? 'No controllable costs were found for the selected filters.'
+                                : 'No controllable costs were found in the selected date range.'}
                           </p>
                         )}
 
@@ -8761,8 +8763,8 @@ export default function App() {
                               ? 'No SAP transactions matched the selected cost centers and date range.'
                               : filteredControllableCostsNewRows.length === 0
                                 && controllableNewFilterApplies
-                                ? 'No controllable cost rows match the selected filters.'
-                                : 'No controllable cost rows fall within the selected date range.'}
+                                ? 'No controllable costs were found for the selected filters.'
+                                : 'No controllable costs were found in the selected date range.'}
                           </p>
                         )}
 
@@ -8983,11 +8985,11 @@ export default function App() {
                               : globallyFilteredControllableCostsHanaRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsHanaState.rows.length === 0
-                              ? 'No HANA cost rows are available for charting.'
+                              ? 'No HANA costs are available for charting.'
                               : filteredControllableCostsHanaRows.length === 0
                                 && controllableHanaFilterApplies
-                                ? 'No HANA cost rows match the selected filters.'
-                                : 'No HANA cost rows fall within the selected date range.'}
+                                ? 'No HANA costs were found for the selected filters.'
+                                : 'No HANA costs were found in the selected date range.'}
                           </p>
                         )}
 
@@ -9177,13 +9179,15 @@ export default function App() {
                             ? sifParetoChartData.labels.length === 0
                             : isSifPalette
                               ? sifPaletteChartData.labels.length === 0
-                              : globallyFilteredSifRows.length === 0)) && (
+                              : globallyFilteredSifRows.length === 0 || !sifHasIncidents)) && (
                           <p className="chart-message">
                             {sifState.rows.length === 0
-                              ? 'No Defense SIF rows are available for charting.'
-                              : filteredSifRows.length === 0 && !isSifPareto && !isSifPalette
-                                ? 'No Defense SIF rows match the selected filters.'
-                                : 'No Defense SIF rows fall within the selected date range.'}
+                              ? 'No SIFs are available for charting.'
+                              : !sifHasIncidents && !isSifPareto && !isSifPalette
+                                ? 'No SIFs were found for the selected criteria.'
+                                : filteredSifRows.length === 0 && !isSifPareto && !isSifPalette
+                                  ? 'No SIFs were found for the selected criteria.'
+                                  : 'No SIFs were found in the selected date range.'}
                           </p>
                         )}
 
@@ -9193,7 +9197,7 @@ export default function App() {
                           ? sifParetoChartData.labels.length > 0
                           : isSifPalette
                             ? sifPaletteChartData.labels.length > 0
-                            : sifChartData.length > 0) &&
+                            : sifChartData.length > 0 && sifHasIncidents) &&
                         sifChartWidth > 0 && (
                           isSifPareto ? (
                             <ParetoMetricChart
@@ -9375,13 +9379,15 @@ export default function App() {
                             ? potentialSifParetoChartData.labels.length === 0
                             : isPotentialSifPalette
                               ? potentialSifPaletteChartData.labels.length === 0
-                              : globallyFilteredPotentialSifRows.length === 0)) && (
+                              : globallyFilteredPotentialSifRows.length === 0 || !potentialSifHasIncidents)) && (
                           <p className="chart-message">
                             {potentialSifState.rows.length === 0
-                              ? 'No Defense potential SIF rows are available for charting.'
-                              : filteredPotentialSifRows.length === 0 && !isPotentialSifPareto && !isPotentialSifPalette
-                                ? 'No Defense potential SIF rows match the selected filters.'
-                                : 'No Defense potential SIF rows fall within the selected date range.'}
+                              ? 'No pSIFs are available for charting.'
+                              : !potentialSifHasIncidents && !isPotentialSifPareto && !isPotentialSifPalette
+                                ? 'No pSIFs were found for the selected criteria.'
+                                : filteredPotentialSifRows.length === 0 && !isPotentialSifPareto && !isPotentialSifPalette
+                                  ? 'No pSIFs were found for the selected criteria.'
+                                  : 'No pSIFs were found in the selected date range.'}
                           </p>
                         )}
 
@@ -9391,7 +9397,7 @@ export default function App() {
                           ? potentialSifParetoChartData.labels.length > 0
                           : isPotentialSifPalette
                             ? potentialSifPaletteChartData.labels.length > 0
-                            : potentialSifChartData.length > 0) &&
+                            : potentialSifChartData.length > 0 && potentialSifHasIncidents) &&
                         potentialSifChartWidth > 0 && (
                           isPotentialSifPareto ? (
                             <ParetoMetricChart
@@ -9568,10 +9574,10 @@ export default function App() {
                               : globallyFilteredNmfrRows.length === 0)) && (
                           <p className="chart-message">
                             {nmfrState.rows.length === 0
-                              ? 'No Defense NMFR rows are available for charting.'
+                              ? 'No near-miss data are available for charting.'
                               : filteredNmfrRows.length === 0 && !isNmfrPareto && !isNmfrPalette
-                                ? 'No Defense NMFR rows match the selected filters.'
-                                : 'No Defense NMFR rows fall within the selected date range.'}
+                                ? 'No near misses were found for the selected filters.'
+                                : 'No near misses were found in the selected date range.'}
                           </p>
                         )}
 
@@ -9758,9 +9764,9 @@ export default function App() {
                               : otdChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {otdState.rows.length === 0
-                              ? 'No OTD rows are available for charting.'
+                              ? 'No OTD data are available for charting.'
                               : filteredOtdRows.length === 0 && otdFilterApplies
-                                ? 'No OTD rows match the selected filters.'
+                                ? 'No OTD data were found for the selected filters.'
                                 : 'No OTD months fall within the selected date range.'}
                           </p>
                         )}
@@ -9972,9 +9978,9 @@ export default function App() {
                               : filteredLaborRows.length === 0 || laborChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {laborState.rows.length === 0
-                              ? 'No labor rows are available for charting.'
+                              ? 'No labor data are available for charting.'
                               : filteredLaborRows.length === 0 && laborFilterApplies
-                                ? 'No labor rows match the selected filters.'
+                                ? 'No labor data were found for the selected filters.'
                                 : !laborHasChartValues
                                   ? 'No labor values are available for the selected date range.'
                                   : 'No labor months fall within the selected date range.'}
@@ -10176,14 +10182,14 @@ export default function App() {
                               || laborNewChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {laborNewState.rows.length === 0
-                              ? 'No labor utilization rows are available for charting.'
+                              ? 'No labor utilization data are available for charting.'
                               : filteredLaborNewRows.length === 0 && laborNewFilterApplies
-                                ? 'No labor rows match the selected filters.'
+                                ? 'No labor data were found for the selected filters.'
                                 : visibleLaborNewRows.length === 0
-                                  ? 'No labor rows fall within the selected date range.'
+                                  ? 'No labor data were found in the selected date range.'
                                   : !laborNewHasChartValues
                                     ? 'No labor values are available for the selected date range.'
-                                    : 'No Labor Direct or Labor Indirect rows are available to chart.'}
+                                    : 'No Labor Direct or Labor Indirect data are available to chart.'}
                           </p>
                         )}
 
@@ -10389,9 +10395,9 @@ export default function App() {
                               || laborHanaChartData.labels.length === 0)) && (
                           <p className="chart-message">
                             {laborHanaState.rows.length === 0
-                              ? 'No HANA labor rows are available for charting.'
+                              ? 'No HANA labor data are available for charting.'
                               : filteredLaborHanaRows.length === 0 && laborHanaFilterApplies
-                                ? 'No HANA labor rows match the selected filters.'
+                                ? 'No HANA labor data were found for the selected filters.'
                                 : !laborHanaHasChartValues
                                   ? 'No HANA labor values are available for the selected date range.'
                                   : 'No HANA labor months fall within the selected date range.'}

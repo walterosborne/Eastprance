@@ -52,10 +52,27 @@
 }
 
 .facility-hierarchy-chevron {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 50%;
+  right: 0.68rem;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
   color: var(--text-secondary);
-  font-size: 1rem;
-  transform: translateY(-1px);
+  font-size: 0;
+  line-height: 1;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.facility-hierarchy-chevron::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
 }
 
 .facility-hierarchy-clear {

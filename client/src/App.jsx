@@ -62,6 +62,8 @@ import {
 } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
+import FacilityHierarchyFilter from './FacilityHierarchyFilter';
+import { facilityFilterMatches } from './facilityFilterUtils';
 
 const ALL_FILTER_VALUE = '__all__';
 const PALETTE_MAX_GROUPS = 20;
@@ -1373,12 +1375,13 @@ function normalizeGlobalFilters(value, optionsByDimension = null) {
       ));
       const availableOptions = optionsByDimension?.[key];
 
-      return [
-        key,
-        Array.isArray(availableOptions)
+      const normalizedSelectedValues = key === 'facility'
+        ? selectedValues
+        : Array.isArray(availableOptions)
           ? selectedValues.filter((selectedValue) => availableOptions.includes(selectedValue))
-          : selectedValues
-      ];
+          : selectedValues;
+
+      return [key, normalizedSelectedValues];
     })
   );
 }
@@ -1416,7 +1419,20 @@ function applyGlobalFilters(rows, metricKey, globalFilters) {
         return false;
       }
 
-      return selectedValues.includes(normalizeDimensionValue(key, row?.[fieldName]));
+      const normalizedRowValue = normalizeDimensionValue(key, row?.[fieldName]);
+
+      if (key === 'facility') {
+        const originalFacilityValue = normalizeDimensionValue(
+          key,
+          row?.__facility_original ?? row?.[fieldName]
+        );
+
+        return selectedValues.some((selectedValue) =>
+          facilityFilterMatches(selectedValue, normalizedRowValue, originalFacilityValue)
+        );
+      }
+
+      return selectedValues.includes(normalizedRowValue);
     }))
     .map((row) => {
       const updates = {};
@@ -4812,6 +4828,23 @@ function resolvePresetDateRangeIndices(availableTimelineStamps, presetState) {
 }
 
 function GlobalFilterField({ dimension, options, value, onChange }) {
+  if (dimension.key === 'facility') {
+    return (
+      <div className="global-filter-field">
+        <label className="global-filter-field-label" htmlFor={`global-filter-${dimension.key}`}>
+          {dimension.label}
+        </label>
+        <FacilityHierarchyFilter
+          inputId={`global-filter-${dimension.key}`}
+          options={options}
+          value={value}
+          allLabel={dimension.allLabel}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
+
   const selectOptions = options.map((option) => ({
     value: option,
     label: option

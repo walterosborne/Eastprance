@@ -41,7 +41,10 @@ import {
   readDashboardPresetsOverview,
   saveDashboardPreset
 } from './dashboardPresetsRepository.js';
-import { applyFacilityGroupingsToPayload } from './facilityGroupingsRepository.js';
+import {
+  applyFacilityGroupingsToPayload,
+  readFacilityGroupingHierarchy
+} from './facilityGroupingsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
 import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
@@ -178,6 +181,16 @@ async function sendDatasetResponse(request, response, scope, loadDataset, failur
     });
   }
 }
+
+app.get('/api/facility-groupings', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'facility-groupings',
+    readFacilityGroupingHierarchy,
+    'Unable to read facility groupings.'
+  );
+});
 
 app.get('/api/health', (_request, response) => {
   const entraConfig = getEntraApplicationConfig();

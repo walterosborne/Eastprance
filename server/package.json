@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:data": "node generateDummyWorkbooks.js",
+    "test:databricks": "node databricksTest.js",
     "dev": "node --watch start.js",
     "start": "NODE_ENV=production node start.js"
   },

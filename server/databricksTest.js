@@ -31,15 +31,56 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function networkFailureMessage(error, url) {
+  const cause = error?.cause;
+  const code = cause?.code || cause?.errno || error?.code || '';
+  const detail = cause?.message || error?.message || String(error);
+
+  const hints = [];
+  if (['ENOTFOUND', 'EAI_AGAIN'].includes(code)) {
+    hints.push('DNS could not resolve the Databricks hostname. Re-copy Server hostname from Connection details.');
+  }
+  if (
+    String(code).includes('CERT') ||
+    String(code).includes('TLS') ||
+    /certificate|self[- ]signed|unable to verify/i.test(detail)
+  ) {
+    hints.push('TLS certificate validation failed. A corporate CA may need to be supplied to Node with NODE_EXTRA_CA_CERTS.');
+  }
+  if (['ECONNREFUSED', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT'].includes(code)) {
+    hints.push('The HTTPS connection could not be established. Check VPN/firewall/proxy access to Databricks on port 443.');
+  }
+
+  const lines = [
+    `Unable to reach Databricks endpoint: ${url}`,
+    `Network error${code ? ` (${code})` : ''}: ${detail}`
+  ];
+
+  if (hints.length > 0) {
+    lines.push(...hints.map((hint) => `Hint: ${hint}`));
+  } else {
+    lines.push('Hint: This failed before Databricks returned an HTTP response, so the PAT and warehouse have not been validated yet.');
+  }
+
+  return new Error(lines.join('\n'), { cause: error });
+}
+
 async function databricksRequest({ host, token }, path, options = {}) {
-  const response = await fetch(`https://${host}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    }
-  });
+  const url = `https://${host}${path}`;
+  let response;
+
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      }
+    });
+  } catch (error) {
+    throw networkFailureMessage(error, url);
+  }
 
   const text = await response.text();
   let body = {};

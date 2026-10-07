@@ -1,0 +1,82 @@
+SET NOCOUNT ON;
+
+
+/* ============================================================
+   RESULT 1 — OLD DASHBOARD Q1 TOTAL
+
+   Reproduces the exact Cost Element filter currently used
+   by server/controllableCostsRepository.js.
+   ============================================================ */
+
+SELECT
+    SUM(TRY_CONVERT(decimal(38,2), [Cost]))
+        AS OLD_DASHBOARD_Q1_COST
+
+FROM ecosystem_source.qmi.controllable_costs
+
+WHERE TRY_CONVERT(int, [Year]) = 2026
+
+  AND UPPER(
+        LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))
+      ) = 'Q1'
+
+  AND TRY_CONVERT(
+        decimal(19,2),
+        NULLIF(
+            LTRIM(RTRIM(CONVERT(varchar(100), [Cost Element]))),
+            ''
+        )
+      ) IS NOT NULL;
+
+
+/* ============================================================
+   RESULT 2 — FULL LEGACY Q1 TOTAL
+
+   Shows how much the old dashboard filter is discarding.
+   ============================================================ */
+
+SELECT
+    SUM(TRY_CONVERT(decimal(38,2), [Cost]))
+        AS FULL_LEGACY_Q1_COST
+
+FROM ecosystem_source.qmi.controllable_costs
+
+WHERE TRY_CONVERT(int, [Year]) = 2026
+
+  AND UPPER(
+        LTRIM(RTRIM(CONVERT(nvarchar(100), [Quarter])))
+      ) = 'Q1';
+
+
+/* ============================================================
+   RESULT 3 — NEW DASHBOARD Q1 TOTAL
+
+   This is what the right card is essentially summing.
+   ============================================================ */
+
+SELECT
+    SUM(cost)
+        AS NEW_DASHBOARD_Q1_COST
+
+FROM ecosystem_source.qmi.controllable_costs_new_extract
+
+WHERE [year] = 2026
+  AND [month] BETWEEN 1 AND 3;
+
+
+/* ============================================================
+   RESULT 4 — BREAK NEW TOTAL DOWN BY DIVISION
+   ============================================================ */
+
+SELECT
+    division,
+    SUM(cost) AS Q1_COST
+
+FROM ecosystem_source.qmi.controllable_costs_new_extract
+
+WHERE [year] = 2026
+  AND [month] BETWEEN 1 AND 3
+
+GROUP BY division
+
+ORDER BY SUM(cost) DESC;

@@ -23,6 +23,18 @@ export default defineConfig(() => {
     server: {
       port: 5173,
       proxy: {
+        '/dbm-diagnostics': {
+          target: `http://${apiHost}:${apiPort}`,
+          changeOrigin: true
+        },
+        '/cost-diagnostics': {
+          target: `http://${apiHost}:${apiPort}`,
+          changeOrigin: true
+        },
+        '/labor-diagnostics': {
+          target: `http://${apiHost}:${apiPort}`,
+          changeOrigin: true
+        },
         '/headers': {
           target: `http://${apiHost}:${apiPort}`,
           changeOrigin: true

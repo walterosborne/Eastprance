@@ -1,10 +1,20 @@
-import { DEFAULT_GOAL_LABEL } from './metricGoals';
+import { DEFAULT_GOAL_LABEL } from './metricGoals.js';
 
-const NMFR_ARIMA_MIN_OBSERVATIONS = 10;
+const CALCULATED_GOAL_MIN_OBSERVATIONS = 10;
 const NMFR_GOAL_CHALLENGE_RATIO = 0.03;
+const AVERAGE_FALLBACK_CHALLENGE_RATIO = 0.03;
+const OTD_GOAL_CHALLENGE_RATIO = 0.03;
+const OTD_RECENT_BASELINE_MONTHS = 6;
+const OTD_MAX_FORECAST_DEVIATION = 0.2;
 const NMFR_ARIMA_OPTIONS = Object.freeze({
   p: 1,
-  d: 1,
+  d: 0,
+  q: 1,
+  verbose: false
+});
+const OTD_ARIMA_OPTIONS = Object.freeze({
+  p: 1,
+  d: 0,
   q: 1,
   verbose: false
 });
@@ -21,6 +31,56 @@ function roundRate(value) {
   return Number(value.toFixed(2));
 }
 
+function roundShare(value) {
+  return Number(value.toFixed(4));
+}
+
+function roundCurrency(value) {
+  return Number(value.toFixed(2));
+}
+
+function getMedian(values) {
+  const sortedValues = [...values].sort((left, right) => left - right);
+  const middleIndex = Math.floor(sortedValues.length / 2);
+
+  return sortedValues.length % 2 === 0
+    ? (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2
+    : sortedValues[middleIndex];
+}
+
+function buildAverageFallbackGoalLine(
+  numericSeries,
+  {
+    roundValue,
+    minValue = 0,
+    maxValue = Number.POSITIVE_INFINITY
+  }
+) {
+  if (numericSeries.length === 0) {
+    return null;
+  }
+
+  const averageValue = numericSeries.reduce((sum, value) => sum + value, 0)
+    / numericSeries.length;
+  const boundedAverageValue = Math.min(maxValue, Math.max(minValue, averageValue));
+  const goalValue = Math.min(
+    maxValue,
+    Math.max(minValue, boundedAverageValue * (1 + AVERAGE_FALLBACK_CHALLENGE_RATIO))
+  );
+
+  return {
+    label: DEFAULT_GOAL_LABEL,
+    value: roundValue(goalValue),
+    expectedValue: roundValue(boundedAverageValue),
+    averageValue: roundValue(boundedAverageValue),
+    goalValue: roundValue(goalValue),
+    challengePercent: Number((AVERAGE_FALLBACK_CHALLENGE_RATIO * 100).toFixed(2)),
+    observationCount: numericSeries.length,
+    status: 'average_fallback',
+    method: 'average'
+  };
+}
+
 async function loadArimaConstructor() {
   if (!arimaConstructorPromise) {
     arimaConstructorPromise = import('arima/async')
@@ -32,11 +92,94 @@ async function loadArimaConstructor() {
   return arimaConstructorPromise;
 }
 
+async function forecastStandardGoalLineFromSeries(
+  seriesValues,
+  {
+    roundValue,
+    minValue = 0,
+    maxValue = Number.POSITIVE_INFINITY,
+    challengeDirection = 'increase'
+  }
+) {
+  const numericSeries = normalizeSeries(seriesValues).map((value) =>
+    Math.min(maxValue, Math.max(minValue, value))
+  );
+
+  if (numericSeries.length < CALCULATED_GOAL_MIN_OBSERVATIONS) {
+    return buildAverageFallbackGoalLine(numericSeries, {
+      roundValue,
+      minValue,
+      maxValue
+    });
+  }
+
+  const ARIMA = await loadArimaConstructor();
+  let model = null;
+
+  try {
+    model = new ARIMA(NMFR_ARIMA_OPTIONS).train(numericSeries);
+    const [predictions] = model.predict(1);
+    const predictedValue = Number(predictions?.[0]);
+
+    if (!Number.isFinite(predictedValue)) {
+      return null;
+    }
+
+    const boundedPrediction = Math.min(maxValue, Math.max(minValue, predictedValue));
+    const expectedValue = roundValue(boundedPrediction);
+    const challengeMultiplier = challengeDirection === 'decrease'
+      ? 1 - AVERAGE_FALLBACK_CHALLENGE_RATIO
+      : 1 + AVERAGE_FALLBACK_CHALLENGE_RATIO;
+    const goalValue = roundValue(
+      Math.min(maxValue, Math.max(minValue, boundedPrediction * challengeMultiplier))
+    );
+    const challengePercent = expectedValue > 0
+      ? Number((Math.abs((goalValue / expectedValue) - 1) * 100).toFixed(2))
+      : 0;
+
+    return {
+      label: DEFAULT_GOAL_LABEL,
+      value: goalValue,
+      expectedValue,
+      goalValue,
+      challengePercent,
+      observationCount: numericSeries.length,
+      status: 'ready',
+      method: 'arima'
+    };
+  } finally {
+    model?.destroy?.();
+  }
+}
+
+export function forecastControllableCostsGoalLineFromSeries(seriesValues) {
+  return forecastStandardGoalLineFromSeries(seriesValues, {
+    roundValue: roundCurrency,
+    minValue: Number.NEGATIVE_INFINITY,
+    challengeDirection: 'decrease'
+  });
+}
+
+export function forecastLaborGoalLineFromSeries(seriesValues) {
+  return forecastStandardGoalLineFromSeries(seriesValues, {
+    roundValue: roundShare,
+    maxValue: 1
+  });
+}
+
+export function forecastIncidentGoalLineFromSeries(seriesValues) {
+  return forecastStandardGoalLineFromSeries(seriesValues, {
+    roundValue: roundRate
+  });
+}
+
 export async function forecastNmfrGoalLineFromSeries(seriesValues) {
   const numericSeries = normalizeSeries(seriesValues);
 
-  if (numericSeries.length < NMFR_ARIMA_MIN_OBSERVATIONS) {
-    return null;
+  if (numericSeries.length < CALCULATED_GOAL_MIN_OBSERVATIONS) {
+    return buildAverageFallbackGoalLine(numericSeries, {
+      roundValue: roundRate
+    });
   }
 
   const ARIMA = await loadArimaConstructor();
@@ -60,11 +203,78 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
       value: goalValue,
       expectedValue,
       goalValue,
-      challengePercent
+      challengePercent,
+      status: 'ready',
+      method: 'arima'
     };
   } finally {
     model?.destroy?.();
   }
 }
 
-export { NMFR_ARIMA_MIN_OBSERVATIONS };
+export async function forecastOtdGoalLineFromSeries(seriesValues) {
+  const numericSeries = normalizeSeries(seriesValues).map((value) =>
+    Math.min(1, Math.max(0, value))
+  );
+
+  if (numericSeries.length < CALCULATED_GOAL_MIN_OBSERVATIONS) {
+    return buildAverageFallbackGoalLine(numericSeries, {
+      roundValue: roundShare,
+      maxValue: 1
+    });
+  }
+
+  const ARIMA = await loadArimaConstructor();
+  let model = null;
+
+  try {
+    const percentagePointSeries = numericSeries.map((value) => value * 100);
+    const recentBaselineValue = getMedian(
+      numericSeries.slice(-OTD_RECENT_BASELINE_MONTHS)
+    );
+
+    model = new ARIMA(OTD_ARIMA_OPTIONS).train(percentagePointSeries);
+    const [predictions] = model.predict(1);
+    const predictedValue = Number(predictions?.[0]) / 100;
+
+    if (!Number.isFinite(predictedValue)) {
+      return null;
+    }
+
+    const boundedPrediction = Math.min(1, Math.max(0, predictedValue));
+    const usedRecentBaseline =
+      Math.abs(boundedPrediction - recentBaselineValue) > OTD_MAX_FORECAST_DEVIATION;
+    const expectedValue = roundShare(
+      usedRecentBaseline ? recentBaselineValue : boundedPrediction
+    );
+    const goalValue = roundShare(
+      Math.min(1, expectedValue * (1 + OTD_GOAL_CHALLENGE_RATIO))
+    );
+    const challengePercent = expectedValue > 0
+      ? Number((((goalValue / expectedValue) - 1) * 100).toFixed(2))
+      : 0;
+
+    return {
+      label: DEFAULT_GOAL_LABEL,
+      value: goalValue,
+      expectedValue,
+      goalValue,
+      challengePercent,
+      rawExpectedValue: roundShare(boundedPrediction),
+      recentBaselineValue: roundShare(recentBaselineValue),
+      usedRecentBaseline,
+      status: 'ready',
+      method: 'arima'
+    };
+  } finally {
+    model?.destroy?.();
+  }
+}
+
+export async function forecastLaborHanaGoalLineFromSeries(seriesValues) {
+  return forecastLaborGoalLineFromSeries(seriesValues);
+}
+
+export {
+  CALCULATED_GOAL_MIN_OBSERVATIONS
+};

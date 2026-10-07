@@ -1,54 +1,50 @@
 export const HARDCODED_NETWORK_ID = 'N35589';
+export const IDENTITY_DIAGNOSTICS_VERSION = 'entra-graph-2026-08-20.1';
+export const AUTHENTICATION_EXPIRED_ERROR = 'authentication_expired';
+export const MICROSOFT_GRAPH_ME_URL =
+  'https://graph.microsoft.us/v1.0/me?$select=id,displayName,mail,userPrincipalName,employeeId,onPremisesSamAccountName';
+
+const MICROSOFT_GRAPH_PROFILE_PROPERTIES = [
+  'id',
+  'displayName',
+  'mail',
+  'userPrincipalName',
+  'employeeId',
+  'onPremisesSamAccountName'
+];
 
 const AUTH_CANDIDATE_FIELDS = [
-  ['auth_user', 'AUTH_USER'],
-  ['remote_user', 'REMOTE_USER'],
-  ['x_auth_header', 'X-Auth-Header'],
-  ['x_auth_user', 'X-Auth-User'],
-  ['x_client_auth_user', 'X-Client-Auth-User'],
-  ['x_remote_user', 'X-Remote-User'],
-  ['x_logon_user', 'X-Logon-User'],
-  ['x_auth_type', 'X-Auth-Type'],
-  ['x_client_auth_type', 'X-Client-Auth-Type'],
-  ['x_iis_windowsauthuserid', 'X-IIS-WindowsAuthUserId'],
-  ['x_iisnode_auth_user', 'X-IISNODE-AUTH_USER'],
+  ['x_forwarded_employeeid', 'X-Forwarded-EmployeeId'],
   ['x_forwarded_user', 'X-Forwarded-User'],
   ['x_forwarded_preferred_username', 'X-Forwarded-Preferred-Username'],
   ['x_forwarded_name', 'X-Forwarded-Name'],
   ['x_forwarded_email', 'X-Forwarded-Email'],
-  ['x_forwarded_employeeid', 'X-Forwarded-EmployeeId'],
   ['x_auth_request_user', 'X-Auth-Request-User'],
   ['x_auth_request_preferred_username', 'X-Auth-Request-Preferred-Username'],
-  ['x_auth_request_name', 'X-Auth-Request-Name'],
   ['x_auth_request_email', 'X-Auth-Request-Email'],
-  ['x_auth_request_employeeid', 'X-Auth-Request-EmployeeId'],
-  ['x_employeeid', 'X-EmployeeId'],
-  ['x_email', 'X-Email'],
-  ['x_name', 'X-Name'],
-  ['x_ms_client_principal_name', 'X-MS-CLIENT-PRINCIPAL-NAME'],
-  ['x_ms_client_principal_id', 'X-MS-CLIENT-PRINCIPAL-ID'],
-  ['x_forwarded_access_token', 'X-Forwarded-Access-Token'],
-  ['x_auth_request_access_token', 'X-Auth-Request-Access-Token'],
-  ['x_access_token', 'X-Access-Token'],
+  ['x_entra_user_object_id', 'X-Entra-User-Object-Id'],
+  ['x_entra_tenant_id', 'X-Entra-Tenant-Id'],
+  ['x_entra_application_id', 'X-Entra-Application-Id'],
   ['x_original_host', 'X-Original-Host'],
   ['x_original_url', 'X-Original-Url'],
   ['x_forwarded_host', 'X-Forwarded-Host'],
   ['x_forwarded_proto', 'X-Forwarded-Proto'],
-  ['x_forwarded_for', 'X-Forwarded-For'],
-  ['x_https', 'X-Https']
+  ['x_forwarded_for', 'X-Forwarded-For']
 ];
 
-const KEYCLOAK_EMPLOYEE_ID_CLAIMS = ['employeeid', 'employee_id', 'employeeId'];
-const KEYCLOAK_NAME_CLAIMS = ['name', 'display_name', 'displayName'];
-const KEYCLOAK_EMAIL_CLAIMS = ['email'];
-const KEYCLOAK_USERNAME_CLAIMS = ['preferred_username', 'username', 'upn'];
-const KEYCLOAK_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
-
-let discoveryCache = {
-  issuerUrl: '',
-  fetchedAt: 0,
-  metadata: null
-};
+const IDENTITY_CANDIDATE_KEYS = [
+  'x_forwarded_employeeid',
+  'x_forwarded_user',
+  'x_forwarded_preferred_username',
+  'x_forwarded_name',
+  'x_forwarded_email',
+  'x_auth_request_user',
+  'x_auth_request_preferred_username',
+  'x_auth_request_email',
+  'x_entra_user_object_id',
+  'x_entra_tenant_id',
+  'x_entra_application_id'
+];
 
 function getFirstDefinedEnvValue(...keys) {
   for (const key of keys) {
@@ -94,6 +90,25 @@ function shouldAllowHardcodedIdentityFallback() {
   );
 }
 
+function getAuthorizationScheme(request) {
+  const authorization = normalizeText(getHeaderValue(request, 'Authorization'));
+
+  return authorization ? authorization.split(/\s+/, 1)[0] : '';
+}
+
+function getCookieNames(request) {
+  const cookieHeader = normalizeText(getHeaderValue(request, 'Cookie'));
+
+  if (!cookieHeader) {
+    return [];
+  }
+
+  return cookieHeader
+    .split(';')
+    .map((cookie) => cookie.split('=', 1)[0].trim())
+    .filter(Boolean);
+}
+
 function buildHardcodedFallbackIdentity(fallbackNetworkId = HARDCODED_NETWORK_ID) {
   return {
     source: 'hardcoded-fallback',
@@ -101,49 +116,46 @@ function buildHardcodedFallbackIdentity(fallbackNetworkId = HARDCODED_NETWORK_ID
     network_id: fallbackNetworkId,
     email: '',
     name: '',
-    preferred_username: ''
+    preferred_username: '',
+    entra_user_object_id: '',
+    entra_tenant_id: '',
+    displayName: '',
+    userPrincipalName: '',
+    employeeId: '',
+    onPremisesSamAccountName: '',
+    identifier_candidates: [{
+      source: 'hardcoded-fallback',
+      value: fallbackNetworkId
+    }]
   };
 }
 
-function getKeycloakConfig() {
+export function getEntraApplicationConfig() {
   return {
-    issuerUrl: getFirstDefinedEnvValue(
-      'keycloak_issuer_url',
-      'KEYCLOAK_ISSUER_URL',
-      'oidc_issuer_url',
-      'OIDC_ISSUER_URL'
-    ),
-    introspectionUrl: getFirstDefinedEnvValue(
-      'keycloak_introspection_url',
-      'KEYCLOAK_INTROSPECTION_URL',
-      'oidc_introspection_url',
-      'OIDC_INTROSPECTION_URL'
-    ),
-    clientId: getFirstDefinedEnvValue(
-      'keycloak_client_id',
-      'KEYCLOAK_CLIENT_ID',
-      'oidc_client_id',
-      'OIDC_CLIENT_ID'
-    ),
-    clientSecret: getFirstDefinedEnvValue(
-      'keycloak_client_secret',
-      'KEYCLOAK_CLIENT_SECRET',
-      'oidc_client_secret',
-      'OIDC_CLIENT_SECRET'
-    )
+    applicationId: normalizeText(getFirstDefinedEnvValue('applicationid', 'ENTRA_APPLICATION_ID')),
+    objectId: normalizeText(getFirstDefinedEnvValue('objectid', 'ENTRA_OBJECT_ID')),
+    directoryId: normalizeText(getFirstDefinedEnvValue('directoryid', 'ENTRA_DIRECTORY_ID'))
   };
-}
-
-function isKeycloakConfigured(config = getKeycloakConfig()) {
-  return Boolean(
-    config.clientId
-    && config.clientSecret
-    && (config.issuerUrl || config.introspectionUrl)
-  );
 }
 
 export function getHeaderValue(request, name) {
   return request.get(name) ?? request.headers?.[String(name).toLowerCase()] ?? null;
+}
+
+export function getBearerToken(request) {
+  const authorization = normalizeText(getHeaderValue(request, 'Authorization'));
+  const bearerMatch = authorization.match(/^Bearer\s+(.+)$/i);
+
+  if (bearerMatch?.[1]) {
+    return bearerMatch[1].trim();
+  }
+
+  const forwardedToken = normalizeText(
+    getHeaderValue(request, 'X-Forwarded-Access-Token')
+    || getHeaderValue(request, 'X-Auth-Request-Access-Token')
+  );
+
+  return forwardedToken.replace(/^Bearer\s+/i, '').trim();
 }
 
 export function normalizePotentialNetworkId(value) {
@@ -176,294 +188,394 @@ export function normalizePotentialNetworkId(value) {
   return normalized || null;
 }
 
-function parseBearerToken(value) {
-  const normalizedValue = normalizeText(value);
-
-  if (!normalizedValue) {
-    return null;
-  }
-
-  const bearerMatch = normalizedValue.match(/^Bearer\s+(.+)$/i);
-
-  if (bearerMatch?.[1]) {
-    return bearerMatch[1].trim() || null;
-  }
-
-  if (normalizedValue.split('.').length === 3) {
-    return normalizedValue;
-  }
-
-  return null;
-}
-
-export function getBearerToken(request) {
-  const authorizationToken = parseBearerToken(getHeaderValue(request, 'Authorization'));
-
-  if (authorizationToken) {
-    return authorizationToken;
-  }
-
-  const fallbackHeaderNames = [
-    'X-Forwarded-Access-Token',
-    'X-Auth-Request-Access-Token',
-    'X-Access-Token'
-  ];
-
-  for (const headerName of fallbackHeaderNames) {
-    const headerToken = parseBearerToken(getHeaderValue(request, headerName));
-
-    if (headerToken) {
-      return headerToken;
-    }
-  }
-
-  return null;
-}
-
 export function getAuthCandidateHeaders(request) {
   return Object.fromEntries(
     AUTH_CANDIDATE_FIELDS.map(([key, headerName]) => [key, getHeaderValue(request, headerName)])
   );
 }
 
+export function getRequestIdentityDiagnostics(request) {
+  const authCandidates = getAuthCandidateHeaders(request);
+  const identityCandidates = Object.fromEntries(
+    IDENTITY_CANDIDATE_KEYS.map((key) => [key, normalizeText(authCandidates[key])])
+  );
+  const populatedIdentityFields = IDENTITY_CANDIDATE_KEYS.filter(
+    (key) => Boolean(identityCandidates[key])
+  );
+  const config = getEntraApplicationConfig();
+  const cookieNames = getCookieNames(request);
+  const likelyAuthUser = getLikelyAuthUser(authCandidates);
+
+  return {
+    requestId: request.requestId ?? null,
+    request: {
+      method: request.method,
+      path: request.originalUrl ?? request.url ?? request.path,
+      host: normalizeText(getHeaderValue(request, 'Host')),
+      forwardedHost: normalizeText(getHeaderValue(request, 'X-Forwarded-Host')),
+      forwardedProto: normalizeText(getHeaderValue(request, 'X-Forwarded-Proto')),
+      forwardedPort: normalizeText(getHeaderValue(request, 'X-Forwarded-Port')),
+      forwardedUri: normalizeText(getHeaderValue(request, 'X-Forwarded-Uri')),
+      originalUrl: normalizeText(getHeaderValue(request, 'X-Original-Url'))
+    },
+    socket: {
+      localAddress: request.socket?.localAddress ?? null,
+      localPort: request.socket?.localPort ?? null,
+      remoteAddress: request.socket?.remoteAddress ?? null,
+      remotePort: request.socket?.remotePort ?? null,
+      expectedSidecarSource: '127.0.0.1 or ::ffff:127.0.0.1'
+    },
+    identity: {
+      populatedIdentityFields,
+      candidates: identityCandidates,
+      likelyAuthUser: normalizeText(likelyAuthUser),
+      normalizedEmployeeIdentifier: normalizePotentialNetworkId(likelyAuthUser)
+    },
+    sessionTransport: {
+      cookieHeaderPresent: cookieNames.length > 0,
+      cookieNames,
+      oauth2ProxyCookiePresent: cookieNames.includes('__Host-qmiscorecard'),
+      accessTokenPresent: Boolean(getBearerToken(request)),
+      authorizationHeaderPresent: Boolean(getAuthorizationScheme(request)),
+      authorizationScheme: getAuthorizationScheme(request) || null,
+      forwardedAccessTokenPresent: Boolean(
+        normalizeText(getHeaderValue(request, 'X-Forwarded-Access-Token'))
+        || normalizeText(getHeaderValue(request, 'X-Auth-Request-Access-Token'))
+      ),
+      forwardedForPresent: Boolean(authCandidates.x_forwarded_for),
+      realIpHeaderPresent: Boolean(getHeaderValue(request, 'X-Real-Ip')),
+      requestIdHeader: normalizeText(getHeaderValue(request, 'X-Request-Id'))
+    },
+    configuration: {
+      entraApplicationIdConfigured: Boolean(config.applicationId),
+      entraObjectIdConfigured: Boolean(config.objectId),
+      entraDirectoryIdConfigured: Boolean(config.directoryId),
+      hardcodedFallbackAllowed: shouldAllowHardcodedIdentityFallback(),
+      nodeEnvironment: process.env.NODE_ENV || ''
+    }
+  };
+}
+
+function isLoopbackAddress(value) {
+  const normalizedValue = normalizeText(value).toLowerCase();
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(normalizedValue);
+}
+
+export function getRequestIdentityLogSummary(request) {
+  const diagnostics = getRequestIdentityDiagnostics(request);
+  const { candidates } = diagnostics.identity;
+
+  return {
+    diagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION,
+    requestId: diagnostics.requestId,
+    method: diagnostics.request.method,
+    path: diagnostics.request.path,
+    host: diagnostics.request.host,
+    forwardedHost: diagnostics.request.forwardedHost,
+    forwardedProto: diagnostics.request.forwardedProto,
+    forwardedPort: diagnostics.request.forwardedPort,
+    remoteAddress: diagnostics.socket.remoteAddress,
+    remotePort: diagnostics.socket.remotePort,
+    localAddress: diagnostics.socket.localAddress,
+    localPort: diagnostics.socket.localPort,
+    requestArrivedFromLoopbackSidecar: isLoopbackAddress(diagnostics.socket.remoteAddress),
+    populatedIdentityFields: diagnostics.identity.populatedIdentityFields,
+    forwardedEmployeeId: candidates.x_forwarded_employeeid,
+    forwardedUser: candidates.x_forwarded_user,
+    forwardedPreferredUsername: candidates.x_forwarded_preferred_username,
+    forwardedEmail: candidates.x_forwarded_email,
+    authRequestUser: candidates.x_auth_request_user,
+    authRequestPreferredUsername: candidates.x_auth_request_preferred_username,
+    authRequestEmail: candidates.x_auth_request_email,
+    normalizedEmployeeIdentifier: diagnostics.identity.normalizedEmployeeIdentifier,
+    cookieNames: diagnostics.sessionTransport.cookieNames,
+    oauth2ProxyCookiePresent: diagnostics.sessionTransport.oauth2ProxyCookiePresent,
+    accessTokenPresent: diagnostics.sessionTransport.accessTokenPresent,
+    authorizationHeaderPresent: diagnostics.sessionTransport.authorizationHeaderPresent,
+    authorizationScheme: diagnostics.sessionTransport.authorizationScheme,
+    forwardedAccessTokenPresent: diagnostics.sessionTransport.forwardedAccessTokenPresent,
+    forwardedForPresent: diagnostics.sessionTransport.forwardedForPresent,
+    requestIdHeader: diagnostics.sessionTransport.requestIdHeader,
+    entraApplicationIdConfigured: diagnostics.configuration.entraApplicationIdConfigured,
+    entraObjectIdConfigured: diagnostics.configuration.entraObjectIdConfigured,
+    entraDirectoryIdConfigured: diagnostics.configuration.entraDirectoryIdConfigured,
+    hardcodedFallbackAllowed: diagnostics.configuration.hardcodedFallbackAllowed,
+    nodeEnvironment: diagnostics.configuration.nodeEnvironment
+  };
+}
+
 export function getLikelyAuthUser(authCandidates = {}) {
   return (
     authCandidates.x_forwarded_employeeid
-    || authCandidates.x_auth_request_employeeid
-    || authCandidates.x_employeeid
-    || authCandidates.x_auth_request_user
-    || authCandidates.x_auth_request_preferred_username
-    || authCandidates.x_auth_header
-    || authCandidates.x_auth_user
-    || authCandidates.x_client_auth_user
-    || authCandidates.x_logon_user
-    || authCandidates.x_remote_user
-    || authCandidates.auth_user
-    || authCandidates.remote_user
-    || authCandidates.x_iis_windowsauthuserid
-    || authCandidates.x_iisnode_auth_user
     || authCandidates.x_forwarded_user
     || authCandidates.x_forwarded_preferred_username
-    || authCandidates.x_ms_client_principal_name
-    || authCandidates.x_ms_client_principal_id
+    || authCandidates.x_forwarded_email
+    || authCandidates.x_auth_request_user
+    || authCandidates.x_auth_request_preferred_username
+    || authCandidates.x_auth_request_email
     || null
   );
 }
 
-function getHeaderBackedIdentity(authCandidates = {}) {
-  const employeeId = normalizePotentialNetworkId(getLikelyAuthUser(authCandidates));
+function assertExpectedEntraRegistration(authCandidates) {
+  const config = getEntraApplicationConfig();
+  const actualTenantId = normalizeText(authCandidates.x_entra_tenant_id).toLowerCase();
+  const actualApplicationId = normalizeText(authCandidates.x_entra_application_id).toLowerCase();
 
-  if (!employeeId) {
-    return null;
+  if (
+    config.directoryId
+    && actualTenantId
+    && config.directoryId.toLowerCase() !== actualTenantId
+  ) {
+    throw createGraphIdentityError(
+      'OAuth2 Proxy supplied an Entra tenant that does not match ENTRA_DIRECTORY_ID.',
+      401
+    );
+  }
+
+  if (
+    config.applicationId
+    && actualApplicationId
+    && config.applicationId.toLowerCase() !== actualApplicationId
+  ) {
+    throw createGraphIdentityError(
+      'OAuth2 Proxy supplied an audience that does not match ENTRA_APPLICATION_ID.',
+      401
+    );
+  }
+}
+
+function sanitizeGraphErrorMessage(payload, statusCode, bearerToken = '') {
+  const graphMessage = payload?.error?.message;
+  const fallbackMessage = `Microsoft Graph request failed with status ${statusCode}.`;
+  const normalizedMessage = String(graphMessage || fallbackMessage)
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const redactedMessage = bearerToken
+    ? normalizedMessage.split(bearerToken).join('[redacted]')
+    : normalizedMessage;
+
+  return redactedMessage.slice(0, 500) || fallbackMessage;
+}
+
+function createGraphIdentityError(message, statusCode, accessTokenPresent = true) {
+  const error = new Error(message);
+
+  error.statusCode = statusCode;
+  error.graphDiagnostics = {
+    accessTokenPresent,
+    succeeded: false,
+    statusCode,
+    errorMessage: message
+  };
+
+  return error;
+}
+
+function createExpiredGraphAuthenticationError() {
+  const error = createGraphIdentityError(
+    'Microsoft Graph authentication expired.',
+    401
+  );
+
+  error.code = AUTHENTICATION_EXPIRED_ERROR;
+  error.reauthenticate = true;
+
+  return error;
+}
+
+function normalizeGraphProfile(payload = {}) {
+  return Object.fromEntries(
+    MICROSOFT_GRAPH_PROFILE_PROPERTIES.map((propertyName) => [
+      propertyName,
+      normalizeText(payload?.[propertyName])
+    ])
+  );
+}
+
+export async function getMicrosoftGraphProfile(request, { fetchImpl = fetch } = {}) {
+  const bearerToken = getBearerToken(request);
+
+  if (!bearerToken) {
+    throw createGraphIdentityError(
+      'No delegated Microsoft Graph access token was forwarded by OAuth2 Proxy.',
+      401,
+      false
+    );
+  }
+
+  let graphResponse;
+
+  try {
+    graphResponse = await fetchImpl(MICROSOFT_GRAPH_ME_URL, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        Authorization: `Bearer ${bearerToken}`
+      }
+    });
+  } catch (error) {
+    const message = error?.name === 'TimeoutError'
+      ? 'Microsoft Graph /me request timed out.'
+      : 'Unable to reach Microsoft Graph /me.';
+
+    throw createGraphIdentityError(message, 502);
+  }
+
+  let graphPayload = null;
+
+  try {
+    graphPayload = await graphResponse.json();
+  } catch {
+    graphPayload = null;
+  }
+
+  if (!graphResponse.ok) {
+    if (graphResponse.status === 401) {
+      throw createExpiredGraphAuthenticationError();
+    }
+
+    throw createGraphIdentityError(
+      sanitizeGraphErrorMessage(graphPayload, graphResponse.status, bearerToken),
+      graphResponse.status
+    );
   }
 
   return {
-    source: 'forwarded-header',
-    employee_id: employeeId,
-    network_id: employeeId,
-    email: normalizeText(
-      authCandidates.x_forwarded_email
-      || authCandidates.x_auth_request_email
-      || authCandidates.x_email
-    ),
-    name: normalizeText(
-      authCandidates.x_forwarded_name
-      || authCandidates.x_auth_request_name
-      || authCandidates.x_name
-    ),
-    preferred_username: normalizeText(
-      authCandidates.x_forwarded_preferred_username
-      || authCandidates.x_auth_request_preferred_username
-      || authCandidates.x_forwarded_user
-      || authCandidates.x_auth_request_user
-      || authCandidates.x_auth_user
-      || authCandidates.auth_user
-    )
+    profile: normalizeGraphProfile(graphPayload),
+    diagnostics: {
+      accessTokenPresent: true,
+      succeeded: true,
+      statusCode: graphResponse.status,
+      errorMessage: ''
+    }
+  };
+}
+
+export function buildRosterIdentifierCandidates(graphProfile = {}, authCandidates = {}) {
+  const candidates = [];
+  const seenValues = new Set();
+
+  const addCandidate = (source, rawValue) => {
+    const value = normalizePotentialNetworkId(rawValue);
+    const normalizedValue = normalizeText(value).toLowerCase();
+
+    if (!normalizedValue || seenValues.has(normalizedValue)) {
+      return;
+    }
+
+    seenValues.add(normalizedValue);
+    candidates.push({ source, value });
+  };
+
+  addCandidate('onPremisesSamAccountName', graphProfile.onPremisesSamAccountName);
+  addCandidate('employeeId', graphProfile.employeeId);
+
+  const forwardedIdentityFields = [
+    ['x_forwarded_employeeid', 'x_forwarded_employeeid'],
+    ['x_forwarded_user', 'x_forwarded_user'],
+    ['x_forwarded_preferred_username', 'x_forwarded_preferred_username'],
+    ['x_forwarded_email', 'x_forwarded_email'],
+    ['x_auth_request_user', 'x_auth_request_user'],
+    ['x_auth_request_preferred_username', 'x_auth_request_preferred_username'],
+    ['x_auth_request_email', 'x_auth_request_email']
+  ];
+
+  forwardedIdentityFields.forEach(([source, key]) => {
+    addCandidate(source, authCandidates[key]);
+  });
+
+  addCandidate('userPrincipalName', graphProfile.userPrincipalName);
+  addCandidate('mail', graphProfile.mail);
+
+  return candidates;
+}
+
+function buildGraphBackedIdentity(graphProfile, authCandidates, graphDiagnostics) {
+  const identifierCandidates = buildRosterIdentifierCandidates(
+    graphProfile,
+    authCandidates
+  );
+  const primaryIdentifier = identifierCandidates[0]?.value ?? '';
+  const email = normalizeText(
+    graphProfile.mail
+    || authCandidates.x_forwarded_email
+    || authCandidates.x_auth_request_email
+  );
+  const userPrincipalName = normalizeText(graphProfile.userPrincipalName);
+
+  return {
+    source: 'entra-graph',
+    employee_id: primaryIdentifier,
+    network_id: primaryIdentifier,
+    email,
+    name: normalizeText(graphProfile.displayName || authCandidates.x_forwarded_name),
+    preferred_username: userPrincipalName || normalizeText(getLikelyAuthUser(authCandidates)),
+    entra_user_object_id: normalizeText(graphProfile.id),
+    entra_tenant_id: normalizeText(authCandidates.x_entra_tenant_id),
+    displayName: normalizeText(graphProfile.displayName),
+    userPrincipalName,
+    employeeId: normalizeText(graphProfile.employeeId),
+    onPremisesSamAccountName: normalizeText(graphProfile.onPremisesSamAccountName),
+    graph_status_code: graphDiagnostics?.statusCode ?? null,
+    identifier_candidates: identifierCandidates
   };
 }
 
 export function getDerivedNetworkIdFromRequest(request) {
-  const authCandidates = getAuthCandidateHeaders(request);
-  return normalizePotentialNetworkId(getLikelyAuthUser(authCandidates));
-}
-
-async function getKeycloakDiscoveryDocument(issuerUrl) {
-  const normalizedIssuerUrl = normalizeText(issuerUrl).replace(/\/+$/, '');
-
-  if (!normalizedIssuerUrl) {
-    return null;
-  }
-
-  if (
-    discoveryCache.metadata
-    && discoveryCache.issuerUrl === normalizedIssuerUrl
-    && Date.now() - discoveryCache.fetchedAt < KEYCLOAK_DISCOVERY_CACHE_TTL_MS
-  ) {
-    return discoveryCache.metadata;
-  }
-
-  const discoveryUrl = `${normalizedIssuerUrl}/.well-known/openid-configuration`;
-  const response = await fetch(discoveryUrl);
-
-  if (!response.ok) {
-    throw new Error(`Keycloak discovery request failed with status ${response.status}.`);
-  }
-
-  const metadata = await response.json();
-
-  discoveryCache = {
-    issuerUrl: normalizedIssuerUrl,
-    fetchedAt: Date.now(),
-    metadata
-  };
-
-  return metadata;
-}
-
-async function getKeycloakIntrospectionUrl(config) {
-  if (config.introspectionUrl) {
-    return config.introspectionUrl;
-  }
-
-  if (!config.issuerUrl) {
-    return null;
-  }
-
-  const metadata = await getKeycloakDiscoveryDocument(config.issuerUrl);
-  return metadata?.introspection_endpoint ?? null;
-}
-
-function getFirstClaimValue(claims, claimNames) {
-  for (const claimName of claimNames) {
-    const value = claims?.[claimName];
-
-    if (value !== undefined && value !== null && value !== '') {
-      return value;
-    }
-  }
-
-  return null;
-}
-
-function normalizeKeycloakIdentityFromClaims(claims) {
-  const explicitEmployeeId = normalizePotentialNetworkId(
-    getFirstClaimValue(claims, KEYCLOAK_EMPLOYEE_ID_CLAIMS)
-  );
-  const preferredUsername = normalizeText(
-    getFirstClaimValue(claims, KEYCLOAK_USERNAME_CLAIMS)
-  );
-  const fallbackIdentifier = normalizePotentialNetworkId(preferredUsername);
-  const employeeId = explicitEmployeeId || fallbackIdentifier;
-
-  if (!employeeId) {
-    return null;
-  }
-
-  return {
-    source: 'keycloak-introspection',
-    employee_id: employeeId,
-    network_id: employeeId,
-    email: normalizeText(getFirstClaimValue(claims, KEYCLOAK_EMAIL_CLAIMS)),
-    name: normalizeText(getFirstClaimValue(claims, KEYCLOAK_NAME_CLAIMS)),
-    preferred_username: preferredUsername
-  };
-}
-
-async function introspectKeycloakAccessToken(token, config) {
-  const introspectionUrl = await getKeycloakIntrospectionUrl(config);
-
-  if (!introspectionUrl) {
-    throw new Error(
-      'Keycloak introspection could not run because no introspection endpoint is configured or discoverable.'
-    );
-  }
-
-  const requestBody = new URLSearchParams({
-    token,
-    client_id: config.clientId,
-    client_secret: config.clientSecret
-  });
-  const response = await fetch(introspectionUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: requestBody
-  });
-
-  if (!response.ok) {
-    throw new Error(`Keycloak introspection request failed with status ${response.status}.`);
-  }
-
-  return response.json();
-}
-
-async function getKeycloakBackedIdentity(request) {
-  const config = getKeycloakConfig();
-
-  if (!isKeycloakConfigured(config)) {
-    return null;
-  }
-
-  const token = getBearerToken(request);
-
-  if (!token) {
-    return null;
-  }
-
-  const introspectionPayload = await introspectKeycloakAccessToken(token, config);
-
-  if (!introspectionPayload?.active) {
-    throw new Error('Keycloak reported an inactive access token.');
-  }
-
-  return normalizeKeycloakIdentityFromClaims(introspectionPayload);
+  return normalizePotentialNetworkId(getLikelyAuthUser(getAuthCandidateHeaders(request)));
 }
 
 export async function resolveRequestIdentity(
   request,
   fallbackNetworkId = HARDCODED_NETWORK_ID
 ) {
-  const keycloakConfig = getKeycloakConfig();
+  const authCandidates = getAuthCandidateHeaders(request);
   const bearerToken = getBearerToken(request);
 
-  if (bearerToken && isKeycloakConfigured(keycloakConfig)) {
-    const keycloakIdentity = await getKeycloakBackedIdentity(request);
+  if (bearerToken) {
+    assertExpectedEntraRegistration(authCandidates);
 
-    if (keycloakIdentity?.employee_id) {
-      return keycloakIdentity;
+    const { profile, diagnostics } = await getMicrosoftGraphProfile(request);
+    const graphIdentity = buildGraphBackedIdentity(profile, authCandidates, diagnostics);
+
+    if (graphIdentity.identifier_candidates.length > 0) {
+      return graphIdentity;
     }
 
-    throw new Error(
-      'Keycloak access token was present and active, but no usable employee identifier claim was found.'
+    const error = createGraphIdentityError(
+      'Microsoft Graph /me succeeded but returned no usable roster identifier candidates.',
+      422
     );
-  }
 
-  const authCandidates = getAuthCandidateHeaders(request);
-  const headerIdentity = getHeaderBackedIdentity(authCandidates);
-
-  if (headerIdentity?.employee_id) {
-    return headerIdentity;
-  }
-
-  if (bearerToken && isKeycloakConfigured(keycloakConfig)) {
-    throw new Error(
-      'Keycloak access token was present, but the backend could not resolve a usable identity from it.'
-    );
+    error.resolvedIdentity = graphIdentity;
+    throw error;
   }
 
   if (shouldAllowHardcodedIdentityFallback()) {
     return buildHardcodedFallbackIdentity(fallbackNetworkId);
   }
 
-  throw new Error(
-    'No forwarded identity headers or Keycloak-backed identity were available, and hardcoded fallback is disabled.'
+  const error = createGraphIdentityError(
+    'No delegated Microsoft Graph access token was forwarded by OAuth2 Proxy, and hardcoded fallback is disabled.',
+    401,
+    false
   );
+
+  error.identityDiagnostics = getRequestIdentityLogSummary(request);
+  throw error;
 }
 
 export function getRequestNetworkId(
   request,
   fallbackNetworkId = HARDCODED_NETWORK_ID
 ) {
-  return getDerivedNetworkIdFromRequest(request) || fallbackNetworkId;
+  const derivedNetworkId = getDerivedNetworkIdFromRequest(request);
+
+  if (derivedNetworkId) {
+    return derivedNetworkId;
+  }
+
+  return shouldAllowHardcodedIdentityFallback() ? fallbackNetworkId : null;
 }

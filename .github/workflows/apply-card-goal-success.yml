@@ -1,0 +1,266 @@
+name: Apply dashboard goal success update
+
+on:
+  push:
+    branches: [entraid]
+    paths:
+      - .github/workflows/apply-card-goal-success.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: entraid
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Patch dashboard
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          app_path = Path('client/src/App.jsx')
+          text = app_path.read_text()
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+          '''function formatForecastValue(calculation, valueFormatter) {
+            const forecastValue = Number(calculation?.goalLine?.expectedValue);
+
+            return Number.isFinite(forecastValue) ? valueFormatter(forecastValue) : '--';
+          }
+
+          function formatPercentAxis(value) {''',
+          '''function formatForecastValue(calculation, valueFormatter) {
+            const forecastValue = Number(calculation?.goalLine?.expectedValue);
+
+            return Number.isFinite(forecastValue) ? valueFormatter(forecastValue) : '--';
+          }
+
+          const HIGHER_IS_BETTER_GOAL_METRICS = new Set([
+            'otd',
+            'labor',
+            'laborNew',
+            'laborHana'
+          ]);
+
+          function formatGoalSuccessRate(metricKey, viewMode, values) {
+            const goalValue = Number(getMetricGoalLine(metricKey, viewMode)?.value);
+            const numericValues = Array.isArray(values)
+              ? values.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+              : [];
+
+            if (!Number.isFinite(goalValue) || numericValues.length === 0) {
+              return '--';
+            }
+
+            const higherIsBetter = HIGHER_IS_BETTER_GOAL_METRICS.has(metricKey);
+            const successCount = numericValues.filter((value) =>
+              higherIsBetter ? value >= goalValue : value <= goalValue
+            ).length;
+
+            return `${Math.round((successCount / numericValues.length) * 100)}%`;
+          }
+
+          function formatPercentAxis(value) {''',
+          'goal success helper')
+
+          replace_once(
+              '          {renderMetricInfoContent(metricInfo)}\n          {tooltipLegend?.items?.length > 0 && (',
+              '          {tooltipLegend?.items?.length > 0 && (',
+              'move tooltip legend before info'
+          )
+          replace_once(
+          '''          )}
+                </div>
+              </div>
+            </div>
+          );
+          }
+
+          function MetricOverviewBand''',
+          '''          )}
+                  {renderMetricInfoContent(metricInfo)}
+                </div>
+              </div>
+            </div>
+          );
+          }
+
+          function MetricOverviewBand''',
+          'put tooltip info after legend')
+
+          overview_pattern = re.compile(
+              r'function MetricOverviewBand\(\{.*?\n\}\n\nfunction OtdChartTooltip',
+              re.S
+          )
+          overview_replacement = '''function MetricOverviewBand({
+            value,
+            label,
+            forecastValue = '--',
+            successValue = '--',
+            ariaLabel = ''
+          }) {
+            return (
+              <section
+                className="metric-overview-band metric-overview-band--without-legend"
+                aria-label={ariaLabel || undefined}
+              >
+                <div
+                  className="metric-overview-summary"
+                  style={{
+                    gridTemplateColumns:
+                      'minmax(0, 1.45fr) minmax(4.5rem, 0.75fr) minmax(4.2rem, 0.7fr)'
+                  }}
+                >
+                  <div className="metric-overview-primary">
+                    <p className="metric-overview-value">{value}</p>
+                    <p className="metric-overview-label">{label}</p>
+                  </div>
+                  <div className="metric-overview-forecast">
+                    <p className="metric-overview-forecast-value">{forecastValue}</p>
+                    <p className="metric-overview-forecast-label">Next Month Forecast</p>
+                  </div>
+                  <div className="metric-overview-forecast">
+                    <p className="metric-overview-forecast-value">{successValue}</p>
+                    <p className="metric-overview-forecast-label">Successful</p>
+                  </div>
+                </div>
+              </section>
+            );
+          }
+
+          function OtdChartTooltip'''
+          text, count = overview_pattern.subn(overview_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'overview band: expected 1 match, found {count}')
+
+          tooltip_legends = {
+              'tooltipLegend={controllableCostsTooltipLegend}': "tooltipLegend={controllableCostsTooltipLegend ?? buildTooltipLegend('Legend', controllableCostsOverviewLegend)}",
+              'tooltipLegend={controllableCostsNewTooltipLegend}': "tooltipLegend={controllableCostsNewTooltipLegend ?? buildTooltipLegend('Legend', controllableCostsNewOverviewLegend)}",
+              'tooltipLegend={controllableCostsHanaTooltipLegend}': "tooltipLegend={controllableCostsHanaTooltipLegend ?? buildTooltipLegend('Legend', controllableCostsHanaOverviewLegend)}",
+              'tooltipLegend={sifTooltipLegend}': "tooltipLegend={sifTooltipLegend ?? buildTooltipLegend('Legend', sifOverviewLegend)}",
+              'tooltipLegend={potentialSifTooltipLegend}': "tooltipLegend={potentialSifTooltipLegend ?? buildTooltipLegend('Legend', potentialSifOverviewLegend)}",
+              'tooltipLegend={nmfrTooltipLegend}': "tooltipLegend={nmfrTooltipLegend ?? buildTooltipLegend('Legend', nmfrOverviewLegend)}",
+              'tooltipLegend={otdTooltipLegend}': "tooltipLegend={otdTooltipLegend ?? buildTooltipLegend('Legend', otdOverviewLegend)}",
+              'tooltipLegend={laborTooltipLegend}': "tooltipLegend={laborTooltipLegend ?? buildTooltipLegend('Legend', laborOverviewLegend)}",
+              'tooltipLegend={laborNewTooltipLegend}': "tooltipLegend={laborNewTooltipLegend ?? buildTooltipLegend('Legend', laborNewOverviewLegend)}",
+              'tooltipLegend={laborHanaTooltipLegend}': "tooltipLegend={laborHanaTooltipLegend ?? buildTooltipLegend('Legend', laborHanaOverviewLegend)}",
+          }
+          for old, new in tooltip_legends.items():
+              replace_once(old, new, old)
+
+          success_values = {
+              'ariaLabel="Controllable costs overview"': '''successValue={formatGoalSuccessRate(
+                        'controllableCosts',
+                        controllableCostsViewMode,
+                        controllableCostsChartData.total
+                      )}
+                      ariaLabel="Controllable costs overview"''',
+              'ariaLabel="New controllable costs dataset overview"': '''successValue={formatGoalSuccessRate(
+                        'controllableCostsNew',
+                        controllableCostsNewViewMode,
+                        controllableCostsNewChartData.total
+                      )}
+                      ariaLabel="New controllable costs dataset overview"''',
+              'ariaLabel="HANA controllable costs overview"': '''successValue={formatGoalSuccessRate(
+                        'controllableCostsHana',
+                        controllableCostsHanaViewMode,
+                        controllableCostsHanaChartData.total
+                      )}
+                      ariaLabel="HANA controllable costs overview"''',
+              'ariaLabel="SIF incidents overview"': '''successValue={formatGoalSuccessRate(
+                        'sif',
+                        sifViewMode,
+                        sifChartData.map((bucket) => bucket.total)
+                      )}
+                      ariaLabel="SIF incidents overview"''',
+              'ariaLabel="Potential SIF incidents overview"': '''successValue={formatGoalSuccessRate(
+                        'potentialSif',
+                        potentialSifViewMode,
+                        potentialSifChartData.map((bucket) => bucket.total)
+                      )}
+                      ariaLabel="Potential SIF incidents overview"''',
+              'ariaLabel="Near miss frequency rate overview"': '''successValue={formatGoalSuccessRate(
+                        'nmfr',
+                        nmfrViewMode,
+                        nmfrChartData.map((bucket) => bucket.total)
+                      )}
+                      ariaLabel="Near miss frequency rate overview"''',
+              'ariaLabel="On time delivery overview"': '''successValue={formatGoalSuccessRate(
+                        'otd',
+                        otdViewMode,
+                        otdGoalForecastSeriesValues
+                      )}
+                      ariaLabel="On time delivery overview"''',
+              'ariaLabel="Direct labor utilization overview"': '''successValue={formatGoalSuccessRate(
+                        'labor',
+                        laborViewMode,
+                        laborGoalForecastSeriesValues
+                      )}
+                      ariaLabel="Direct labor utilization overview"''',
+              'ariaLabel="New labor utilization dataset overview"': '''successValue={formatGoalSuccessRate(
+                        'laborNew',
+                        laborNewViewMode,
+                        laborNewGoalForecastSeriesValues
+                      )}
+                      ariaLabel="New labor utilization dataset overview"''',
+              'ariaLabel="HANA direct labor utilization overview"': '''successValue={formatGoalSuccessRate(
+                        'laborHana',
+                        laborHanaViewMode,
+                        laborHanaGoalForecastSeriesValues
+                      )}
+                      ariaLabel="HANA direct labor utilization overview"''',
+          }
+          for old, new in success_values.items():
+              replace_once(old, new, old)
+
+          app_path.write_text(text)
+
+          styles_path = Path('client/src/styles.css')
+          styles = styles_path.read_text()
+          old_style = '''.metric-info-legend {
+            display: grid;
+            gap: 0.35rem;
+            margin-top: 0.65rem;
+            padding-top: 0.55rem;
+            border-top: 1px solid var(--border);
+          }'''
+          new_style = '''.metric-info-legend {
+            display: grid;
+            gap: 0.35rem;
+            margin-bottom: 0.65rem;
+            padding-bottom: 0.55rem;
+            border-bottom: 1px solid var(--border);
+          }'''
+          if styles.count(old_style) != 1:
+              raise SystemExit(f'legend css: expected 1 match, found {styles.count(old_style)}')
+          styles_path.write_text(styles.replace(old_style, new_style, 1))
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Build client
+        run: npm run build
+      - name: Commit dashboard update
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client/src/App.jsx client/src/styles.css
+          git commit -m "Move legends to help and add goal success rate"
+          git push origin HEAD:entraid

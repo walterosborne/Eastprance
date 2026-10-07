@@ -1,16 +1,6 @@
-// Each metric can be a plain string, a multiline string, an array of bullets,
-// or objects like { text, bold, underline, bullet }. Whole-line markers also
-// work: **bold**, __underlined__, and **__both__**.
-const DEFAULT_METRIC_INFO = 'Display metric info here';
+import { METRIC_INFO } from './metricInfoRaw.js';
 
-const METRIC_INFO = {
-  controllableCosts: 'Compares controllable and uncontrollable costs over time.',
-  sif: 'Counts significant injuries or fatalities over time.',
-  potentialSif: 'Counts potential serious injury or fatality incidents.',
-  nmfr: 'Tracks near miss frequency rate across periods.',
-  otd: 'Compares committed units against actual delivered units.',
-  labor: 'Shows direct labor hours as percent of total.'
-};
+const DEFAULT_METRIC_INFO = 'Display metric info here';
 
 const metricInfoNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
@@ -43,6 +33,52 @@ function formatMetricInfoPercent(value) {
     : 'Unavailable';
 }
 
+function formatMetricInfoShare(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? formatMetricInfoPercent(numericValue * 100)
+    : 'Unavailable';
+}
+
+function formatMetricInfoCurrency(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? `$${metricInfoNumberFormatter.format(numericValue)}`
+    : 'Unavailable';
+}
+
+function parseMetricInfoInlineText(value) {
+  const text = String(value ?? '');
+  const parts = [];
+  const boldPattern = /\*\*(.+?)\*\*/g;
+  let previousEnd = 0;
+  let match;
+
+  while ((match = boldPattern.exec(text)) !== null) {
+    if (match.index > previousEnd) {
+      parts.push({
+        text: text.slice(previousEnd, match.index),
+        bold: false
+      });
+    }
+
+    parts.push({
+      text: match[1],
+      bold: true
+    });
+    previousEnd = boldPattern.lastIndex;
+  }
+
+  if (previousEnd < text.length) {
+    parts.push({
+      text: text.slice(previousEnd),
+      bold: false
+    });
+  }
+
+  return parts.length > 0 ? parts : [{ text, bold: false }];
+}
+
 function createMetricInfoTextPart(text, options = {}) {
   return {
     text,
@@ -58,57 +94,93 @@ function appendMetricInfo(baseInfo, extraEntries) {
   ];
 }
 
-function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
+function buildArimaMetricInfo(
+  baseInfo,
+  goalLineDetails,
+  {
+    explanation,
+    forecastDescription = 'the ARIMA model',
+    valueFormatter = formatMetricInfoNumber
+  }
+) {
   const status = String(goalLineDetails?.status ?? '').trim();
   const expectedValue = Number(goalLineDetails?.expectedValue);
-  const goalValue = Number(goalLineDetails?.goalValue);
-  const challengePercent = Number(goalLineDetails?.challengePercent);
+  const averageValue = Number(goalLineDetails?.averageValue);
   const forecastMonthLabel = String(goalLineDetails?.forecastMonthLabel ?? '').trim();
   const observationCount = Number(goalLineDetails?.observationCount);
   const requiredObservations = Number(goalLineDetails?.requiredObservations);
+  const timelineLabel = String(goalLineDetails?.timelineLabel ?? '').trim().toLowerCase();
+  const selectedTimelineDescription = timelineLabel
+    ? `selected ${timelineLabel} timeline`
+    : 'current filtered timeline';
   const expectedValuePrefix = forecastMonthLabel
-    ? `Based on the ARIMA model, the expected value for ${forecastMonthLabel} is `
-    : 'Based on the ARIMA model, the expected value for the next month after the latest filtered month is ';
+    ? `Based on ${forecastDescription}, the expected value for ${forecastMonthLabel} is `
+    : `Based on ${forecastDescription}, the expected value for the next selected period is `;
+
+  const methodExplanation = status === 'insufficient_data'
+    ? {
+      bullet: true,
+      parts: [
+        createMetricInfoTextPart('Forecasts use ARIMA for '),
+        createMetricInfoTextPart(`${formatMetricInfoNumber(requiredObservations)} or more`, {
+          bold: true
+        }),
+        createMetricInfoTextPart(' valid timeline points, or the arithmetic average for '),
+        createMetricInfoTextPart('1–9', { bold: true }),
+        createMetricInfoTextPart(' points.')
+      ]
+    }
+    : status === 'average_fallback'
+    ? {
+      bullet: true,
+      parts: [
+        createMetricInfoTextPart('ARIMA requires '),
+        createMetricInfoTextPart(formatMetricInfoNumber(requiredObservations), { bold: true }),
+        createMetricInfoTextPart(` datapoints. The ${selectedTimelineDescription} has `),
+        createMetricInfoTextPart(formatMetricInfoNumber(observationCount), { bold: true }),
+        createMetricInfoTextPart(', so the next-period forecast uses their arithmetic average.')
+      ]
+    }
+    : {
+      bullet: true,
+      text: explanation
+    };
 
   return appendMetricInfo(baseInfo, [
-    { text: 'Goal Lines', bold: true },
-    {
-      bullet: true,
-      text: 'ARIMA projects the next NMFR value, then tightens that forecast slightly to create a realistic stretch target.'
-    },
+    methodExplanation,
     status === 'insufficient_data'
       ? {
         bullet: true,
         parts: [
-          createMetricInfoTextPart('A goal line is not displayed because ARIMA requires '),
+          createMetricInfoTextPart('A forecast is not displayed because the '),
+          createMetricInfoTextPart(selectedTimelineDescription),
+          createMetricInfoTextPart(' has '),
           createMetricInfoTextPart(
-            Number.isFinite(requiredObservations)
-              ? `${formatMetricInfoNumber(requiredObservations)} datapoints`
-              : 'more datapoints',
+            Number.isFinite(observationCount)
+              ? `${formatMetricInfoNumber(observationCount)} valid datapoints`
+              : 'no valid datapoints',
             { bold: true }
           ),
-          Number.isFinite(observationCount)
-            ? createMetricInfoTextPart(' and the current filtered range has ')
-            : createMetricInfoTextPart('.'),
-          ...(Number.isFinite(observationCount)
-            ? [
-              createMetricInfoTextPart(formatMetricInfoNumber(observationCount), { bold: true }),
-              createMetricInfoTextPart('.')
-            ]
-            : [])
+          createMetricInfoTextPart('; at least one is required.')
         ]
       }
-      : Number.isFinite(expectedValue) && Number.isFinite(goalValue) && Number.isFinite(challengePercent)
+      : status === 'average_fallback'
+        && Number.isFinite(averageValue)
+      ? {
+        bullet: true,
+        parts: [
+          createMetricInfoTextPart('The current average is '),
+          createMetricInfoTextPart(valueFormatter(averageValue), { bold: true }),
+          createMetricInfoTextPart(', which is displayed as the next-period forecast.')
+        ]
+      }
+      : Number.isFinite(expectedValue)
       ? {
         bullet: true,
         parts: [
           createMetricInfoTextPart(expectedValuePrefix),
-          createMetricInfoTextPart(formatMetricInfoNumber(expectedValue), { bold: true }),
-          createMetricInfoTextPart(', and the goal line has been set to '),
-          createMetricInfoTextPart(formatMetricInfoNumber(goalValue), { bold: true }),
-          createMetricInfoTextPart(' to present a '),
-          createMetricInfoTextPart(formatMetricInfoPercent(challengePercent), { bold: true }),
-          createMetricInfoTextPart(' challenge.')
+          createMetricInfoTextPart(valueFormatter(expectedValue), { bold: true }),
+          createMetricInfoTextPart('.')
         ]
       }
       : {
@@ -116,19 +188,59 @@ function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
         parts: [
           createMetricInfoTextPart(expectedValuePrefix),
           createMetricInfoTextPart('Unavailable', { bold: true }),
-          createMetricInfoTextPart(', and the goal line has been set to '),
-          createMetricInfoTextPart('Unavailable', { bold: true }),
-          createMetricInfoTextPart(' to present a '),
-          createMetricInfoTextPart('Unavailable', { bold: true }),
-          createMetricInfoTextPart(' challenge.')
+          createMetricInfoTextPart('.')
         ]
       }
   ]);
+}
+
+function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next NMFR value from the selected timeline.'
+  });
+}
+
+function buildOtdMetricInfo(baseInfo, goalLineDetails = null) {
+  const usedRecentBaseline = Boolean(goalLineDetails?.usedRecentBaseline);
+
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next percent-delivered value using completed months only. Forecasts more than 20 percentage points from the recent six-month median use that median instead.',
+    forecastDescription: usedRecentBaseline
+      ? 'the ARIMA model with its recent-performance safeguard'
+      : 'the ARIMA model',
+    valueFormatter: formatMetricInfoShare
+  });
+}
+
+function buildLaborHanaMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next direct-labor-share value from the selected timeline.',
+    valueFormatter: formatMetricInfoShare
+  });
+}
+
+function buildControllableCostsMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next total-cost value from the selected timeline.',
+    valueFormatter: formatMetricInfoCurrency
+  });
+}
+
+function buildLaborMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next direct-labor-share value from the selected timeline.',
+    valueFormatter: formatMetricInfoShare
+  });
 }
 
 export {
   DEFAULT_METRIC_INFO,
   METRIC_INFO,
   appendMetricInfo,
-  buildNmfrMetricInfo
+  buildControllableCostsMetricInfo,
+  buildLaborMetricInfo,
+  buildLaborHanaMetricInfo,
+  buildNmfrMetricInfo,
+  buildOtdMetricInfo,
+  parseMetricInfoInlineText
 };

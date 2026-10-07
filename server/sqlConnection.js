@@ -59,6 +59,23 @@ function getRosterConnectionConfigFromEnv() {
   };
 }
 
+function getDbmConnectionConfigFromEnv() {
+  const configuredRequestTimeout = Number(
+    getFirstDefinedEnvValue('dbmrequesttimeout', 'DBMREQUESTTIMEOUT')
+  );
+
+  return {
+    server: getFirstDefinedEnvValue('dbmserver', 'DBMSERVER'),
+    database: getFirstDefinedEnvValue('dbmdatabase', 'DBMDATABASE'),
+    user: getFirstDefinedEnvValue('dbmuser', 'DBMUSER'),
+    password: getFirstDefinedEnvValue('dbmpassword', 'DBMPASSWORD'),
+    requestTimeout: Number.isFinite(configuredRequestTimeout) && configuredRequestTimeout > 0
+      ? configuredRequestTimeout
+      : 120000,
+    source: 'dbm-env'
+  };
+}
+
 function getMissingConnectionFields(config, prefix = '') {
   const missingFields = [];
 
@@ -83,6 +100,24 @@ function getMissingConnectionFields(config, prefix = '') {
 
 export function getConnectionConfig(connectionName = 'default') {
   const defaultConfig = getPrimaryConnectionConfigFromEnv();
+
+  if (connectionName === 'dbm') {
+    const dbmConfig = getDbmConnectionConfigFromEnv();
+    const missing = getMissingConnectionFields(dbmConfig, 'dbm');
+
+    return {
+      connectionName: 'dbm',
+      config: {
+        server: dbmConfig.server,
+        database: dbmConfig.database,
+        user: dbmConfig.user,
+        password: dbmConfig.password,
+        requestTimeout: dbmConfig.requestTimeout
+      },
+      missing,
+      source: dbmConfig.source
+    };
+  }
 
   if (connectionName !== 'roster') {
     const missing = getMissingConnectionFields(defaultConfig);
@@ -136,7 +171,8 @@ function getPoolKey(config, poolName = 'default') {
     poolName,
     config.server,
     config.database,
-    config.user
+    config.user,
+    config.requestTimeout ?? ''
   ].join('|');
 }
 
@@ -158,6 +194,7 @@ export async function getPool(config, poolName = 'default') {
       database: config.database,
       user: config.user,
       password: config.password,
+      requestTimeout: config.requestTimeout,
       options: {
         encrypt: true,
         trustServerCertificate: true

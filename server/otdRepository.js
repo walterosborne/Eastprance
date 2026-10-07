@@ -16,6 +16,7 @@ import {
 
 const MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const OTD_TABLE_NAME = 'otd';
+const DEFAULT_OTD_YEAR = 2026;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const otdFilePath = path.resolve(__dirname, '../data/otd_data.xlsx');
@@ -43,14 +44,21 @@ function normalizeMeasureType(value) {
   return normalizedValue;
 }
 
-function normalizeOtdRow(row) {
+function normalizeYear(value, fallbackYear = null) {
+  const year = Number(value);
+  return Number.isInteger(year) ? year : fallbackYear;
+}
+
+function normalizeOtdRow(row, fallbackYear = null) {
   const normalizedRow = {
     program: row.Program ?? '',
-    bu: row.BU ?? '',
+    division: row.Division ?? '',
+    business_unit: row['Business Unit'] ?? '',
     project_id: row['Project ID'] ?? '',
     site: row.Site ?? '',
     type: row.Type ?? '',
-    measure_type: normalizeMeasureType(row.Timeline ?? row['2026'] ?? '')
+    measure_type: normalizeMeasureType(row.Timeline ?? row['2026'] ?? ''),
+    year: normalizeYear(row.Year, fallbackYear)
   };
 
   for (const month of MONTH_COLUMNS) {
@@ -75,7 +83,7 @@ async function readFallbackOtdData(reason) {
   const worksheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils
     .sheet_to_json(worksheet, { defval: null, raw: true })
-    .map(normalizeOtdRow);
+    .map((row) => normalizeOtdRow(row, DEFAULT_OTD_YEAR));
 
   const payload = {
     source: 'excel',
@@ -128,7 +136,8 @@ export async function readOtdData() {
       SELECT
         [Timeline],
         [Program],
-        [BU],
+        [Division],
+        [Business Unit],
         [Project ID],
         [Site],
         [Type],
@@ -143,11 +152,12 @@ export async function readOtdData() {
         [SEP],
         [OCT],
         [NOV],
-        [DEC]
+        [DEC],
+        [Year]
       FROM ${tableName}
-      ORDER BY [Project ID] ASC, [Timeline] ASC;
+      ORDER BY [Year] ASC, [Project ID] ASC, [Timeline] ASC;
     `);
-    const rows = result.recordset.map(normalizeOtdRow);
+    const rows = result.recordset.map((row) => normalizeOtdRow(row, DEFAULT_OTD_YEAR));
 
     logDebug('otd', 'OTD SQL query completed.', {
       source: 'mssql',

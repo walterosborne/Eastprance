@@ -18,6 +18,7 @@
     "arima": "^0.2.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-select": "^5.10.2",
     "react-toastify": "^11.1.0"
   },
   "devDependencies": {

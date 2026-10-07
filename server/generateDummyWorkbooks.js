@@ -53,6 +53,12 @@ const otdBusinessUnits = [
   'Rooftop Integration'
 ];
 
+const otdDivisions = [
+  'Northern Division',
+  'Southern Division',
+  'Western Division'
+];
+
 const laborFacilities = [
   'Blonde on Blonde Works',
   'Desolation Row Plant',
@@ -288,10 +294,12 @@ function createOtdRows() {
 
   return beatlesPrograms.flatMap((project, projectIndex) => {
     const businessUnit = otdBusinessUnits[projectIndex % otdBusinessUnits.length];
+    const division = otdDivisions[projectIndex % otdDivisions.length];
     const contractRow = {
       '2026': 'Contract Commitment',
       Program: project.program,
-      BU: businessUnit,
+      Division: division,
+      'Business Unit': businessUnit,
       'Project ID': project.projectId,
       Site: project.site,
       Type: project.type
@@ -299,7 +307,8 @@ function createOtdRows() {
     const deliveredRow = {
       '2026': 'Actual Delivered',
       Program: project.program,
-      BU: businessUnit,
+      Division: division,
+      'Business Unit': businessUnit,
       'Project ID': project.projectId,
       Site: project.site,
       Type: project.type

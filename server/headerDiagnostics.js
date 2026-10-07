@@ -1,10 +1,42 @@
 import {
   HARDCODED_NETWORK_ID,
   getAuthCandidateHeaders,
+  getBearerToken,
   getHeaderValue,
   getLikelyAuthUser,
+  getRequestIdentityDiagnostics,
   normalizePotentialNetworkId
 } from './requestIdentity.js';
+import { readCurrentUser } from './currentUserRepository.js';
+
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+  'set-cookie',
+  'x-auth-request-access-token',
+  'x-forwarded-access-token'
+]);
+
+function redactHeaderValue(name, value) {
+  return SENSITIVE_HEADER_NAMES.has(String(name).toLowerCase()) && value
+    ? '<redacted>'
+    : value;
+}
+
+function redactHeaders(headers = {}) {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name, redactHeaderValue(name, value)])
+  );
+}
+
+function redactRawHeaders(rawHeaders = []) {
+  return rawHeaders.map((value, index) => (
+    index % 2 === 1
+      ? redactHeaderValue(rawHeaders[index - 1], value)
+      : value
+  ));
+}
 
 function getAuthorizationDebug(request, headerName = 'Authorization') {
   const value = getHeaderValue(request, headerName);
@@ -29,15 +61,6 @@ function getAuthorizationDebug(request, headerName = 'Authorization') {
 
 function buildAuthTransportDebug(request, authCandidates) {
   const identityFieldNames = [
-    'auth_user',
-    'remote_user',
-    'x_auth_header',
-    'x_auth_user',
-    'x_client_auth_user',
-    'x_remote_user',
-    'x_logon_user',
-    'x_iis_windowsauthuserid',
-    'x_iisnode_auth_user',
     'x_forwarded_user',
     'x_forwarded_preferred_username',
     'x_forwarded_employeeid',
@@ -45,45 +68,72 @@ function buildAuthTransportDebug(request, authCandidates) {
     'x_forwarded_email',
     'x_auth_request_user',
     'x_auth_request_preferred_username',
-    'x_auth_request_employeeid',
-    'x_auth_request_name',
     'x_auth_request_email',
-    'x_employeeid',
-    'x_email',
-    'x_name',
-    'x_ms_client_principal_name',
-    'x_ms_client_principal_id'
-  ];
-  const accessTokenFieldNames = [
-    'x_forwarded_access_token',
-    'x_auth_request_access_token',
-    'x_access_token'
+    'x_entra_user_object_id',
+    'x_entra_tenant_id',
+    'x_entra_application_id'
   ];
   const populatedIdentityFields = identityFieldNames.filter((fieldName) => Boolean(authCandidates[fieldName]));
-  const populatedAccessTokenFields = accessTokenFieldNames.filter(
-    (fieldName) => Boolean(authCandidates[fieldName])
-  );
   const authorization = getAuthorizationDebug(request, 'Authorization');
   const proxyAuthorization = getAuthorizationDebug(request, 'Proxy-Authorization');
 
   return {
+    forwardedAccessTokenPresent: Boolean(getBearerToken(request)),
     backendSeesAuthorizationHeader: authorization.present,
     authorizationScheme: authorization.scheme,
     authorizationPreview: authorization.preview,
     backendSeesProxyAuthorizationHeader: proxyAuthorization.present,
     proxyAuthorizationScheme: proxyAuthorization.scheme,
     populatedIdentityFields,
-    populatedAccessTokenFields,
     backendSeesForwardedIdentity: populatedIdentityFields.length > 0,
-    backendSeesForwardedAccessToken: populatedAccessTokenFields.length > 0,
-    backendSeesAuthType: Boolean(authCandidates.x_auth_type || authCandidates.x_client_auth_type),
-    note: 'Upstream proxies often strip Authorization before the app sees the request, so forwarded identity headers usually matter more.'
+    note: 'OAuth2 Proxy authenticates the Entra session and forwards the identity headers shown here.'
   };
 }
 
-export function buildHeadersDebugPayload(request) {
+export async function buildHeadersDebugPayload(request) {
   const authCandidates = getAuthCandidateHeaders(request);
   const likelyAuthUser = getLikelyAuthUser(authCandidates);
+  let currentUser = null;
+  let resolvedIdentity = null;
+  let identityResolutionError = null;
+
+  try {
+    currentUser = await readCurrentUser(request);
+  } catch (error) {
+    resolvedIdentity = error.resolvedIdentity ?? null;
+    identityResolutionError = {
+      statusCode: error.graphDiagnostics?.statusCode ?? error.statusCode ?? null,
+      message: error.graphDiagnostics?.errorMessage || error.message
+    };
+  }
+
+  const graphIdentity = currentUser?.identity_source === 'entra-graph'
+    ? currentUser
+    : resolvedIdentity?.source === 'entra-graph'
+      ? resolvedIdentity
+      : null;
+  const graphSucceeded = Boolean(graphIdentity);
+  const graphDiagnostics = {
+    accessTokenPresent: Boolean(getBearerToken(request)),
+    succeeded: graphSucceeded,
+    statusCode: graphSucceeded
+      ? graphIdentity?.graph_status_code ?? 200
+      : identityResolutionError?.statusCode,
+    errorMessage: graphSucceeded ? '' : identityResolutionError?.message || '',
+    displayName: graphIdentity?.displayName || '',
+    userPrincipalName: graphIdentity?.userPrincipalName || '',
+    employeeId: graphIdentity?.employeeId || '',
+    onPremisesSamAccountName: graphIdentity?.onPremisesSamAccountName || '',
+    entraUserObjectId: graphIdentity?.entra_user_object_id || ''
+  };
+  const rosterResolution = {
+    chosenCandidate: currentUser?.matched_identifier || '',
+    matchedIdentifierSource: currentUser?.matched_identifier_source || '',
+    matchedBy: currentUser?.matchedBy || '',
+    networkId: currentUser?.network_id || '',
+    myId: currentUser?.my_id || '',
+    name: currentUser?.name || ''
+  };
 
   return {
     generatedAt: new Date().toISOString(),
@@ -112,6 +162,9 @@ export function buildHeadersDebugPayload(request) {
       remotePort: request.socket?.remotePort ?? null
     },
     authTransport: buildAuthTransportDebug(request, authCandidates),
+    graph: graphDiagnostics,
+    rosterResolution,
+    identityDiagnostics: getRequestIdentityDiagnostics(request),
     authCandidates,
     networkIdPreview: {
       normalizedCandidates: Object.fromEntries(
@@ -120,8 +173,8 @@ export function buildHeadersDebugPayload(request) {
       derivedFromCandidates: normalizePotentialNetworkId(likelyAuthUser),
       hardcodedFallback: HARDCODED_NETWORK_ID
     },
-    headers: request.headers,
-    rawHeaders: request.rawHeaders
+    headers: redactHeaders(request.headers),
+    rawHeaders: redactRawHeaders(request.rawHeaders)
   };
 }
 
@@ -158,9 +211,9 @@ function renderDetailsBlock(title, value, isOpen = false) {
 
 export function renderHeadersDebugPage(payload) {
   const likelyAuthUser = getLikelyAuthUser(payload.authCandidates);
-  const authType = payload.authCandidates?.x_auth_type
-    || payload.authCandidates?.x_client_auth_type
-    || 'Unknown';
+  const authType = payload.graph?.succeeded || payload.authTransport?.backendSeesForwardedIdentity
+    ? 'Microsoft Entra ID via OAuth2 Proxy'
+    : 'Unknown';
   const populatedIdentityFields = Array.isArray(payload.authTransport?.populatedIdentityFields)
     && payload.authTransport.populatedIdentityFields.length > 0
     ? payload.authTransport.populatedIdentityFields.join(', ')
@@ -364,13 +417,24 @@ export function renderHeadersDebugPage(payload) {
       <section class="summary-grid">
         ${renderSummaryCard('Generated At', payload.generatedAt)}
         ${renderSummaryCard('Request Path', payload.request?.originalUrl)}
-        ${renderSummaryCard('Backend PID', payload.process?.pid)}
-        ${renderSummaryCard('Authorization Header Visible', payload.authTransport?.backendSeesAuthorizationHeader ? 'Yes' : 'No')}
+        ${renderSummaryCard('Forwarded Access Token Present', payload.authTransport?.forwardedAccessTokenPresent ? 'Yes' : 'No')}
+        ${renderSummaryCard('Graph /me Succeeded', payload.graph?.succeeded ? 'Yes' : 'No')}
+        ${renderSummaryCard('Graph Status', payload.graph?.statusCode || 'None')}
+        ${renderSummaryCard('Graph Display Name', payload.graph?.displayName || 'None')}
+        ${renderSummaryCard('Graph User Principal Name', payload.graph?.userPrincipalName || 'None')}
+        ${renderSummaryCard('Graph Employee ID', payload.graph?.employeeId || 'None')}
+        ${renderSummaryCard('Graph On-Prem SAM Account', payload.graph?.onPremisesSamAccountName || 'None')}
+        ${renderSummaryCard('Roster Lookup Candidate', payload.rosterResolution?.chosenCandidate || 'None')}
+        ${renderSummaryCard('Candidate Source', payload.rosterResolution?.matchedIdentifierSource || 'None')}
+        ${renderSummaryCard('Matched Roster Column', payload.rosterResolution?.matchedBy || 'None')}
+        ${renderSummaryCard('Resulting Network ID', payload.rosterResolution?.networkId || 'None')}
+        ${renderSummaryCard('Resulting MyID', payload.rosterResolution?.myId || 'None')}
         ${renderSummaryCard('Forwarded Identity Fields', populatedIdentityFields)}
-        ${renderSummaryCard('Derived Network ID', payload.networkIdPreview?.derivedFromCandidates)}
       </section>
 
       <section class="sections">
+        ${renderDetailsBlock('Microsoft Graph /me', payload.graph, true)}
+        ${renderDetailsBlock('Roster Resolution', payload.rosterResolution, true)}
         ${renderDetailsBlock('Auth Transport', payload.authTransport, true)}
         ${renderDetailsBlock('Auth Candidates', payload.authCandidates, true)}
         ${renderDetailsBlock('Network ID Preview', payload.networkIdPreview, true)}

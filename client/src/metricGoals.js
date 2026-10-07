@@ -2,35 +2,55 @@ const DEFAULT_GOAL_LABEL = 'Goal';
 
 const METRIC_GOALS = {
   controllableCosts: {
+    monthly: 500000,
     quarterly: 1500000,
-    yearly: 6000000,
-    pareto: 900000
+    yearly: 6000000
+  },
+  controllableCostsNew: {
+    monthly: 500000,
+    quarterly: 1500000,
+    yearly: 6000000
+  },
+  controllableCostsHana: {
+    monthly: 500000,
+    quarterly: 1500000,
+    yearly: 6000000
   },
   sif: {
-    monthly: 1,
-    quarterly: 3,
-    yearly: 12
+    default: 0,
+    monthly: 0,
+    quarterly: 0,
+    yearly: 0
   },
   potentialSif: {
-    monthly: 4,
-    quarterly: 12,
-    yearly: 48
+    monthly: 0,
+    quarterly: 2,
+    yearly: 4
   },
   nmfr: {
-    monthly: 4.5,
-    quarterly: 4.5,
-    yearly: 4.5
+    monthly: 5.3,
+    quarterly: 5.3,
+    yearly: 5.3
   },
   otd: {
-    monthly: 280000,
-    quarterly: 840000,
-    yearly: 3360000,
-    pareto: 300000
+    monthly: 0.95,
+    quarterly: 0.95,
+    yearly: 0.95
   },
   labor: {
-    monthly: 0.65,
-    quarterly: 0.65,
-    yearly: 0.65
+    monthly: 0.85,
+    quarterly: 0.85,
+    yearly: 0.85
+  },
+  laborNew: {
+    monthly: 0.85,
+    quarterly: 0.85,
+    yearly: 0.85
+  },
+  laborHana: {
+    monthly: 0.85,
+    quarterly: 0.85,
+    yearly: 0.85
   }
 };
 

@@ -6,20 +6,48 @@ import {
   createTimer,
   formatDuration,
   logDebug,
+  logDebugJson,
   logError
 } from './debugLogger.js';
 import {
   buildHeadersDebugPayload,
   renderHeadersDebugPage
 } from './headerDiagnostics.js';
+import {
+  buildLaborDiagnosticsPayload,
+  renderLaborDiagnosticsPage
+} from './laborDiagnostics.js';
+import {
+  buildCostDiagnosticsPayload,
+  renderCostDiagnosticsPage
+} from './costDiagnostics.js';
+import {
+  readDbmDiagnostics,
+  renderDbmDiagnosticsPage
+} from './dbmDiagnostics.js';
+import {
+  readDbmDiagnosticsFast,
+  renderDbmDiagnosticsFastPage
+} from './dbmDiagnosticsFast.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
+import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
+import {
+  readControllableCostsNewData,
+  readControllableCostsNewExcelPipelineData
+} from './controllableCostsNewRepository.js';
 import { readCurrentUser } from './currentUserRepository.js';
 import {
   readDashboardPresetsOverview,
   saveDashboardPreset
 } from './dashboardPresetsRepository.js';
+import {
+  applyFacilityGroupingsToPayload,
+  readFacilityGroupingHierarchy
+} from './facilityGroupingsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
+import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
+import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
 import { readOtdData } from './otdRepository.js';
 import {
   getSafetyMetricPayload,
@@ -27,6 +55,13 @@ import {
   readSafetyNmfrData
 } from './sifRepository.js';
 import { closeDatabaseConnection } from './sqlConnection.js';
+import {
+  AUTHENTICATION_EXPIRED_ERROR,
+  IDENTITY_DIAGNOSTICS_VERSION,
+  getEntraApplicationConfig,
+  getMicrosoftGraphProfile,
+  getRequestIdentityLogSummary
+} from './requestIdentity.js';
 import {
   getCachedSqlDataset,
   registerSqlDatasetCache,
@@ -39,11 +74,42 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
+const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
+const LABOR_HANA_DATASET_ENABLED = false;
 let requestCounter = 0;
 
+function getResponseErrorStatus(error, fallbackStatus = 500) {
+  const statusCode = Number(error?.statusCode);
+
+  return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599
+    ? statusCode
+    : fallbackStatus;
+}
+
+function sendAuthenticationAwareError(response, error, fallbackPayload, fallbackStatus = 500) {
+  if (
+    error?.code === AUTHENTICATION_EXPIRED_ERROR
+    && error?.reauthenticate === true
+  ) {
+    response.status(401).json({
+      error: AUTHENTICATION_EXPIRED_ERROR,
+      reauthenticate: true
+    });
+    return;
+  }
+
+  response.status(getResponseErrorStatus(error, fallbackStatus)).json(fallbackPayload);
+}
+
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
+if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
+  registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
+}
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
+if (LABOR_HANA_DATASET_ENABLED) {
+  registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
+}
 registerSqlDatasetCache('safety-incidents', readSafetyEventMetricsData);
 registerSqlDatasetCache('safety-nmfr', readSafetyNmfrData);
 
@@ -62,6 +128,19 @@ app.use((request, response, next) => {
 
   logDebug('api', `#${requestId} ${request.method} ${request.path} started.`);
 
+  if (
+    request.path === '/api/current-user'
+    || request.path === '/api/entra-identity-debug'
+    || request.path === '/api/headers'
+    || request.path.startsWith('/api/dashboard-presets')
+  ) {
+    logDebugJson(
+      'entra-debug',
+      'Auth-sensitive API request received.',
+      getRequestIdentityLogSummary(request)
+    );
+  }
+
   response.on('finish', () => {
     logDebug('api', `#${requestId} ${request.method} ${request.path} completed.`, {
       statusCode: response.statusCode,
@@ -79,17 +158,18 @@ async function sendDatasetResponse(request, response, scope, loadDataset, failur
 
   try {
     const payload = await loadDataset();
+    const groupedPayload = await applyFacilityGroupingsToPayload(payload, scope);
 
     logDebug(scope, `Request #${request.requestId ?? 'n/a'} loaded dataset.`, {
-      source: payload.source,
-      rowCount: payload.rowCount,
-      tableName: payload.tableName,
-      fileName: payload.fileName,
-      fallbackReason: payload.fallbackReason,
+      source: groupedPayload.source,
+      rowCount: groupedPayload.rowCount,
+      tableName: groupedPayload.tableName,
+      fileName: groupedPayload.fileName,
+      fallbackReason: groupedPayload.fallbackReason,
       duration: formatDuration(stopTimer())
     });
 
-    response.json(payload);
+    response.json(groupedPayload);
   } catch (error) {
     logError(scope, `Request #${request.requestId ?? 'n/a'} failed.`, error, {
       duration: formatDuration(stopTimer())
@@ -102,11 +182,60 @@ async function sendDatasetResponse(request, response, scope, loadDataset, failur
   }
 }
 
+app.get('/api/facility-groupings', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'facility-groupings',
+    readFacilityGroupingHierarchy,
+    'Unable to read facility groupings.'
+  );
+});
+
 app.get('/api/health', (_request, response) => {
+  const entraConfig = getEntraApplicationConfig();
+
   response.json({
     message: 'Express backend is running.',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    authDiagnostics: {
+      version: IDENTITY_DIAGNOSTICS_VERSION,
+      applicationIdConfigured: Boolean(entraConfig.applicationId),
+      objectIdConfigured: Boolean(entraConfig.objectId),
+      directoryIdConfigured: Boolean(entraConfig.directoryId)
+    }
   });
+});
+
+// Temporary diagnostic endpoint for identifying the roster-compatible Entra claim.
+app.get('/api/entra-identity-debug', async (request, response) => {
+  const stopTimer = createTimer();
+
+  try {
+    const { profile } = await getMicrosoftGraphProfile(request);
+
+    response.json(profile);
+    logDebug('entra-identity-debug', `Graph identity resolved for API request #${request.requestId ?? 'n/a'}.`, {
+      duration: formatDuration(stopTimer())
+    });
+  } catch (error) {
+    const statusCode = Number.isInteger(error.statusCode)
+      && error.statusCode >= 400
+      && error.statusCode <= 599
+      ? error.statusCode
+      : 502;
+
+    logError('entra-identity-debug', `Graph request failed for API request #${request.requestId ?? 'n/a'}.`, error, {
+      statusCode,
+      duration: formatDuration(stopTimer())
+    });
+    sendAuthenticationAwareError(
+      response,
+      error,
+      { message: error.message },
+      statusCode
+    );
+  }
 });
 
 app.get('/api/current-user', async (request, response) => {
@@ -131,9 +260,11 @@ app.get('/api/current-user', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(500).json({
+    sendAuthenticationAwareError(response, error, {
       message: 'Unable to resolve the current user.',
-      error: error.message
+      error: error.message,
+      requestId: request.requestId ?? null,
+      authDiagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION
     });
   }
 });
@@ -163,9 +294,11 @@ app.get('/api/dashboard-presets', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(500).json({
+    sendAuthenticationAwareError(response, error, {
       message: 'Unable to load dashboard presets.',
-      error: error.message
+      error: error.message,
+      requestId: request.requestId ?? null,
+      authDiagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION
     });
   }
 });
@@ -201,25 +334,155 @@ app.put('/api/dashboard-presets/:slot', async (request, response) => {
       duration: formatDuration(stopTimer())
     });
 
-    response.status(500).json({
+    sendAuthenticationAwareError(response, error, {
       message: 'Unable to save dashboard preset.',
+      error: error.message,
+      requestId: request.requestId ?? null,
+      authDiagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION
+    });
+  }
+});
+
+app.get(['/headers', '/api/headers'], async (request, response) => {
+  try {
+    const payload = await buildHeadersDebugPayload(request);
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    if (wantsJson) {
+      response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+      return;
+    }
+
+    response.type('text/html').send(renderHeadersDebugPage(payload));
+  } catch (error) {
+    logError('headers', 'Unable to build header diagnostics.', error);
+    response.status(500).json({
+      message: 'Unable to build header diagnostics.'
+    });
+  }
+});
+
+app.get(['/labor-diagnostics', '/api/labor-diagnostics'], async (request, response) => {
+  const stopTimer = createTimer();
+
+  try {
+    const [oldPayload, newPayload] = await Promise.all([
+      getCachedSqlDataset('labor'),
+      readLaborUtilizationNewData()
+    ]);
+    const payload = buildLaborDiagnosticsPayload(oldPayload, newPayload);
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    logDebug('labor-diagnostics', 'Labor source comparison completed.', {
+      oldRowCount: payload.sources.old.rowCount,
+      newRowCount: payload.sources.new.rowCount,
+      commonMonthCount: payload.comparisonWindow.commonMonths.length,
+      duration: formatDuration(stopTimer())
+    });
+
+    if (wantsJson) {
+      response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+      return;
+    }
+
+    response.type('text/html').send(renderLaborDiagnosticsPage(payload));
+  } catch (error) {
+    logError('labor-diagnostics', 'Unable to build labor diagnostics.', error, {
+      duration: formatDuration(stopTimer())
+    });
+    response.status(500).json({
+      message: 'Unable to build labor diagnostics.',
       error: error.message
     });
   }
 });
 
-app.get(['/headers', '/api/headers'], (request, response) => {
-  const payload = buildHeadersDebugPayload(request);
-  const wantsJson = request.path.startsWith('/api/')
-    || String(request.query.format || '').toLowerCase() === 'json'
-    || String(request.get('accept') || '').includes('application/json');
+app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response) => {
+  const stopTimer = createTimer();
 
-  if (wantsJson) {
-    response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
-    return;
+  try {
+    const [oldPayload, pipeline] = await Promise.all([
+      getCachedSqlDataset('controllable-costs'),
+      readControllableCostsNewExcelPipelineData()
+    ]);
+    const payload = buildCostDiagnosticsPayload(pipeline, oldPayload);
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    logDebug('cost-diagnostics', 'New controllable costs pipeline diagnostics completed.', {
+      sourceRowCount: payload.source.sourceRowCount,
+      includedRowCount: payload.stages.included.rowCount,
+      excludedRowCount: payload.stages.excluded.rowCount,
+      latestRawMonth: payload.stages.raw.latestMonth,
+      overlappingQuarterCount: payload.controllabilityComparison.commonQuarters.length,
+      classificationMismatchCount: payload.controllabilityComparison.mismatchCount,
+      duration: formatDuration(stopTimer())
+    });
+
+    if (wantsJson) {
+      response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+      return;
+    }
+
+    response.type('text/html').send(renderCostDiagnosticsPage(payload));
+  } catch (error) {
+    logError('cost-diagnostics', 'Unable to build cost diagnostics.', error, {
+      duration: formatDuration(stopTimer())
+    });
+    response.status(500).json({
+      message: 'Unable to build cost diagnostics.',
+      error: error.message
+    });
   }
+});
 
-  response.type('text/html').send(renderHeadersDebugPage(payload));
+app.get(['/dbm-diagnostics', '/api/dbm-diagnostics'], async (request, response) => {
+  try {
+    const payload = await readDbmDiagnosticsFast();
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    if (wantsJson) {
+      response.json(payload);
+      return;
+    }
+
+    response.type('text/html').send(renderDbmDiagnosticsFastPage(payload));
+  } catch (error) {
+    logError('dbm-diagnostics-fast', 'Unable to render fast DBM diagnostics.', error);
+    response.status(500).json({
+      message: 'Unable to render fast DBM diagnostics.',
+      error: error.message
+    });
+  }
+});
+
+app.get(['/dbm-diagnostics-full', '/api/dbm-diagnostics-full'], async (request, response) => {
+  try {
+    const payload = await readDbmDiagnostics();
+    const wantsJson = request.path.startsWith('/api/')
+      || String(request.query.format || '').toLowerCase() === 'json'
+      || String(request.get('accept') || '').includes('application/json');
+
+    if (wantsJson) {
+      response.json(payload);
+      return;
+    }
+
+    response.type('text/html').send(renderDbmDiagnosticsPage(payload));
+  } catch (error) {
+    logError('dbm-diagnostics-full', 'Unable to render full DBM diagnostics.', error);
+    response.status(500).json({
+      message: 'Unable to render full DBM diagnostics.',
+      error: error.message
+    });
+  }
 });
 
 app.get('/api/otd', async (request, response) => {
@@ -241,6 +504,28 @@ app.get('/api/controllable-costs', async (request, response) => {
     'Unable to read controllable costs data.'
   );
 });
+
+app.get('/api/controllable-costs-new', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'controllable-costs-new',
+    readControllableCostsNewData,
+    'Unable to read the new controllable costs dataset.'
+  );
+});
+
+if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
+  app.get('/api/controllable-costs-hana', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'controllable-costs-hana',
+      () => getCachedSqlDataset('controllable-costs-hana'),
+      'Unable to read HANA controllable costs data.'
+    );
+  });
+}
 
 app.get('/api/sif-incidents', async (request, response) => {
   await sendDatasetResponse(
@@ -282,6 +567,28 @@ app.get('/api/labor-utilization', async (request, response) => {
     'Unable to read labor utilization data.'
   );
 });
+
+app.get('/api/labor-utilization-new', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'labor-new',
+    readLaborUtilizationNewData,
+    'Unable to read the new labor utilization dataset.'
+  );
+});
+
+if (LABOR_HANA_DATASET_ENABLED) {
+  app.get('/api/labor-utilization-hana', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'labor-hana',
+      () => getCachedSqlDataset('labor-hana'),
+      'Unable to read HANA labor utilization data.'
+    );
+  });
+}
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(clientDistPath));
@@ -339,6 +646,14 @@ async function startServer() {
 const server = await startServer();
 
 console.log(`Server listening on http://${connectHost}:${port}`);
+logDebugJson('entra-debug', 'Identity diagnostics enabled.', {
+  diagnosticsVersion: IDENTITY_DIAGNOSTICS_VERSION,
+  nodeEnvironment: process.env.NODE_ENV || '',
+  applicationIdConfigured: Boolean(getEntraApplicationConfig().applicationId),
+  objectIdConfigured: Boolean(getEntraApplicationConfig().objectId),
+  directoryIdConfigured: Boolean(getEntraApplicationConfig().directoryId),
+  expectedProxyArchitecture: 'OAuth2 Proxy sidecar -> 127.0.0.1:8080'
+});
 
 startSqlDatasetCacheScheduler();
 void warmAllSqlDatasetCaches('server startup warm');

@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
     "build": "npm run build --workspace client",
-    "start": "npm run start --workspace server"
+    "start": "npm run start --workspace server",
+    "test:databricks": "npm run test:databricks --workspace server"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

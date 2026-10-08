@@ -3,6 +3,7 @@ import { loadEnvironment } from './loadEnvironment.js';
 const POLL_INTERVAL_MS = 2000;
 const MAX_WAIT_MS = 90000;
 const TERMINAL_FAILURE_STATES = new Set(['FAILED', 'CANCELED', 'CLOSED']);
+const TEST_QUERY = 'SELECT * FROM `databricks_dev_catalog`.`analytics`.`cost_vis_full` LIMIT 5';
 
 function requiredEnvironment() {
   const host = String(process.env.DATABRICKS_HOST || '').trim();
@@ -144,13 +145,13 @@ async function main() {
 
   console.log(`[databricks] Connecting to ${connection.host}...`);
   console.log(`[databricks] SQL warehouse: ${connection.warehouseId}`);
-  console.log('[databricks] Running connection test query: SELECT 1 AS databricks_connection_test');
+  console.log(`[databricks] Running table read test: ${TEST_QUERY}`);
 
   const initialResponse = await databricksRequest(connection, '/api/2.0/sql/statements', {
     method: 'POST',
     body: JSON.stringify({
       warehouse_id: connection.warehouseId,
-      statement: 'SELECT 1 AS databricks_connection_test',
+      statement: TEST_QUERY,
       disposition: 'INLINE',
       format: 'JSON_ARRAY',
       wait_timeout: '10s',

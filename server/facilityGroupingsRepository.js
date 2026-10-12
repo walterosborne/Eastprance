@@ -17,6 +17,7 @@ const FACILITY_FIELDS_BY_SCOPE = {
   'controllable-costs': ['address'],
   'controllable-costs-new': ['facility', 'address'],
   'controllable-costs-hana': ['facility'],
+  'controllable-costs-databricks': ['facility'],
   sif: ['site'],
   'potential-sif': ['site'],
   nmfr: ['site'],

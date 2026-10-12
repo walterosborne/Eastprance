@@ -457,7 +457,7 @@ const GLOBAL_FILTER_FIELD_MAP = {
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
 const LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED = false;
 const LEGACY_LABOR_CARD_ENABLED = false;
-const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = false;
+const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = true;
 const LABOR_HANA_CARD_ENABLED = false;
 
 const CARD_CHIP_OPTIONS = [
@@ -8945,7 +8945,7 @@ export default function App() {
             {visibleCards.controllableCostsHana && (
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
-                  title="Controllable Costs HANA"
+                  title="Controllable Costs — Databricks"
                   info={controllableCostsHanaMetricInfo}
                   tooltipLegend={controllableCostsHanaCardTooltipLegend}
                   performanceStatus={controllableCostsHanaPerformanceStatus}
@@ -8966,7 +8966,7 @@ export default function App() {
                     />
                     <div ref={controllableCostsHanaChartHostRef} className="chart-host">
                       {controllableCostsHanaState.loading && (
-                        <p className="chart-message">Loading HANA cost data...</p>
+                        <p className="chart-message">Loading Databricks cost data...</p>
                       )}
 
                       {!controllableCostsHanaState.loading && controllableCostsHanaState.error && (
@@ -8985,11 +8985,11 @@ export default function App() {
                               : globallyFilteredControllableCostsHanaRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsHanaState.rows.length === 0
-                              ? 'No HANA costs are available for charting.'
+                              ? 'No Databricks costs are available for charting.'
                               : filteredControllableCostsHanaRows.length === 0
                                 && controllableHanaFilterApplies
-                                ? 'No HANA costs were found for the selected filters.'
-                                : 'No HANA costs were found in the selected date range.'}
+                                ? 'No Databricks costs were found for the selected filters.'
+                                : 'No Databricks costs were found in the selected date range.'}
                           </p>
                         )}
 

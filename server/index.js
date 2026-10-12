@@ -74,7 +74,7 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
-const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
+const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = true;
 const LABOR_HANA_DATASET_ENABLED = false;
 let requestCounter = 0;
 
@@ -522,7 +522,7 @@ if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
       response,
       'controllable-costs-hana',
       () => getCachedSqlDataset('controllable-costs-hana'),
-      'Unable to read HANA controllable costs data.'
+      'Unable to read Databricks controllable costs data.'
     );
   });
 }

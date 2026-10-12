@@ -3,7 +3,7 @@ import { loadEnvironment } from './loadEnvironment.js';
 const POLL_INTERVAL_MS = 2000;
 const MAX_WAIT_MS = 90000;
 const TERMINAL_FAILURE_STATES = new Set(['FAILED', 'CANCELED', 'CLOSED']);
-const TEST_QUERY = 'SELECT * FROM `databricks_dev_catalog`.`analytics`.`cost_vis_full` LIMIT 5';
+const TEST_QUERY = 'SELECT * FROM `finance_dev`.`analytics`.`cost_vis_full` LIMIT 5';
 
 function requiredEnvironment() {
   const host = String(process.env.DATABRICKS_HOST || '').trim();

@@ -13,7 +13,13 @@ const METRIC_INFO = {
     'Card-level filter dimensions: Division, Business Unit, Facility.',
     'Known limitation: SAP G/L 4100000 gross timecard labor is missing from the extract. Central SDS Other is provisionally associated with overhead depreciation/LHI, with an $8,603.51 Q1 2026 difference; no adjustment is added.'
   ],
-  controllableCostsHana: 'Shows total HANA costs over time by organization.',
+  controllableCostsHana: [
+    'Comparison view from finance_dev.analytics.cost_vis_full in Databricks, filtered to Defense Systems.',
+    'Uses signed DOC_NET_VALUE and aggregates in Databricks before QMI dimension joins.',
+    'Division and Business Unit come from the latest cost-center hierarchy row; Facility comes from costcenterkey.',
+    'G/L accounts are normalized for leading zeros before cost_element_key matching, with cost_category_key as fallback.',
+    'This comparison card does not replace the current Controllable Costs source.'
+  ],
   sif: 'Counts significant injuries or fatalities over time.',
   potentialSif: 'Counts potential serious injury or fatality incidents.',
   nmfr: 'Tracks near miss frequency rate across periods.',

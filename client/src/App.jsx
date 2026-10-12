@@ -221,28 +221,7 @@ const CONTROLLABLE_NEW_PALETTE_FIELDS = CONTROLLABLE_NEW_CHART_FILTER_FIELDS.map
 );
 const CONTROLLABLE_NEW_PARETO_FILTER_FIELDS = CONTROLLABLE_NEW_CHART_FILTER_FIELDS;
 
-const CONTROLLABLE_HANA_CHART_FILTER_FIELDS = [
-  {
-    value: 'sector',
-    label: 'Sector',
-    allLabel: 'All sectors'
-  },
-  {
-    value: 'division',
-    label: 'Division',
-    allLabel: 'All divisions'
-  },
-  {
-    value: 'business_unit',
-    label: 'Business Unit',
-    allLabel: 'All business units'
-  },
-  {
-    value: 'facility',
-    label: 'Facility',
-    allLabel: 'All facilities'
-  }
-];
+const CONTROLLABLE_HANA_CHART_FILTER_FIELDS = CONTROLLABLE_NEW_CHART_FILTER_FIELDS;
 
 const CONTROLLABLE_HANA_PALETTE_FIELDS = CONTROLLABLE_HANA_CHART_FILTER_FIELDS.map(
   ({ value, label }) => ({ value, label })
@@ -7170,7 +7149,11 @@ export default function App() {
         { label: 'Total cost', color: 'var(--chart-line)' },
         paretoCumulativeLegendItem
       ]
-      : [{ label: 'Total cost', color: 'var(--chart-line)' }];
+      : [
+        { label: 'Controllable', color: 'var(--chart-line)' },
+        { label: 'Uncontrollable', color: 'var(--chart-accent-line)' },
+        { label: 'Unclassified', color: 'var(--chart-secondary-line)' }
+      ];
   const sifOverviewLegend = isSifPalette
     ? []
     : isSifPareto
@@ -7417,7 +7400,7 @@ export default function App() {
   const controllableCostsHanaGoalLine = labelGoalLineValue(
     isControllableCostsHanaPareto || isControllableCostsHanaPalette
       ? null
-      : getMetricGoalLine('controllableCostsHana', controllableCostsHanaViewMode),
+      : getFivePercentReductionFromAverageGoalLine(controllableCostsHanaChartData.total),
     formatMillionsCurrencyAxis
   );
   const controllableCostsHanaMetricInfo = buildControllableCostsMetricInfo(
@@ -7432,13 +7415,22 @@ export default function App() {
   );
   const visibleControllableCostsHanaGoalLine = clampGoalLineToVisibleSeries(
     controllableCostsHanaGoalLine,
-    [controllableCostsHanaChartData.total]
+    [
+      controllableCostsHanaChartData.controllable,
+      controllableCostsHanaChartData.uncontrollable,
+      controllableCostsHanaChartData.unclassified
+    ]
   );
   const controllableCostsHanaChartYAxis = buildDynamicNumericYAxis(
     CONTROLLABLE_COSTS_Y_AXIS,
-    [controllableCostsHanaChartData.total],
+    [
+      controllableCostsHanaChartData.controllable,
+      controllableCostsHanaChartData.uncontrollable,
+      controllableCostsHanaChartData.unclassified
+    ],
     {
-      includeZero: chartVariants.controllableCostsHana === 'bar',
+      includeZero: true,
+      minFloor: 0,
       goalLine: visibleControllableCostsHanaGoalLine
     }
   );
@@ -8962,7 +8954,7 @@ export default function App() {
                       label="Total Cost"
                       sublabel={priorPerformanceMonthLabel}
                       performanceStatus={controllableCostsHanaPerformanceStatus}
-                      ariaLabel="HANA controllable costs overview"
+                      ariaLabel="Databricks controllable costs overview"
                     />
                     <div ref={controllableCostsHanaChartHostRef} className="chart-host">
                       {controllableCostsHanaState.loading && (
@@ -9042,9 +9034,23 @@ export default function App() {
                               yAxis={controllableCostsHanaChartYAxis}
                               series={[
                                 {
-                                  data: controllableCostsHanaChartData.total,
-                                  label: 'Total Cost',
+                                  data: controllableCostsHanaChartData.controllable,
+                                  label: 'Controllable',
                                   color: 'var(--chart-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: controllableCostsHanaChartData.labels.length <= 1
+                                },
+                                {
+                                  data: controllableCostsHanaChartData.uncontrollable,
+                                  label: 'Uncontrollable',
+                                  color: 'var(--chart-accent-line)',
+                                  valueFormatter: formatCurrency,
+                                  showMark: controllableCostsHanaChartData.labels.length <= 1
+                                },
+                                {
+                                  data: controllableCostsHanaChartData.unclassified,
+                                  label: 'Unclassified',
+                                  color: 'var(--chart-secondary-line)',
                                   valueFormatter: formatCurrency,
                                   showMark: controllableCostsHanaChartData.labels.length <= 1
                                 }
@@ -9076,11 +9082,11 @@ export default function App() {
                           supportsFilter
                           supportsPalette
                           supportsPareto
-                          filterToggleAriaLabel="HANA costs time series"
+                          filterToggleAriaLabel="Databricks costs time series"
                           filterFieldValue={activeControllableHanaChartFilterField.value}
                           filterFieldOptions={CONTROLLABLE_HANA_CHART_FILTER_FIELDS}
                           paretoFieldOptions={CONTROLLABLE_HANA_PARETO_FILTER_FIELDS}
-                          filterFieldAriaLabel="Select HANA costs filter field"
+                          filterFieldAriaLabel="Select Databricks costs filter field"
                           onFilterFieldChange={(nextField) => {
                             setSelectedControllableHanaChartFilterField(nextField);
                             setSelectedControllableHanaChartFilterValue([]);
@@ -9088,12 +9094,12 @@ export default function App() {
                           filterValue={activeControllableHanaChartFilterValue}
                           filterValueOptions={controllableHanaChartFilterValueOptions}
                           filterValueAllLabel={activeControllableHanaChartFilterField.allLabel}
-                          filterValueAriaLabel="Select HANA costs filter value"
+                          filterValueAriaLabel="Select Databricks costs filter value"
                           onFilterValueChange={setSelectedControllableHanaChartFilterValue}
-                          paletteToggleAriaLabel="HANA costs grouped palette chart"
+                          paletteToggleAriaLabel="Databricks costs grouped palette chart"
                           paletteGroupFieldValue={activeControllableHanaPaletteGroupField.value}
                           paletteGroupFieldOptions={controllableHanaPaletteGroupFieldOptions}
-                          paletteGroupFieldAriaLabel="Select HANA costs group field"
+                          paletteGroupFieldAriaLabel="Select Databricks costs group field"
                           onPaletteGroupFieldChange={(nextField) => {
                             setSelectedControllableHanaPaletteGroupField(nextField);
 
@@ -9107,7 +9113,7 @@ export default function App() {
                           }}
                           paletteColorFieldValue={activeControllableHanaPaletteColorField.value}
                           paletteColorFieldOptions={controllableHanaPaletteColorFieldOptions}
-                          paletteColorFieldAriaLabel="Select HANA costs color field"
+                          paletteColorFieldAriaLabel="Select Databricks costs color field"
                           onPaletteColorFieldChange={(nextField) => {
                             setSelectedControllableHanaPaletteColorField(nextField);
 

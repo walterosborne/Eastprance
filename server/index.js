@@ -31,6 +31,7 @@ import {
 } from './dbmDiagnosticsFast.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
+import { readControllableCostsDatabricksData } from './controllableCostsDatabricksRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
 import {
   readControllableCostsNewData,
@@ -74,7 +75,8 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
-const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = true;
+const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
+const CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED = true;
 const LABOR_HANA_DATASET_ENABLED = false;
 let requestCounter = 0;
 
@@ -104,6 +106,9 @@ function sendAuthenticationAwareError(response, error, fallbackPayload, fallback
 registerSqlDatasetCache('controllable-costs', readControllableCostsData);
 if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
   registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
+}
+if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
+  registerSqlDatasetCache('controllable-costs-databricks', readControllableCostsDatabricksData);
 }
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
@@ -522,9 +527,36 @@ if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
       response,
       'controllable-costs-hana',
       () => getCachedSqlDataset('controllable-costs-hana'),
+      'Unable to read HANA controllable costs data.'
+    );
+  });
+}
+
+if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
+  app.get('/api/controllable-costs-databricks', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'controllable-costs-databricks',
+      () => getCachedSqlDataset('controllable-costs-databricks'),
       'Unable to read Databricks controllable costs data.'
     );
   });
+
+  // Temporary compatibility path for the existing comparison-card frontend.
+  // Databricks now has its own repository/cache/route; this alias can disappear
+  // once the frontend's old HANA-named state plumbing is renamed.
+  if (!CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
+    app.get('/api/controllable-costs-hana', async (request, response) => {
+      await sendDatasetResponse(
+        request,
+        response,
+        'controllable-costs-databricks',
+        () => getCachedSqlDataset('controllable-costs-databricks'),
+        'Unable to read Databricks controllable costs data.'
+      );
+    });
+  }
 }
 
 app.get('/api/sif-incidents', async (request, response) => {

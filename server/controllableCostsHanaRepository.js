@@ -10,58 +10,8 @@ import {
   getPool
 } from './sqlConnection.js';
 
-// The Databricks branch reuses the existing comparison-card plumbing that was
-// previously reserved for HANA. The public API shape stays compatible with the
-// card while the data now comes from the other group's final Databricks table.
-const DATABRICKS_TABLE_NAME = 'finance_dev.analytics.cost_vis_full';
-const DATABRICKS_TABLE_SQL = '`finance_dev`.`analytics`.`cost_vis_full`';
-const POLL_INTERVAL_MS = 2000;
-const MAX_WAIT_MS = 180000;
-const TERMINAL_FAILURE_STATES = new Set(['FAILED', 'CANCELED', 'CLOSED']);
-
-const DATABRICKS_COST_QUERY = `
-WITH normalized AS (
-  SELECT
-    TRY_CAST(Fiscal_Year AS INT) AS year,
-    TRY_CAST(Posting_Period AS INT) AS month,
-    UPPER(TRIM(CAST(new_Cost_Center AS STRING))) AS cost_center,
-    CASE
-      WHEN REGEXP_REPLACE(TRIM(CAST(GL_Account AS STRING)), '^0+', '') = '' THEN '0'
-      ELSE REGEXP_REPLACE(TRIM(CAST(GL_Account AS STRING)), '^0+', '')
-    END AS gl_account_cost_element,
-    TRIM(CAST(Cost_Category AS STRING)) AS cost_category,
-    TRIM(CAST(ACCT_NAME AS STRING)) AS cost_element_description,
-    TRY_CAST(DOC_NET_VALUE AS DOUBLE) AS cost
-  FROM ${DATABRICKS_TABLE_SQL}
-  WHERE CC_Bus_Unit_Lvl_2 LIKE '%Defense Systems%'
-)
-SELECT
-  year,
-  month,
-  cost_center,
-  gl_account_cost_element,
-  cost_category,
-  MAX(cost_element_description) AS cost_element_description,
-  SUM(cost) AS cost
-FROM normalized
-WHERE year >= 2025
-  AND month BETWEEN 1 AND 12
-  AND cost_center IS NOT NULL
-  AND cost_center <> ''
-  AND cost IS NOT NULL
-GROUP BY
-  year,
-  month,
-  cost_center,
-  gl_account_cost_element,
-  cost_category
-ORDER BY
-  year,
-  month,
-  cost_center,
-  gl_account_cost_element,
-  cost_category
-`;
+const CONTROLLABLE_COSTS_HANA_TABLE_NAME = 'qmi.controllable_costs_hana';
+const MIN_DOCUMENT_DATE_EXCLUSIVE = '2023-12-31';
 
 function normalizeText(value) {
   return String(value ?? '')
@@ -74,536 +24,135 @@ function normalizeNumber(value) {
     return null;
   }
 
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function normalizeInteger(value) {
-  const numericValue = normalizeNumber(value);
-  return Number.isInteger(numericValue) ? numericValue : null;
+  const number = normalizeNumber(value);
+  return Number.isInteger(number) ? number : null;
 }
 
-function normalizeCostCenter(value) {
-  return normalizeText(value).toUpperCase();
-}
+function normalizeDate(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
 
-function normalizeCostElementIdentifier(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+
   const normalizedValue = normalizeText(value);
-  const numericMatch = /^(\d+)(?:\.0+)?$/.exec(normalizedValue);
+  const isoDateMatch = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
 
-  if (numericMatch) {
-    try {
-      // Normalizes 0004301101 and 4301101 to the same lookup identifier.
-      return BigInt(numericMatch[1]).toString();
-    } catch {
-      // Fall through for values that cannot be represented as a numeric identifier.
-    }
+  if (isoDateMatch) {
+    return `${isoDateMatch[1]}-${isoDateMatch[2]}-${isoDateMatch[3]}`;
   }
 
-  return normalizedValue.toUpperCase();
+  const parsedDate = new Date(normalizedValue);
+  return Number.isNaN(parsedDate.getTime()) ? '' : parsedDate.toISOString().slice(0, 10);
 }
 
-function normalizeMatchText(value) {
-  return normalizeText(value).toLowerCase();
-}
-
-function normalizeKeyControllability(value) {
-  const normalizedValue = normalizeMatchText(value);
-
-  if (normalizedValue === 'controllable') return 'Controllable';
-  if (normalizedValue === 'uncontrollable') return 'Uncontrollable';
-  return 'Unclassified';
-}
-
-function getCostElementMatchRank(costRow, keyRow) {
-  const costCategoryMatches =
-    normalizeMatchText(keyRow.costCategory) === normalizeMatchText(costRow.cost_category);
-  const descriptionMatches =
-    normalizeMatchText(keyRow.costElementDescription)
-      === normalizeMatchText(costRow.cost_element_description);
-
-  if (costCategoryMatches && descriptionMatches) return 0;
-  if (costCategoryMatches) return 1;
-  if (descriptionMatches) return 2;
-  return 3;
-}
-
-function resolveCostElementKey(costRow, costElementKeysByIdentifier) {
-  const identifier = normalizeCostElementIdentifier(costRow.gl_account_cost_element);
-  const candidates = costElementKeysByIdentifier.get(identifier) ?? [];
-
-  return candidates.reduce((bestMatch, candidate) => {
-    if (!bestMatch) return candidate;
-
-    return getCostElementMatchRank(costRow, candidate)
-      < getCostElementMatchRank(costRow, bestMatch)
-      ? candidate
-      : bestMatch;
-  }, null);
-}
-
-function requiredDatabricksEnvironment() {
-  const host = normalizeText(process.env.DATABRICKS_HOST);
-  const token = normalizeText(process.env.DATABRICKS_TOKEN);
-  const warehouseId = normalizeText(process.env.DATABRICKS_SQL_WAREHOUSE_ID);
-  const missing = [];
-
-  if (!host) missing.push('DATABRICKS_HOST');
-  if (!token) missing.push('DATABRICKS_TOKEN');
-  if (!warehouseId) missing.push('DATABRICKS_SQL_WAREHOUSE_ID');
-
-  if (missing.length > 0) {
-    throw new Error(`Missing Databricks environment variables: ${missing.join(', ')}`);
-  }
+export function normalizeControllableCostsHanaRow(row) {
+  const date = normalizeDate(row.date ?? row['Date of Document']);
+  const parsedDate = date ? new Date(`${date}T00:00:00.000Z`) : new Date('');
+  const derivedYear = Number.isNaN(parsedDate.getTime()) ? null : parsedDate.getUTCFullYear();
+  const derivedQuarter = Number.isNaN(parsedDate.getTime())
+    ? ''
+    : `Q${Math.floor(parsedDate.getUTCMonth() / 3) + 1}`;
 
   return {
-    host: host.replace(/^https?:\/\//i, '').replace(/\/+$/, ''),
-    token,
-    warehouseId
+    date,
+    year: normalizeInteger(row.year ?? row.Year) ?? derivedYear,
+    quarter: normalizeText(row.quarter ?? row.Quarter).toUpperCase() || derivedQuarter,
+    cost: normalizeNumber(row.cost ?? row['Amount in Global Currency']),
+    sector: normalizeText(row.sector ?? row.Sector),
+    division: normalizeText(row.division ?? row.Division),
+    business_unit: normalizeText(row.business_unit ?? row['Business Unit']),
+    facility: normalizeText(row.facility ?? row['Cost Center Description'])
   };
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function networkFailureMessage(error, url) {
-  const cause = error?.cause;
-  const code = cause?.code || cause?.errno || error?.code || '';
-  const detail = cause?.message || error?.message || String(error);
-  const hints = [];
-
-  if (['ENOTFOUND', 'EAI_AGAIN'].includes(code)) {
-    hints.push('DNS could not resolve the Databricks hostname.');
-  }
-
-  if (
-    String(code).includes('CERT')
-    || String(code).includes('TLS')
-    || /certificate|self[- ]signed|unable to verify/i.test(detail)
-  ) {
-    hints.push('TLS certificate validation failed; the corporate CA may need to be provided to Node.');
-  }
-
-  if (['ECONNREFUSED', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT'].includes(code)) {
-    hints.push('The HTTPS connection could not be established; check VPN/firewall access to Databricks.');
-  }
-
-  return new Error(
-    [
-      `Unable to reach Databricks endpoint: ${url}`,
-      `Network error${code ? ` (${code})` : ''}: ${detail}`,
-      ...hints.map((hint) => `Hint: ${hint}`)
-    ].join('\n'),
-    { cause: error }
-  );
-}
-
-async function databricksRequest(connection, pathOrUrl, options = {}) {
-  const url = /^https?:\/\//i.test(pathOrUrl)
-    ? pathOrUrl
-    : `https://${connection.host}${pathOrUrl}`;
-  let response;
-
-  try {
-    response = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${connection.token}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
-    });
-  } catch (error) {
-    throw networkFailureMessage(error, url);
-  }
-
-  const text = await response.text();
-  let body = {};
-
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = { message: text };
-    }
-  }
-
-  if (!response.ok) {
-    const detail = body?.message || body?.error?.message || response.statusText || 'Unknown Databricks error';
-    throw new Error(`Databricks request failed (${response.status}): ${detail}`);
-  }
-
-  return body;
-}
-
-async function waitForStatement(connection, statementResponse) {
-  let response = statementResponse;
-  const startedAt = Date.now();
-
-  while (response?.status?.state === 'PENDING' || response?.status?.state === 'RUNNING') {
-    if (!response.statement_id) {
-      throw new Error('Databricks returned a pending statement without a statement_id.');
-    }
-
-    if (Date.now() - startedAt >= MAX_WAIT_MS) {
-      throw new Error(`Timed out waiting for Databricks statement ${response.statement_id}.`);
-    }
-
-    await sleep(POLL_INTERVAL_MS);
-    response = await databricksRequest(
-      connection,
-      `/api/2.0/sql/statements/${encodeURIComponent(response.statement_id)}`
-    );
-  }
-
-  return response;
-}
-
-function formatRows(columns, data) {
-  return data.map((row) => {
-    const formatted = {};
-
-    row.forEach((value, index) => {
-      formatted[columns[index]?.name || `column_${index + 1}`] = value;
-    });
-
-    return formatted;
-  });
-}
-
-async function collectStatementRows(connection, response) {
-  const columns = response?.manifest?.schema?.columns || [];
-  const rows = [...(response?.result?.data_array || [])];
-  let nextChunkLink = response?.result?.next_chunk_internal_link || null;
-
-  while (nextChunkLink) {
-    const chunk = await databricksRequest(connection, nextChunkLink);
-    const chunkResult = chunk?.result ?? chunk;
-
-    rows.push(...(chunkResult?.data_array || []));
-    nextChunkLink = chunkResult?.next_chunk_internal_link || null;
-  }
-
-  return formatRows(columns, rows);
-}
-
-async function executeDatabricksCostQuery() {
-  const connection = requiredDatabricksEnvironment();
-
-  logDebug('controllable-costs-hana', 'Executing Databricks comparison cost query.', {
-    tableName: DATABRICKS_TABLE_NAME,
-    warehouseId: connection.warehouseId
-  });
-
-  const initialResponse = await databricksRequest(connection, '/api/2.0/sql/statements', {
-    method: 'POST',
-    body: JSON.stringify({
-      warehouse_id: connection.warehouseId,
-      statement: DATABRICKS_COST_QUERY,
-      disposition: 'INLINE',
-      format: 'JSON_ARRAY',
-      wait_timeout: '10s',
-      on_wait_timeout: 'CONTINUE'
-    })
-  });
-  const response = await waitForStatement(connection, initialResponse);
-  const state = response?.status?.state;
-
-  if (TERMINAL_FAILURE_STATES.has(state)) {
-    const detail = response?.status?.error?.message || 'No additional error detail returned.';
-    throw new Error(`Databricks statement ended in ${state}: ${detail}`);
-  }
-
-  if (state !== 'SUCCEEDED') {
-    throw new Error(`Unexpected Databricks statement state: ${state || 'UNKNOWN'}`);
-  }
-
-  return collectStatementRows(connection, response);
-}
-
-async function readDbmDimensionLookups() {
-  const { config, missing } = getConnectionConfig('dbm');
-
-  if (missing.length > 0) {
-    throw new Error(`Missing SAP/DBM database environment variables: ${missing.join(', ')}`);
-  }
-
-  const pool = await getPool(config, 'dbm');
-  const [hierarchyResult, facilityResult] = await Promise.all([
-    pool.request().query(`
-      WITH ranked_hierarchy AS (
-        SELECT
-          UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
-          NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS division,
-          NULLIF(LTRIM(RTRIM(LEV04_DESC)), '') AS business_unit,
-          ROW_NUMBER() OVER (
-            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-            ORDER BY last_modified_date DESC, created_date DESC, id DESC
-          ) AS rn
-        FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
-        WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-          AND NULLIF(LTRIM(RTRIM(COST_CENTER)), '') IS NOT NULL
-      )
-      SELECT cost_center, division, business_unit
-      FROM ranked_hierarchy
-      WHERE rn = 1;
-    `),
-    pool.request().query(`
-      SELECT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS cost_center,
-        MAX(NULLIF(LTRIM(RTRIM([Address])), '')) AS facility,
-        MAX(NULLIF(LTRIM(RTRIM([City])), '')) AS facility_city,
-        MAX(NULLIF(LTRIM(RTRIM([State])), '')) AS facility_state
-      FROM [ecosystem_source].[qmi].[costcenterkey]
-      WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
-      GROUP BY UPPER(LTRIM(RTRIM([Cost Center])));
-    `)
-  ]);
-
-  return {
-    hierarchyByCostCenter: new Map(
-      hierarchyResult.recordset.map((row) => [
-        normalizeCostCenter(row.cost_center),
-        {
-          division: normalizeText(row.division),
-          businessUnit: normalizeText(row.business_unit)
-        }
-      ])
-    ),
-    facilityByCostCenter: new Map(
-      facilityResult.recordset.map((row) => [
-        normalizeCostCenter(row.cost_center),
-        {
-          facility: normalizeText(row.facility),
-          city: normalizeText(row.facility_city),
-          state: normalizeText(row.facility_state)
-        }
-      ])
-    )
-  };
-}
-
-async function readControllabilityLookups() {
+export async function readControllableCostsHanaData() {
+  const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig();
+
+  logDebug('controllable-costs-hana', 'Starting HANA controllable costs data load.', {
+    hasConnectionConfig: missing.length === 0,
+    tableName: CONTROLLABLE_COSTS_HANA_TABLE_NAME,
+    minDocumentDateExclusive: MIN_DOCUMENT_DATE_EXCLUSIVE
+  });
 
   if (missing.length > 0) {
     throw new Error(`Missing database environment variables: ${missing.join(', ')}`);
   }
 
-  const pool = await getPool(config, 'default');
-  const costElementKeyTableName = formatSqlIdentifier('cost_element_key', config);
-  const costCategoryKeyTableName = formatSqlIdentifier('cost_category_key', config);
-  const [elementResult, categoryResult] = await Promise.all([
-    pool.request().query(`
-      SELECT
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Category] AS nvarchar(4000)), ''))) AS cost_category,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Element] AS nvarchar(4000)), ''))) AS cost_element,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Element Description] AS nvarchar(4000)), ''))) AS cost_element_description,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Controllable] AS nvarchar(255)), ''))) AS controllable
-      FROM ${costElementKeyTableName}
-      WHERE NULLIF(
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Element] AS nvarchar(4000)), ''))),
-        ''
-      ) IS NOT NULL;
-    `),
-    pool.request().query(`
-      SELECT
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Category] AS nvarchar(4000)), ''))) AS cost_category,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Controllable] AS nvarchar(255)), ''))) AS controllable
-      FROM ${costCategoryKeyTableName};
-    `)
-  ]);
-
-  const valuesByIdentifier = new Map();
-
-  elementResult.recordset.forEach((row) => {
-    const normalizedRow = {
-      costCategory: normalizeText(row.cost_category),
-      costElement: normalizeCostElementIdentifier(row.cost_element),
-      costElementDescription: normalizeText(row.cost_element_description),
-      controllable: normalizeKeyControllability(row.controllable)
-    };
-    const rows = valuesByIdentifier.get(normalizedRow.costElement) ?? [];
-
-    rows.push(normalizedRow);
-    valuesByIdentifier.set(normalizedRow.costElement, rows);
-  });
-
-  return {
-    valuesByIdentifier,
-    controllabilityByCategory: new Map(
-      categoryResult.recordset.map((row) => [
-        normalizeMatchText(row.cost_category),
-        normalizeKeyControllability(row.controllable)
-      ])
-    )
-  };
-}
-
-function aggregateComparisonRows(rows) {
-  const buckets = new Map();
-
-  rows.forEach((row) => {
-    const key = [
-      row.year,
-      row.month,
-      row.division,
-      row.business_unit,
-      row.facility,
-      row.facility_city,
-      row.facility_state,
-      row.cost_category,
-      row.controllable
-    ].join('\u001f');
-    const existing = buckets.get(key);
-
-    if (existing) {
-      existing.cost += row.cost;
-      return;
-    }
-
-    buckets.set(key, { ...row });
-  });
-
-  return [...buckets.values()]
-    .map((row) => ({
-      ...row,
-      cost: Number(row.cost.toFixed(2))
-    }))
-    .sort((left, right) => (
-      left.year - right.year
-      || left.month - right.month
-      || left.division.localeCompare(right.division)
-      || left.business_unit.localeCompare(right.business_unit)
-      || left.facility.localeCompare(right.facility)
-      || left.cost_category.localeCompare(right.cost_category)
-      || left.controllable.localeCompare(right.controllable)
-    ));
-}
-
-export async function readControllableCostsHanaData() {
-  const stopTimer = createTimer();
-
-  logDebug('controllable-costs-hana', 'Starting Databricks controllable costs comparison load.', {
-    tableName: DATABRICKS_TABLE_NAME
-  });
-
   try {
-    const [sourceRows, dimensions, controllability] = await Promise.all([
-      executeDatabricksCostQuery(),
-      readDbmDimensionLookups(),
-      readControllabilityLookups()
-    ]);
-    const mappedRows = [];
-    let invalidSourceRowCount = 0;
-    let hierarchyUnmatchedRowCount = 0;
-    let facilityMappedRowCount = 0;
-    let unclassifiedSourceRowCount = 0;
+    const pool = await getPool(config, 'default');
+    const tableName = formatSqlIdentifier(CONTROLLABLE_COSTS_HANA_TABLE_NAME, config);
 
-    sourceRows.forEach((sourceRow) => {
-      const year = normalizeInteger(sourceRow.year);
-      const month = normalizeInteger(sourceRow.month);
-      const cost = normalizeNumber(sourceRow.cost);
-      const costCenter = normalizeCostCenter(sourceRow.cost_center);
-
-      if (
-        !Number.isInteger(year)
-        || !Number.isInteger(month)
-        || month < 1
-        || month > 12
-        || cost === null
-        || !costCenter
-      ) {
-        invalidSourceRowCount += 1;
-        return;
-      }
-
-      // Match current QMI behavior: organization comes from the latest hierarchy
-      // record, not from organizational labels already embedded in cost_vis_full.
-      const hierarchy = dimensions.hierarchyByCostCenter.get(costCenter);
-
-      if (!hierarchy) {
-        hierarchyUnmatchedRowCount += 1;
-        return;
-      }
-
-      const facilityMapping = dimensions.facilityByCostCenter.get(costCenter);
-      const facility = facilityMapping?.facility || `Unmapped (CC ${costCenter})`;
-      const costCategory = normalizeText(sourceRow.cost_category) || 'Other';
-      const glAccount = normalizeCostElementIdentifier(sourceRow.gl_account_cost_element);
-      const normalizedCostRow = {
-        cost_category: costCategory,
-        cost_element_description: normalizeText(sourceRow.cost_element_description),
-        gl_account_cost_element: glAccount
-      };
-      const matchedKey = resolveCostElementKey(
-        normalizedCostRow,
-        controllability.valuesByIdentifier
-      );
-      const categoryControllability = controllability.controllabilityByCategory.get(
-        normalizeMatchText(costCategory)
-      );
-      const controllable = matchedKey?.controllable && matchedKey.controllable !== 'Unclassified'
-        ? matchedKey.controllable
-        : (categoryControllability ?? 'Unclassified');
-
-      if (facilityMapping?.facility) facilityMappedRowCount += 1;
-      if (controllable === 'Unclassified') unclassifiedSourceRowCount += 1;
-
-      mappedRows.push({
-        date: `${year}-${String(month).padStart(2, '0')}-01`,
-        year,
-        month,
-        quarter: `Q${Math.floor((month - 1) / 3) + 1}`,
-        sector: 'Defense Systems',
-        division: hierarchy.division,
-        business_unit: hierarchy.businessUnit,
-        facility,
-        address: facility,
-        facility_city: facilityMapping?.city || '',
-        facility_state: facilityMapping?.state || '',
-        cost_category: costCategory,
-        controllable,
-        cost
-      });
+    logDebug('controllable-costs-hana', 'Executing HANA controllable costs SQL query.', {
+      tableName
     });
 
-    const rows = aggregateComparisonRows(mappedRows);
-    const years = [...new Set(rows.map((row) => row.year))].sort((left, right) => left - right);
+    const result = await pool.request().query(`
+      WITH normalized_costs AS (
+        SELECT
+          TRY_CONVERT(date, source.[Date of Document]) AS [document_date],
+          TRY_CONVERT(float, source.[Amount in Global Currency]) AS [cost],
+          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Sector]), ''))) AS [sector],
+          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Division]), ''))) AS [division],
+          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Business Unit]), ''))) AS [business_unit],
+          LTRIM(RTRIM(COALESCE(TRY_CONVERT(nvarchar(4000), source.[Cost Center Description]), ''))) AS [facility]
+        FROM ${tableName} AS source
+      )
+      SELECT
+        [document_date] AS [date],
+        YEAR([document_date]) AS [year],
+        CONCAT('Q', DATEPART(quarter, [document_date])) AS [quarter],
+        [sector],
+        [division],
+        [business_unit],
+        [facility],
+        SUM([cost]) AS [cost]
+      FROM normalized_costs
+      WHERE [document_date] IS NOT NULL
+        AND [document_date] > CONVERT(date, '${MIN_DOCUMENT_DATE_EXCLUSIVE}', 23)
+        AND [cost] IS NOT NULL
+      GROUP BY
+        [document_date],
+        [sector],
+        [division],
+        [business_unit],
+        [facility]
+      ORDER BY
+        [document_date] ASC,
+        [sector] ASC,
+        [division] ASC,
+        [business_unit] ASC,
+        [facility] ASC;
+    `);
+    const rows = result.recordset
+      .map(normalizeControllableCostsHanaRow)
+      .filter((row) => row.date && Number.isFinite(row.cost));
     const payload = {
-      source: 'databricks',
-      tableName: DATABRICKS_TABLE_NAME,
-      sourceFilter: "CC_Bus_Unit_Lvl_2 LIKE '%Defense Systems%'",
-      amountField: 'DOC_NET_VALUE',
-      sourceRowCount: sourceRows.length,
-      invalidSourceRowCount,
-      hierarchyMatchedRowCount: mappedRows.length,
-      hierarchyUnmatchedRowCount,
-      facilityMappedSourceRowCount: facilityMappedRowCount,
-      facilityUnmappedSourceRowCount: mappedRows.length - facilityMappedRowCount,
-      unclassifiedSourceRowCount,
+      source: 'mssql',
+      tableName: CONTROLLABLE_COSTS_HANA_TABLE_NAME,
       rowCount: rows.length,
-      totalCost: Number(rows.reduce((sum, row) => sum + row.cost, 0).toFixed(2)),
-      years,
       rows
     };
 
-    logDebug('controllable-costs-hana', 'Databricks comparison cost load completed.', {
+    logDebug('controllable-costs-hana', 'HANA controllable costs SQL query completed.', {
+      source: payload.source,
       tableName: payload.tableName,
-      sourceRowCount: payload.sourceRowCount,
       rowCount: payload.rowCount,
-      hierarchyUnmatchedRowCount: payload.hierarchyUnmatchedRowCount,
-      facilityUnmappedSourceRowCount: payload.facilityUnmappedSourceRowCount,
-      unclassifiedSourceRowCount: payload.unclassifiedSourceRowCount,
-      totalCost: payload.totalCost,
       duration: formatDuration(stopTimer())
     });
 
     return payload;
   } catch (error) {
-    logError('controllable-costs-hana', 'Databricks comparison cost load failed.', error, {
-      tableName: DATABRICKS_TABLE_NAME,
+    logError('controllable-costs-hana', 'HANA controllable costs SQL query failed.', error, {
+      tableName: CONTROLLABLE_COSTS_HANA_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
     throw error;

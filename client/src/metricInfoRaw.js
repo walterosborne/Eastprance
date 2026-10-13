@@ -13,12 +13,19 @@ const METRIC_INFO = {
     'Card-level filter dimensions: Division, Business Unit, Facility.',
     'Known limitation: SAP G/L 4100000 gross timecard labor is missing from the extract. Central SDS Other is provisionally associated with overhead depreciation/LHI, with an $8,603.51 Q1 2026 difference; no adjustment is added.'
   ],
-  controllableCostsHana: [
+  controllableCostsDatabricksProcessed: [
     'Comparison view from finance_dev.analytics.cost_vis_full in Databricks, filtered to Defense Systems.',
     'Uses signed DOC_NET_VALUE and aggregates in Databricks before QMI dimension joins.',
     'Division and Business Unit come from the latest cost-center hierarchy row; Facility comes from costcenterkey.',
-    'G/L accounts are normalized for leading zeros before cost_element_key matching, with cost_category_key as fallback.',
-    'This comparison card does not replace the current Controllable Costs source.'
+    'G/L accounts are normalized for leading zeros and restricted to the same controllable-cost G/L population used by the SQL source.',
+    'This is the processed Databricks comparison and does not replace the current Controllable Costs source.'
+  ],
+  controllableCostsDatabricksRaw: [
+    'Raw comparison view from finance_dev.analytics.dev_cv_transaction_details in Databricks.',
+    'Uses GJAHR, POPER, RCNTR, RACCT, GL_TXT50 and signed DOC_NET_VALUE.',
+    'Division and Business Unit come from the latest cost-center hierarchy row; Facility comes from costcenterkey, including the six central SDS support centers under Strategic Deterrent Facility/Operations.',
+    'RACCT is normalized for leading zeros, then filtered and categorized with the same division-specific CWI and SDS G/L rules used by the SQL controllable-cost extract.',
+    'Controllable / Uncontrollable comes from cost_element_key, then cost_category_key where needed. This is the raw Databricks comparison and does not replace the current Controllable Costs source.'
   ],
   sif: 'Counts significant injuries or fatalities over time.',
   potentialSif: 'Counts potential serious injury or fatality incidents.',

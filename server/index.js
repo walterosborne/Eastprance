@@ -31,7 +31,10 @@ import {
 } from './dbmDiagnosticsFast.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
-import { readControllableCostsDatabricksData } from './controllableCostsDatabricksRepository.js';
+import {
+  readControllableCostsDatabricksData,
+  readControllableCostsDatabricksRawData
+} from './controllableCostsDatabricksRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
 import {
   readControllableCostsNewData,
@@ -109,6 +112,10 @@ if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
 }
 if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
   registerSqlDatasetCache('controllable-costs-databricks', readControllableCostsDatabricksData);
+  registerSqlDatasetCache(
+    'controllable-costs-databricks-raw',
+    readControllableCostsDatabricksRawData
+  );
 }
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
@@ -539,13 +546,21 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
       response,
       'controllable-costs-databricks',
       () => getCachedSqlDataset('controllable-costs-databricks'),
-      'Unable to read Databricks controllable costs data.'
+      'Unable to read processed Databricks controllable costs data.'
+    );
+  });
+
+  app.get('/api/controllable-costs-databricks-raw', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'controllable-costs-databricks-raw',
+      () => getCachedSqlDataset('controllable-costs-databricks-raw'),
+      'Unable to read raw Databricks controllable costs data.'
     );
   });
 
   // Temporary compatibility path for the existing comparison-card frontend.
-  // Databricks now has its own repository/cache/route; this alias can disappear
-  // once the frontend's old HANA-named state plumbing is renamed.
   if (!CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
     app.get('/api/controllable-costs-hana', async (request, response) => {
       await sendDatasetResponse(
@@ -553,7 +568,7 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
         response,
         'controllable-costs-databricks',
         () => getCachedSqlDataset('controllable-costs-databricks'),
-        'Unable to read Databricks controllable costs data.'
+        'Unable to read processed Databricks controllable costs data.'
       );
     });
   }

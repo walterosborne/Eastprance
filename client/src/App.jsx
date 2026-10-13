@@ -62,6 +62,7 @@ import {
 } from './metricInfo';
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
+import DatabricksRawComparisonCard from './DatabricksRawComparisonCard';
 import {
   BusinessUnitHierarchyFilter,
   FacilityHierarchyFilter,
@@ -447,7 +448,9 @@ const CARD_CHIP_OPTIONS = [
     cardKeys: [
       ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
       'controllableCostsNew',
-      ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
+      ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
+        ? ['controllableCostsHana', 'controllableCostsDatabricksRaw']
+        : []),
       'sif',
       'potentialSif',
       'nmfr',
@@ -464,7 +467,9 @@ const CARD_CHIP_OPTIONS = [
     cardKeys: [
       ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
       'controllableCostsNew',
-      ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED ? ['controllableCostsHana'] : []),
+      ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
+        ? ['controllableCostsHana', 'controllableCostsDatabricksRaw']
+        : []),
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
@@ -7521,6 +7526,8 @@ export default function App() {
     controllableCostsNew: activeCardKeys.has('controllableCostsNew'),
     controllableCostsHana:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsHana'),
+    controllableCostsDatabricksRaw:
+      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsDatabricksRaw'),
     sif: activeCardKeys.has('sif'),
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
@@ -8937,7 +8944,7 @@ export default function App() {
             {visibleCards.controllableCostsHana && (
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
-                  title="Controllable Costs — Databricks"
+                  title="Controllable Costs — Databricks Processed"
                   info={controllableCostsHanaMetricInfo}
                   tooltipLegend={controllableCostsHanaCardTooltipLegend}
                   performanceStatus={controllableCostsHanaPerformanceStatus}
@@ -9151,6 +9158,10 @@ export default function App() {
                   </div>
                 </div>
               </article>
+            )}
+
+            {visibleCards.controllableCostsDatabricksRaw && (
+              <DatabricksRawComparisonCard />
             )}
 
             {visibleCards.sif && (

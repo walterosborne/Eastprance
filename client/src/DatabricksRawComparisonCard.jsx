@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { ToggleButton, ToggleButtonGroup } from '@mui/material';
@@ -131,75 +130,7 @@ function getPriorCompletedMonthLabel() {
   }).format(priorMonth);
 }
 
-function findProcessedDatabricksCard() {
-  const cardsGrid = document.querySelector('.cards-grid');
-
-  if (!cardsGrid) return { cardsGrid: null, processedCard: null };
-
-  const processedCard = [...cardsGrid.querySelectorAll('.analytics-card')].find((card) => {
-    if (card.dataset.databricksRawComparison === 'true') return false;
-
-    const text = card.textContent ?? '';
-    return text.includes('Controllable Costs — Databricks')
-      || text.includes('Controllable Costs - Databricks');
-  }) ?? null;
-
-  return { cardsGrid, processedCard };
-}
-
-function renameProcessedDatabricksCard(processedCard) {
-  if (!processedCard) return;
-
-  const titleElement = [...processedCard.querySelectorAll('h1, h2, h3, h4, p, span')]
-    .find((element) => {
-      const text = normalizeText(element.textContent);
-      return text === 'Controllable Costs — Databricks'
-        || text === 'Controllable Costs - Databricks';
-    });
-
-  if (titleElement) {
-    titleElement.textContent = 'Controllable Costs — Databricks Processed';
-  }
-}
-
-function useProcessedCardPortalTarget() {
-  const [target, setTarget] = useState(null);
-
-  useEffect(() => {
-    let frameId = null;
-
-    const sync = () => {
-      if (frameId !== null) return;
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        const { cardsGrid, processedCard } = findProcessedDatabricksCard();
-
-        renameProcessedDatabricksCard(processedCard);
-        setTarget(processedCard ? cardsGrid : null);
-      });
-    };
-
-    sync();
-
-    const observer = new MutationObserver(sync);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
-
-    return () => {
-      observer.disconnect();
-      if (frameId !== null) window.cancelAnimationFrame(frameId);
-    };
-  }, []);
-
-  return target;
-}
-
 export default function DatabricksRawComparisonCard() {
-  const portalTarget = useProcessedCardPortalTarget();
   const [state, setState] = useState({ loading: true, error: '', rows: [] });
   const [viewMode, setViewMode] = useState('monthly');
   const [chartVariant, setChartVariant] = useState('line');
@@ -273,9 +204,7 @@ export default function DatabricksRawComparisonCard() {
     }
   ];
 
-  if (!portalTarget) return null;
-
-  return createPortal(
+  return (
     <article
       className="analytics-card"
       style={{ order: 3 }}
@@ -379,7 +308,6 @@ export default function DatabricksRawComparisonCard() {
           </div>
         </div>
       </div>
-    </article>,
-    portalTarget
+    </article>
   );
 }

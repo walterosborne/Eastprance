@@ -444,8 +444,18 @@ async function collectStatementRows(connection, response) {
     const chunk = await databricksRequest(connection, nextChunkLink);
     const chunkResult = chunk?.result ?? chunk;
 
-    rows.push(...(chunkResult?.data_array || []));
+    for (const row of chunkResult?.data_array || []) {
+      rows.push(row);
+    }
     nextChunkLink = chunkResult?.next_chunk_internal_link || null;
+  }
+
+  const expectedRowCount = response?.manifest?.total_row_count;
+  if (response?.manifest?.truncated
+    || (expectedRowCount != null && rows.length !== Number(expectedRowCount))) {
+    throw new Error(
+      `Incomplete Databricks cost result: received ${rows.length} of ${expectedRowCount ?? 'unknown'} rows.`
+    );
   }
 
   return formatRows(columns, rows);
@@ -837,6 +847,7 @@ async function readDatabricksCostDataset({
       tableName: payload.tableName,
       sourceRowCount: payload.sourceRowCount,
       rowCount: payload.rowCount,
+      years: payload.years,
       hierarchyUnmatchedRowCount: payload.hierarchyUnmatchedRowCount,
       excludedBySqlScopeRowCount: payload.excludedBySqlScopeRowCount,
       facilityUnmappedSourceRowCount: payload.facilityUnmappedSourceRowCount,

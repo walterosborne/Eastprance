@@ -116,7 +116,9 @@ async function downloadExternalRows(externalLinks) {
 }
 
 async function resolveExternalLinks(payload) {
-  const externalLinks = payload?.result?.external_links;
+  // Statement responses nest results; subsequent chunk responses are flat.
+  const result = payload?.result ?? payload;
+  const externalLinks = result?.external_links;
 
   if (!Array.isArray(externalLinks) || externalLinks.length === 0) {
     return payload;
@@ -124,21 +126,19 @@ async function resolveExternalLinks(payload) {
 
   const rows = await downloadExternalRows(externalLinks);
   const finalLink = externalLinks.at(-1) ?? {};
-
-  return {
-    ...payload,
-    result: {
-      ...payload.result,
-      data_array: rows,
-      next_chunk_index:
-        payload.result?.next_chunk_index ?? finalLink.next_chunk_index ?? null,
-      next_chunk_internal_link:
-        payload.result?.next_chunk_internal_link
-        ?? finalLink.next_chunk_internal_link
-        ?? null,
-      external_links: undefined
-    }
+  const resolvedResult = {
+    ...result,
+    data_array: rows,
+    next_chunk_index:
+      result.next_chunk_index ?? finalLink.next_chunk_index ?? null,
+    next_chunk_internal_link:
+      result.next_chunk_internal_link ?? finalLink.next_chunk_internal_link ?? null,
+    external_links: undefined
   };
+
+  return payload?.result
+    ? { ...payload, result: resolvedResult }
+    : resolvedResult;
 }
 
 function parseRequestBody(body) {

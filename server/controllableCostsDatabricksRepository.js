@@ -674,6 +674,45 @@ function resolveControllability(sourceRow, costCategory, glAccount, controllabil
     : (categoryControllability ?? 'Unclassified');
 }
 
+function aggregateAccountRows(rows) {
+  const buckets = new Map();
+  rows.forEach((row) => {
+    const key = [
+      row.year, row.month, row.division, row.business_unit,
+      row.gl_account_cost_element, row.cost_category, row.controllable
+    ].join('\u001f');
+    const existing = buckets.get(key);
+    if (existing) existing.cost += row.cost;
+    else buckets.set(key, {
+      year: row.year, month: row.month, division: row.division,
+      business_unit: row.business_unit,
+      gl_account_cost_element: row.gl_account_cost_element,
+      cost_category: row.cost_category,
+      controllable: row.controllable,
+      cost: row.cost
+    });
+  });
+  return [...buckets.values()].map((row) => ({
+    ...row, cost: Number(row.cost.toFixed(2))
+  }));
+}
+
+function getRawSourceCoverage(rows) {
+  const months = new Map();
+  rows.forEach((row) => {
+    const year = normalizeInteger(row.year);
+    const month = normalizeInteger(row.month);
+    if (year == null || month == null || month < 1 || month > 12) return;
+    const key = `${year}-${month}`;
+    const entry = months.get(key) ?? { year, month, rowCount: 0, cost: 0 };
+    entry.rowCount += 1;
+    entry.cost += normalizeNumber(row.cost) ?? 0;
+    months.set(key, entry);
+  });
+  return [...months.values()].sort((a, b) => a.year - b.year || a.month - b.month)
+    .map((entry) => ({ ...entry, cost: Number(entry.cost.toFixed(2)) }));
+}
+
 function buildMappedPayload({
   sourceRows,
   dimensions,
@@ -781,12 +820,13 @@ function buildMappedPayload({
       facility_city: facilityCity,
       facility_state: facilityState,
       cost_category: costCategory,
+      gl_account_cost_element: glAccount,
       controllable,
       cost
     });
   });
 
-  const rows = aggregateComparisonRows(mappedRows);
+  const rows = aggregateComparisonRows(mappedRows).map(({ gl_account_cost_element, ...row }) => row);
   const years = [...new Set(rows.map((row) => row.year))].sort((left, right) => left - right);
 
   return {
@@ -809,7 +849,13 @@ function buildMappedPayload({
     rowCount: rows.length,
     totalCost: Number(rows.reduce((sum, row) => sum + row.cost, 0).toFixed(2)),
     years,
-    rows
+    rows,
+    // Used only by the unlinked /cost-test diagnostic page.
+    ...(exactSqlExtractScope ? {
+      accountRows: aggregateAccountRows(mappedRows),
+      rawSourceCoverage: getRawSourceCoverage(sourceRows),
+      rawMappedCoverage: getRawSourceCoverage(mappedRows)
+    } : {})
   };
 }
 

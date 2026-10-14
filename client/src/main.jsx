@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import App from './App';
+import CostTest from './Test/App';
 import { SITE_BRANDING } from './siteBranding';
 import './styles.css';
 
@@ -33,6 +34,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       draggable
       pauseOnHover={false}
     />
-    <App />
+    {window.location.pathname.replace(/\/+$/, '') === '/cost-test' ? <CostTest /> : <App />}
   </React.StrictMode>
 );

@@ -31,6 +31,7 @@ import {
 } from './dbmDiagnosticsFast.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
+import { buildCostTestDiagnostics } from './costTestDiagnostics.js';
 import {
   readControllableCostsDatabricksData,
   readControllableCostsDatabricksRawData
@@ -550,12 +551,30 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
     );
   });
 
+  // Unlinked diagnostic endpoint for the source comparison page.
+  app.get('/api/cost-test', async (_request, response) => {
+    try {
+      const [sqlDataset, rawDataset] = await Promise.all([
+        readControllableCostsNewData(),
+        getCachedSqlDataset('controllable-costs-databricks-raw')
+      ]);
+      response.json(buildCostTestDiagnostics(sqlDataset, rawDataset));
+    } catch (error) {
+      logError('cost-test', 'Unable to build cost comparison.', error);
+      response.status(500).json({ message: 'Cost comparison failed.', error: error.message });
+    }
+  });
+
   app.get('/api/controllable-costs-databricks-raw', async (request, response) => {
     await sendDatasetResponse(
       request,
       response,
       'controllable-costs-databricks-raw',
-      () => getCachedSqlDataset('controllable-costs-databricks-raw'),
+      async () => {
+        const { accountRows, rawSourceCoverage, ...cardDataset } =
+          await getCachedSqlDataset('controllable-costs-databricks-raw');
+        return cardDataset;
+      },
       'Unable to read raw Databricks controllable costs data.'
     );
   });

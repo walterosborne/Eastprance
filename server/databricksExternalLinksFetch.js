@@ -4,6 +4,10 @@ const COST_RESULT_TABLE_MARKERS = [
   '`finance_dev`.`analytics`.`cost_vis_full`',
   '`finance_dev`.`analytics`.`dev_cv_transaction_details`'
 ];
+const RAW_COST_TABLE_MARKERS = [
+  'finance_dev.analytics.dev_cv_transaction_details',
+  '`finance_dev`.`analytics`.`dev_cv_transaction_details`'
+];
 
 const largeResultStatementIds = new Set();
 const nativeFetch = globalThis.fetch.bind(globalThis);
@@ -36,6 +40,23 @@ function getStatementIdFromUrl(url) {
 function isLargeCostStatement(statement) {
   const sql = String(statement ?? '');
   return COST_RESULT_TABLE_MARKERS.some((marker) => sql.includes(marker));
+}
+
+function isRawCostStatement(statement) {
+  const sql = String(statement ?? '');
+  return RAW_COST_TABLE_MARKERS.some((marker) => sql.includes(marker));
+}
+
+function scopeRawCostStatementToQ1_2026(statement) {
+  const sql = String(statement ?? '');
+  if (!isRawCostStatement(sql)) return sql;
+
+  // Temporary validation scope: keep the Raw comparison small while we verify
+  // the Databricks transaction-detail mapping and card behavior.
+  return sql.replace(
+    /WHERE year >= 2025\s+AND month BETWEEN 1 AND 12/,
+    'WHERE year = 2026\n  AND month BETWEEN 1 AND 3'
+  );
 }
 
 function cloneJsonResponse(response, payload) {
@@ -75,7 +96,11 @@ async function downloadExternalRows(externalLinks) {
       throw new Error('Databricks external result chunk was not a JSON array.');
     }
 
-    rows.push(...chunkRows);
+    // Do not use rows.push(...chunkRows): a large result chunk can contain enough
+    // rows to exceed JavaScript's argument/call-stack limit.
+    for (const row of chunkRows) {
+      rows.push(row);
+    }
   }
 
   return rows;
@@ -160,6 +185,7 @@ export function enableDatabricksExternalLinksForCostResults() {
         ...init,
         body: JSON.stringify({
           ...requestBody,
+          statement: scopeRawCostStatementToQ1_2026(requestBody.statement),
           disposition: 'EXTERNAL_LINKS',
           format: 'JSON_ARRAY'
         })

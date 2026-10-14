@@ -31,4 +31,12 @@
 .ct-detail { margin-top: 15px; padding: 12px; background: #f4f8f2; border-radius: 8px; }
 .ct-error { color: #a32d2d; }
 .ct-page footer { color: #6c7c6e; margin: 22px 0; font-size: 12px; }
+.ct-account-label { min-width: 230px; max-width: 370px; white-space: normal; }
+.ct-account-label small, .ct-page td > small { display: block; margin-top: 3px; font-size: 11px; color: #526455; }
+.ct-wrap { white-space: normal; min-width: 190px; max-width: 360px; font-size: 12px; }
+.ct-description { max-width: 440px; color: #516554; font-weight: 400; }
+.ct-notice { padding: 12px; border-left: 3px solid #9d7626; background: #faf4df; color: #5f4d23; }
+#ct-investigation { scroll-margin-top: 15px; border-color: #9bb29a; }
+.ct-page th { white-space: normal; min-width: 85px; }
 @media (max-width: 700px) { .ct-page { padding: 20px 12px; } .ct-header { display: block; } .ct-callouts { grid-template-columns: 1fr; } }
+

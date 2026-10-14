@@ -571,7 +571,7 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
       response,
       'controllable-costs-databricks-raw',
       async () => {
-        const { accountRows, rawSourceCoverage, ...cardDataset } =
+        const { accountRows, rawSourceCoverage, rawMappedCoverage, mappingDiagnostics, ...cardDataset } =
           await getCachedSqlDataset('controllable-costs-databricks-raw');
         return cardDataset;
       },
@@ -737,3 +737,4 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+

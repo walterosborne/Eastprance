@@ -1,3 +1,4 @@
+import { createRawCostTrace } from './costTestDiagnostics.js';
 import {
   createTimer,
   formatDuration,
@@ -679,7 +680,8 @@ function aggregateAccountRows(rows) {
   rows.forEach((row) => {
     const key = [
       row.year, row.month, row.division, row.business_unit,
-      row.gl_account_cost_element, row.cost_category, row.controllable
+      row.gl_account_cost_element, row.cost_category, row.controllable,
+      row.cost_center, row.facility, row.cost_element_description
     ].join('\u001f');
     const existing = buckets.get(key);
     if (existing) existing.cost += row.cost;
@@ -687,6 +689,8 @@ function aggregateAccountRows(rows) {
       year: row.year, month: row.month, division: row.division,
       business_unit: row.business_unit,
       gl_account_cost_element: row.gl_account_cost_element,
+      cost_center: row.cost_center, facility: row.facility,
+      cost_element_description: row.cost_element_description,
       cost_category: row.cost_category,
       controllable: row.controllable,
       cost: row.cost
@@ -723,6 +727,7 @@ function buildMappedPayload({
   exactSqlExtractScope
 }) {
   const mappedRows = [];
+  const trace = exactSqlExtractScope ? createRawCostTrace() : null;
   let invalidSourceRowCount = 0;
   let hierarchyUnmatchedRowCount = 0;
   let excludedBySqlScopeRowCount = 0;
@@ -737,6 +742,11 @@ function buildMappedPayload({
     const costCenter = normalizeCostCenter(sourceRow.cost_center);
     const glAccount = normalizeCostElementIdentifier(sourceRow.gl_account_cost_element);
     const numericGlAccount = getNumericGlAccount(glAccount);
+    const traceRow = {
+      year, month, cost, cost_center: costCenter,
+      gl_account_cost_element: glAccount,
+      cost_element_description: normalizeText(sourceRow.cost_element_description)
+    };
 
     if (
       !Number.isInteger(year)
@@ -747,6 +757,7 @@ function buildMappedPayload({
       || !costCenter
       || !Number.isInteger(numericGlAccount)
     ) {
+      trace?.record(traceRow, 'invalid');
       invalidSourceRowCount += 1;
       return;
     }
@@ -754,6 +765,7 @@ function buildMappedPayload({
     const hierarchy = dimensions.hierarchyByCostCenter.get(costCenter);
 
     if (!hierarchy) {
+      trace?.record(traceRow, 'no_hierarchy');
       hierarchyUnmatchedRowCount += 1;
       return;
     }
@@ -768,6 +780,9 @@ function buildMappedPayload({
       costCategory = getRawCostCategory(hierarchy.division, numericGlAccount);
 
       if (!costCategory) {
+        const outcome = hierarchy.division === CWI_DIVISION || hierarchy.division === SDS_DIVISION
+          ? 'account_rule' : 'outside_division';
+        trace?.record(traceRow, outcome, hierarchy, facilityMapping?.facility ?? '');
         excludedBySqlScopeRowCount += 1;
         return;
       }
@@ -778,6 +793,7 @@ function buildMappedPayload({
       // Mirror create_qmi_controllable_costs_new_extract.sql: require a normal
       // cost-center-key facility, except for the six central SDS cost centers.
       if (!facilityMapping?.facility && !isSyntheticSdsFacility) {
+        trace?.record(traceRow, 'no_facility', hierarchy);
         excludedBySqlScopeRowCount += 1;
         return;
       }
@@ -807,6 +823,7 @@ function buildMappedPayload({
 
     if (controllable === 'Unclassified') unclassifiedSourceRowCount += 1;
 
+    trace?.record(traceRow, 'included', hierarchy, facility);
     mappedRows.push({
       date: `${year}-${String(month).padStart(2, '0')}-01`,
       year,
@@ -821,12 +838,16 @@ function buildMappedPayload({
       facility_state: facilityState,
       cost_category: costCategory,
       gl_account_cost_element: glAccount,
+      cost_center: costCenter,
+      cost_element_description: normalizeText(sourceRow.cost_element_description),
       controllable,
       cost
     });
   });
 
-  const rows = aggregateComparisonRows(mappedRows).map(({ gl_account_cost_element, ...row }) => row);
+  const rows = aggregateComparisonRows(mappedRows).map(({
+    gl_account_cost_element, cost_center, cost_element_description, ...row
+  }) => row);
   const years = [...new Set(rows.map((row) => row.year))].sort((left, right) => left - right);
 
   return {
@@ -854,7 +875,8 @@ function buildMappedPayload({
     ...(exactSqlExtractScope ? {
       accountRows: aggregateAccountRows(mappedRows),
       rawSourceCoverage: getRawSourceCoverage(sourceRows),
-      rawMappedCoverage: getRawSourceCoverage(mappedRows)
+      rawMappedCoverage: getRawSourceCoverage(mappedRows),
+      mappingDiagnostics: trace.finish()
     } : {})
   };
 }
@@ -937,3 +959,4 @@ export async function readControllableCostsDatabricksRawData() {
     exactSqlExtractScope: true
   });
 }
+

@@ -1,3 +1,4 @@
+import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
 import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -5970,11 +5971,6 @@ export default function App() {
     currentPerformanceMonth.getUTCMonth() - 1,
     1
   );
-  const priorPerformanceMonthLabel = formatMonthStamp(lastCompletedPerformanceMonthStamp);
-  const priorMonthSummaryDateRange = {
-    startStamp: lastCompletedPerformanceMonthStamp,
-    endStamp: lastCompletedPerformanceMonthStamp
-  };
   const historicalPerformanceDateRange = selectedDateRange
     ? {
       startStamp: selectedDateRange.startStamp,
@@ -6113,12 +6109,17 @@ export default function App() {
     error: controllableCostsState.error,
     calculateGoalLine: forecastControllableCostsGoalLineFromSeries
   });
-  const controllableCostsPriorMonthRows = filteredControllableCostsRows.filter(
-    (row) => getControllableCostsRowStamp(row) === lastCompletedPerformanceMonthStamp
+  const controllableCostsSummaryMonth = getLatestDataMonth(
+    filteredControllableCostsRows,
+    (row) => hasKpiValue(row.cost) ? getControllableCostsRowStamp(row) : null
   );
-  const controllableCostsSummaryValue = controllableCostsPriorMonthRows.length > 0
+  const controllableCostsLatestMonthRows = filteredControllableCostsRows.filter(
+    (row) => controllableCostsSummaryMonth != null
+      && getControllableCostsRowStamp(row) === controllableCostsSummaryMonth
+  );
+  const controllableCostsSummaryValue = controllableCostsLatestMonthRows.length > 0
     ? formatOverviewCurrency(
-      controllableCostsPriorMonthRows.reduce((sum, row) => {
+      controllableCostsLatestMonthRows.reduce((sum, row) => {
         const cost = Number(row.cost);
         return Number.isFinite(cost) ? sum + cost : sum;
       }, 0)
@@ -6210,12 +6211,17 @@ export default function App() {
     error: controllableCostsNewState.error,
     calculateGoalLine: forecastControllableCostsGoalLineFromSeries
   });
-  const controllableCostsNewPriorMonthRows = filteredControllableCostsNewRows.filter(
-    (row) => getControllableCostsRowStamp(row) === lastCompletedPerformanceMonthStamp
+  const controllableCostsNewSummaryMonth = getLatestDataMonth(
+    filteredControllableCostsNewRows,
+    (row) => hasKpiValue(row.cost) ? getControllableCostsRowStamp(row) : null
   );
-  const controllableCostsNewSummaryValue = controllableCostsNewPriorMonthRows.length > 0
+  const controllableCostsNewLatestMonthRows = filteredControllableCostsNewRows.filter(
+    (row) => controllableCostsNewSummaryMonth != null
+      && getControllableCostsRowStamp(row) === controllableCostsNewSummaryMonth
+  );
+  const controllableCostsNewSummaryValue = controllableCostsNewLatestMonthRows.length > 0
     ? formatOverviewCurrency(
-      controllableCostsNewPriorMonthRows.reduce((sum, row) => {
+      controllableCostsNewLatestMonthRows.reduce((sum, row) => {
         const cost = Number(row.cost);
         return Number.isFinite(cost) ? sum + cost : sum;
       }, 0)
@@ -6313,12 +6319,17 @@ export default function App() {
     error: controllableCostsHanaState.error,
     calculateGoalLine: forecastControllableCostsGoalLineFromSeries
   });
-  const controllableCostsHanaPriorMonthRows = filteredControllableCostsHanaRows.filter(
-    (row) => getControllableCostsRowStamp(row) === lastCompletedPerformanceMonthStamp
+  const controllableCostsHanaSummaryMonth = getLatestDataMonth(
+    filteredControllableCostsHanaRows,
+    (row) => hasKpiValue(row.cost) ? getControllableCostsRowStamp(row) : null
   );
-  const controllableCostsHanaSummaryValue = controllableCostsHanaPriorMonthRows.length > 0
+  const controllableCostsHanaLatestMonthRows = filteredControllableCostsHanaRows.filter(
+    (row) => controllableCostsHanaSummaryMonth != null
+      && getControllableCostsRowStamp(row) === controllableCostsHanaSummaryMonth
+  );
+  const controllableCostsHanaSummaryValue = controllableCostsHanaLatestMonthRows.length > 0
     ? formatOverviewCurrency(
-      controllableCostsHanaPriorMonthRows.reduce((sum, row) => {
+      controllableCostsHanaLatestMonthRows.reduce((sum, row) => {
         const cost = Number(row.cost);
         return Number.isFinite(cost) ? sum + cost : sum;
       }, 0)
@@ -6428,10 +6439,16 @@ export default function App() {
   );
   const isSifPareto = chartVariants.sif === 'pareto';
   const isSifPalette = chartVariants.sif === 'palette';
-  const sifSummaryRows = (isSifPareto || isSifPalette ? baseFilteredSifRows : filteredSifRows).filter(
-    (row) => isStampWithinDateRange(getIncidentRowStamp(row), priorMonthSummaryDateRange)
+  const sifSummarySourceRows = isSifPareto || isSifPalette
+    ? baseFilteredSifRows : filteredSifRows;
+  const sifSummaryMonth = getLatestDataMonth(
+    sifSummarySourceRows,
+    (row) => hasKpiValue(row.actual_value) ? getIncidentRowStamp(row) : null
   );
-  const sifSummaryValue = formatIncidentCount(sumActualValues(sifSummaryRows));
+  const sifSummaryRows = sifSummarySourceRows.filter(
+    (row) => sifSummaryMonth != null && getIncidentRowStamp(row) === sifSummaryMonth
+  );
+  const sifSummaryValue = sifSummaryRows.length ? formatIncidentCount(sumActualValues(sifSummaryRows)) : '--';
 
   const activePotentialSifChartFilterField =
     SAFETY_CHART_FILTER_FIELDS.find(
@@ -6516,12 +6533,17 @@ export default function App() {
   );
   const isPotentialSifPareto = chartVariants.potentialSif === 'pareto';
   const isPotentialSifPalette = chartVariants.potentialSif === 'palette';
-  const potentialSifSummaryRows = (
-    isPotentialSifPareto || isPotentialSifPalette ? baseFilteredPotentialSifRows : filteredPotentialSifRows
-  ).filter((row) => isStampWithinDateRange(getIncidentRowStamp(row), priorMonthSummaryDateRange));
-  const potentialSifSummaryValue = formatIncidentCount(
-    sumActualValues(potentialSifSummaryRows)
+  const potentialSifSummarySourceRows = isPotentialSifPareto || isPotentialSifPalette
+    ? baseFilteredPotentialSifRows : filteredPotentialSifRows;
+  const potentialSifSummaryMonth = getLatestDataMonth(
+    potentialSifSummarySourceRows,
+    (row) => hasKpiValue(row.actual_value) ? getIncidentRowStamp(row) : null
   );
+  const potentialSifSummaryRows = potentialSifSummarySourceRows.filter(
+    (row) => potentialSifSummaryMonth != null && getIncidentRowStamp(row) === potentialSifSummaryMonth
+  );
+  const potentialSifSummaryValue = potentialSifSummaryRows.length
+    ? formatIncidentCount(sumActualValues(potentialSifSummaryRows)) : '--';
 
   const activeNmfrChartFilterField =
     SAFETY_CHART_FILTER_FIELDS.find((option) => option.value === selectedNmfrChartFilterField)
@@ -6607,8 +6629,17 @@ export default function App() {
   );
   const isNmfrPareto = chartVariants.nmfr === 'pareto';
   const isNmfrPalette = chartVariants.nmfr === 'palette';
-  const nmfrSummaryRows = (isNmfrPareto || isNmfrPalette ? baseFilteredNmfrRows : filteredNmfrRows).filter(
-    (row) => isStampWithinDateRange(getIncidentRowStamp(row), priorMonthSummaryDateRange)
+  const nmfrSummarySourceRows = isNmfrPareto || isNmfrPalette
+    ? baseFilteredNmfrRows : filteredNmfrRows;
+  const nmfrSummaryMonth = getLatestDataMonth(
+    nmfrSummarySourceRows,
+    (row) => (hasKpiValue(row.actual_value)
+      || (hasKpiValue(row.near_miss_count)
+        && Number(row.employee_count) > 0 && Number(row.working_days) > 0))
+      ? getIncidentRowStamp(row) : null
+  );
+  const nmfrSummaryRows = nmfrSummarySourceRows.filter(
+    (row) => nmfrSummaryMonth != null && getIncidentRowStamp(row) === nmfrSummaryMonth
   );
   const nmfrOverallValue = calculateNmfrValueFromRows(nmfrSummaryRows);
   const nmfrSummaryValue = nmfrOverallValue == null ? '--' : formatNumber(nmfrOverallValue);
@@ -6654,10 +6685,16 @@ export default function App() {
     );
   });
   const otdChartData = buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange);
+  const otdSummaryMonth = getLatestDataMonth(filteredOtdRows,
+    (row) => OTD_MONTH_COLUMNS.map(({ key }, monthIndex) =>
+      ['Actual Delivered', 'Actuals Delivered'].includes(row.measure_type) && hasKpiValue(row[key])
+        ? getFixedMonthStamp(getOtdRowYear(row), monthIndex) : null
+    )
+  );
   const otdMonthlySummaryData = buildOtdChartData(
     filteredOtdRows,
     'monthly',
-    priorMonthSummaryDateRange
+    { startStamp: otdSummaryMonth ?? 0, endStamp: otdSummaryMonth ?? 0 }
   );
   const otdMonthlyPerformanceData = buildOtdChartData(
     filteredOtdRows,
@@ -6805,13 +6842,19 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
-  const laborPriorMonthSummaryData = buildLaborUtilizationChartData(
+  const laborSummaryMonth = getLatestDataMonth(filteredLaborRows,
+    (row) => LABOR_MONTH_COLUMNS.map(({ key }, monthIndex) =>
+      hasKpiValue(row[key])
+        ? getFixedMonthStamp(getLaborRowYear(row), monthIndex) : null
+    )
+  );
+  const laborLatestMonthSummaryData = buildLaborUtilizationChartData(
     filteredLaborRows,
     'monthly',
-    priorMonthSummaryDateRange
+    { startStamp: laborSummaryMonth ?? 0, endStamp: laborSummaryMonth ?? 0 }
   );
-  const laborOverallHours = sumNumericValues(laborPriorMonthSummaryData.totals);
-  const laborOverallDirectHours = sumNumericValues(laborPriorMonthSummaryData.direct);
+  const laborOverallHours = sumNumericValues(laborLatestMonthSummaryData.totals);
+  const laborOverallDirectHours = sumNumericValues(laborLatestMonthSummaryData.direct);
   const laborSummaryValue = laborOverallHours > 0
     ? formatPercentValue(laborOverallDirectHours / laborOverallHours)
     : '--';
@@ -6912,13 +6955,16 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
-  const laborNewPriorMonthSummaryData = buildLaborUtilizationNewChartData(
+  const laborNewSummaryMonth = getLatestDataMonth(filteredLaborNewRows,
+    (row) => hasKpiValue(row.entered_hours) ? getLaborNewRowStamp(row) : null
+  );
+  const laborNewLatestMonthSummaryData = buildLaborUtilizationNewChartData(
     filteredLaborNewRows,
     'monthly',
-    priorMonthSummaryDateRange
+    { startStamp: laborNewSummaryMonth ?? 0, endStamp: laborNewSummaryMonth ?? 0 }
   );
-  const laborNewOverallHours = sumNumericValues(laborNewPriorMonthSummaryData.totals);
-  const laborNewOverallDirectHours = sumNumericValues(laborNewPriorMonthSummaryData.direct);
+  const laborNewOverallHours = sumNumericValues(laborNewLatestMonthSummaryData.totals);
+  const laborNewOverallDirectHours = sumNumericValues(laborNewLatestMonthSummaryData.direct);
   const laborNewSummaryValue = laborNewOverallHours > 0
     ? formatPercentValue(laborNewOverallDirectHours / laborNewOverallHours)
     : '--';
@@ -7018,13 +7064,19 @@ export default function App() {
     'monthly',
     historicalPerformanceDateRange
   );
-  const laborHanaPriorMonthSummaryData = buildLaborUtilizationChartData(
+  const laborHanaSummaryMonth = getLatestDataMonth(filteredLaborHanaRows,
+    (row) => LABOR_MONTH_COLUMNS.map(({ key }, monthIndex) =>
+      hasKpiValue(row[key])
+        ? getFixedMonthStamp(getLaborRowYear(row), monthIndex) : null
+    )
+  );
+  const laborHanaLatestMonthSummaryData = buildLaborUtilizationChartData(
     filteredLaborHanaRows,
     'monthly',
-    priorMonthSummaryDateRange
+    { startStamp: laborHanaSummaryMonth ?? 0, endStamp: laborHanaSummaryMonth ?? 0 }
   );
-  const laborHanaOverallHours = sumNumericValues(laborHanaPriorMonthSummaryData.totals);
-  const laborHanaOverallDirectHours = sumNumericValues(laborHanaPriorMonthSummaryData.direct);
+  const laborHanaOverallHours = sumNumericValues(laborHanaLatestMonthSummaryData.totals);
+  const laborHanaOverallDirectHours = sumNumericValues(laborHanaLatestMonthSummaryData.direct);
   const laborHanaSummaryValue = laborHanaOverallHours > 0
     ? formatPercentValue(laborHanaOverallDirectHours / laborHanaOverallHours)
     : '--';
@@ -8523,7 +8575,7 @@ export default function App() {
                           : controllableCostsSummaryValue
                       }
                       label="Total Cost"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={controllableCostsSummaryMonth} />}
                       performanceStatus={controllableCostsPerformanceStatus}
                       ariaLabel="Controllable costs overview"
                     />
@@ -8734,7 +8786,7 @@ export default function App() {
                           : controllableCostsNewSummaryValue
                       }
                       label="Total Cost"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={controllableCostsNewSummaryMonth} />}
                       performanceStatus={controllableCostsNewPerformanceStatus}
                       ariaLabel="Controllable costs overview"
                     />
@@ -8959,7 +9011,7 @@ export default function App() {
                           : controllableCostsHanaSummaryValue
                       }
                       label="Total Cost"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={controllableCostsHanaSummaryMonth} />}
                       performanceStatus={controllableCostsHanaPerformanceStatus}
                       ariaLabel="Databricks controllable costs overview"
                     />
@@ -9178,7 +9230,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
                       label="SIF Incidents"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={sifSummaryMonth} />}
                       performanceStatus={sifPerformanceStatus}
                       ariaLabel="SIF incidents overview"
                     />
@@ -9374,7 +9426,7 @@ export default function App() {
                           : potentialSifSummaryValue
                       }
                       label="Potential SIFs"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={potentialSifSummaryMonth} />}
                       performanceStatus={potentialSifPerformanceStatus}
                       ariaLabel="Potential SIF incidents overview"
                     />
@@ -9570,7 +9622,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
                       label="NMFR"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={nmfrSummaryMonth} />}
                       performanceStatus={nmfrPerformanceStatus}
                       ariaLabel="Near miss frequency rate overview"
                     />
@@ -9760,7 +9812,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={otdState.loading || otdState.error ? '--' : otdSummaryValue}
                       label="Percent Delivered"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={otdSummaryMonth} />}
                       performanceStatus={otdPerformanceStatus}
                       ariaLabel="On time delivery overview"
                     />
@@ -9971,7 +10023,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={laborState.loading || laborState.error ? '--' : laborSummaryValue}
                       label="Direct Labor"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={laborSummaryMonth} />}
                       performanceStatus={laborPerformanceStatus}
                       ariaLabel="Direct labor utilization overview"
                     />
@@ -10172,7 +10224,7 @@ export default function App() {
                           : laborNewSummaryValue
                       }
                       label="Direct Labor"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={laborNewSummaryMonth} />}
                       performanceStatus={laborNewPerformanceStatus}
                       ariaLabel="Labor utilization overview"
                     />
@@ -10382,7 +10434,7 @@ export default function App() {
                           : laborHanaSummaryValue
                       }
                       label="Direct Labor"
-                      sublabel={priorPerformanceMonthLabel}
+                      sublabel={<KpiMonthLabel stamp={laborHanaSummaryMonth} />}
                       performanceStatus={laborHanaPerformanceStatus}
                       ariaLabel="HANA direct labor utilization overview"
                     />
@@ -10836,3 +10888,4 @@ const globalFilterSelectStyles = {
     fontSize: '0.76rem'
   })
 };
+

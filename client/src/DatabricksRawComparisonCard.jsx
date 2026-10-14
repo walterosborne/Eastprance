@@ -1,3 +1,4 @@
+import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
 import { useEffect, useMemo, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChartColumn, faChartLine } from '@fortawesome/free-solid-svg-icons';
@@ -483,14 +484,6 @@ function buildParetoData(rows, fieldName) {
   };
 }
 
-function getPriorMonthTotal(rows) {
-  const targetStamp = getLastCompletedMonthStamp();
-  return rows.reduce((sum, row) => {
-    const cost = Number(row?.cost);
-    return getMonthStamp(row) === targetStamp && Number.isFinite(cost) ? sum + cost : sum;
-  }, 0);
-}
-
 function getGoalLine(totalSeries) {
   const values = totalSeries.map(Number).filter(Number.isFinite);
   if (values.length === 0) return null;
@@ -933,9 +926,14 @@ export default function DatabricksRawComparisonCard() {
     () => buildParetoData(visibleRows, filterField),
     [visibleRows, filterField]
   );
-  const summaryValue = useMemo(() => getPriorMonthTotal(chartRows), [chartRows]);
+  const summaryMonth = getLatestDataMonth(chartRows,
+    (row) => hasKpiValue(row.cost) ? getMonthStamp(row) : null
+  );
+  const summaryValue = chartRows.reduce((sum, row) =>
+    summaryMonth != null && getMonthStamp(row) === summaryMonth && hasKpiValue(row.cost)
+      ? sum + Number(row.cost) : sum, 0
+  );
   const goalLine = useMemo(() => getGoalLine(trendData.total), [trendData.total]);
-  const priorMonthLabel = monthYearFormatter.format(new Date(getLastCompletedMonthStamp()));
   const hasChartData = chartVariant === 'palette'
     ? paletteData.labels.length > 0
     : chartVariant === 'pareto'
@@ -991,10 +989,10 @@ export default function DatabricksRawComparisonCard() {
             <div className="metric-overview-summary metric-overview-summary-kpi-only">
               <div className="metric-overview-primary">
                 <p className="metric-overview-value">
-                  {state.loading || state.error ? '--' : formatOverviewCurrency(summaryValue)}
+                  {state.loading || state.error || summaryMonth == null ? '--' : formatOverviewCurrency(summaryValue)}
                 </p>
                 <p className="metric-overview-label">Total Cost</p>
-                <p className="metric-overview-sublabel">{priorMonthLabel}</p>
+                <p className="metric-overview-sublabel"><KpiMonthLabel stamp={summaryMonth} /></p>
               </div>
             </div>
           </section>
@@ -1100,3 +1098,4 @@ export default function DatabricksRawComparisonCard() {
     </article>
   );
 }
+

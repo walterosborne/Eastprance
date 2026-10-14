@@ -47,15 +47,21 @@ function isRawCostStatement(statement) {
   return RAW_COST_TABLE_MARKERS.some((marker) => sql.includes(marker));
 }
 
-function scopeRawCostStatementToQ1_2026(statement) {
+function scopeRawCostStatementToCompletedYtd(statement) {
   const sql = String(statement ?? '');
   if (!isRawCostStatement(sql)) return sql;
 
-  // Temporary validation scope: keep the Raw comparison small while we verify
-  // the Databricks transaction-detail mapping and card behavior.
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  // UTC month indexes are zero-based, so in October getUTCMonth() is 9,
+  // which is exactly the previous completed calendar month number (September = 9).
+  const lastCompletedMonth = now.getUTCMonth();
+
+  // Keep Raw aligned with the scorecard's completed-month rule while widening
+  // the temporary validation scope from Q1 to year-to-date.
   return sql.replace(
     /WHERE year >= 2025\s+AND month BETWEEN 1 AND 12/,
-    'WHERE year = 2026\n  AND month BETWEEN 1 AND 3'
+    `WHERE year = ${currentYear}\n  AND month BETWEEN 1 AND ${lastCompletedMonth}`
   );
 }
 
@@ -185,7 +191,7 @@ export function enableDatabricksExternalLinksForCostResults() {
         ...init,
         body: JSON.stringify({
           ...requestBody,
-          statement: scopeRawCostStatementToQ1_2026(requestBody.statement),
+          statement: scopeRawCostStatementToCompletedYtd(requestBody.statement),
           disposition: 'EXTERNAL_LINKS',
           format: 'JSON_ARRAY'
         })

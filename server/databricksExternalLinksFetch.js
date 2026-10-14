@@ -47,7 +47,7 @@ function isRawCostStatement(statement) {
   return RAW_COST_TABLE_MARKERS.some((marker) => sql.includes(marker));
 }
 
-function scopeRawCostStatementToCompletedYtd(statement) {
+function scopeRawCostStatementToCompletedMonths(statement) {
   const sql = String(statement ?? '');
   if (!isRawCostStatement(sql)) return sql;
 
@@ -57,11 +57,14 @@ function scopeRawCostStatementToCompletedYtd(statement) {
   // which is exactly the previous completed calendar month number (September = 9).
   const lastCompletedMonth = now.getUTCMonth();
 
-  // Keep Raw aligned with the scorecard's completed-month rule while widening
-  // the temporary validation scope from Q1 to year-to-date.
+  // Include history from January 2025 through the previous completed month.
+  // In January, the prior-year months remain eligible and the current year does not.
   return sql.replace(
     /WHERE year >= 2025\s+AND month BETWEEN 1 AND 12/,
-    `WHERE year = ${currentYear}\n  AND month BETWEEN 1 AND ${lastCompletedMonth}`
+    `WHERE year >= 2025
+  AND month BETWEEN 1 AND 12
+  AND (year < ${currentYear}
+    OR (year = ${currentYear} AND month <= ${lastCompletedMonth}))`
   );
 }
 
@@ -191,7 +194,7 @@ export function enableDatabricksExternalLinksForCostResults() {
         ...init,
         body: JSON.stringify({
           ...requestBody,
-          statement: scopeRawCostStatementToCompletedYtd(requestBody.statement),
+          statement: scopeRawCostStatementToCompletedMonths(requestBody.statement),
           disposition: 'EXTERNAL_LINKS',
           format: 'JSON_ARRAY'
         })

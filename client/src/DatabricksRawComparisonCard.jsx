@@ -933,7 +933,7 @@ export default function DatabricksRawComparisonCard() {
     summaryMonth != null && getMonthStamp(row) === summaryMonth && hasKpiValue(row.cost)
       ? sum + Number(row.cost) : sum, 0
   );
-  const goalLine = useMemo(() => getGoalLine(trendData.total), [trendData.total]);
+  const goalLine = useMemo(() => getGoalLine(trendData.controllable), [trendData.controllable]);
   const hasChartData = chartVariant === 'palette'
     ? paletteData.labels.length > 0
     : chartVariant === 'pareto'

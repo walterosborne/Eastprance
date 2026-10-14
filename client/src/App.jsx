@@ -7391,7 +7391,7 @@ export default function App() {
   const controllableCostsGoalLine = labelGoalLineValue(
     isControllableCostsPareto || isControllableCostsPalette
       ? null
-      : getFivePercentReductionFromAverageGoalLine(controllableCostsChartData.total),
+      : getFivePercentReductionFromAverageGoalLine(controllableCostsChartData.controllable),
     formatMillionsCurrencyAxis
   );
   const controllableCostsMetricInfo = buildControllableCostsMetricInfo(
@@ -7420,7 +7420,7 @@ export default function App() {
   const controllableCostsNewGoalLine = labelGoalLineValue(
     isControllableCostsNewPareto || isControllableCostsNewPalette
       ? null
-      : getFivePercentReductionFromAverageGoalLine(controllableCostsNewChartData.total),
+      : getFivePercentReductionFromAverageGoalLine(controllableCostsNewChartData.controllable),
     formatMillionsCurrencyAxis
   );
   const controllableCostsNewMetricInfo = buildControllableCostsMetricInfo(
@@ -7457,7 +7457,7 @@ export default function App() {
   const controllableCostsHanaGoalLine = labelGoalLineValue(
     isControllableCostsHanaPareto || isControllableCostsHanaPalette
       ? null
-      : getFivePercentReductionFromAverageGoalLine(controllableCostsHanaChartData.total),
+      : getFivePercentReductionFromAverageGoalLine(controllableCostsHanaChartData.controllable),
     formatMillionsCurrencyAxis
   );
   const controllableCostsHanaMetricInfo = buildControllableCostsMetricInfo(

@@ -1411,8 +1411,12 @@ function normalizeGlobalFilters(value, optionsByDimension = null) {
         coerceFilterValues(value?.[key])
           .map((selectedValue) => {
             const normalizedValue = normalizeDimensionValue(key, selectedValue);
+            const facilityLabel = key === 'facility'
+              ? parseFacilityFilterToken(normalizedValue).label
+              : '';
             return key === 'facility'
-              && isUnmappedCostCenterFacility(parseFacilityFilterToken(normalizedValue).label)
+              && (facilityLabel.trim().toLowerCase() === 'unmapped'
+                || isUnmappedCostCenterFacility(facilityLabel))
               ? makeFacilityGroupToken('Unmapped')
               : normalizedValue;
           })

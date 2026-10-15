@@ -1013,7 +1013,7 @@ export default function DatabricksRawComparisonCard() {
               </div>
             </div>
             <p className="metric-info-paragraph">
-              Raw Databricks controllable-cost transactions from {RAW_TABLE_NAME}, mapped through the same QMI hierarchy, facility, division-specific G/L, cost-category, and controllability rules used by the SQL extract.
+              Raw Databricks controllable-cost transactions from {RAW_TABLE_NAME}, mapped through QMI hierarchy, division-specific G/L, cost-category, and controllability rules. Eligible costs without a facility are included under Unmapped.
             </p>
           </div>
         </div>

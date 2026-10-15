@@ -491,6 +491,32 @@ function getGoalLine(totalSeries) {
   return { value: average * 0.95 };
 }
 
+
+function getTrendScale(data, goalLine) {
+  const values = ['controllable', 'uncontrollable', 'unclassified']
+    .flatMap((key) => data[key].map((value, index) => ({
+      value: Number(value),
+      label: `${data.labels[index]} · ${key}`
+    })))
+    .filter((item) => Number.isFinite(item.value) && item.value > 0);
+  const sorted = values.map((item) => item.value).sort((left, right) => left - right);
+  if (sorted.length < 5) return { max: undefined, outliers: [] };
+
+  const typicalHigh = sorted[Math.floor((sorted.length - 1) * 0.9)];
+  const largest = sorted[sorted.length - 1];
+  // One unusually large month should not flatten every other month against zero.
+  if (typicalHigh <= 0 || largest <= typicalHigh * 10) {
+    return { max: undefined, outliers: [] };
+  }
+
+  const max = Math.max(typicalHigh * 1.35, (goalLine?.value ?? 0) * 1.15);
+  return {
+    max,
+    outliers: values.filter((item) => item.value > max)
+      .sort((left, right) => right.value - left.value)
+  };
+}
+
 function TooltipMark({ color }) {
   return (
     <span
@@ -746,7 +772,7 @@ function ChartControls({
   );
 }
 
-function TrendChart({ width, variant, data, goalLine }) {
+function TrendChart({ width, variant, data, goalLine, scaleMax }) {
   const series = [
     {
       data: data.controllable,
@@ -772,6 +798,7 @@ function TrendChart({ width, variant, data, goalLine }) {
   ];
   const yAxis = [{
     min: 0,
+    ...(scaleMax == null ? {} : { max: scaleMax }),
     width: 66,
     valueFormatter: formatMillionsCurrencyAxis,
     tickLabelStyle: { fontSize: 11 }
@@ -934,6 +961,7 @@ export default function DatabricksRawComparisonCard() {
       ? sum + Number(row.cost) : sum, 0
   );
   const goalLine = useMemo(() => getGoalLine(trendData.controllable), [trendData.controllable]);
+  const trendScale = useMemo(() => getTrendScale(trendData, goalLine), [trendData, goalLine]);
   const hasChartData = chartVariant === 'palette'
     ? paletteData.labels.length > 0
     : chartVariant === 'pareto'
@@ -1039,9 +1067,25 @@ export default function DatabricksRawComparisonCard() {
                   variant={chartVariant === 'bar' ? 'bar' : 'line'}
                   data={trendData}
                   goalLine={goalLine}
+                  scaleMax={trendScale.max}
                 />
               )
             )}
+            {!state.loading && !state.error && hasChartData
+              && (chartVariant === 'line' || chartVariant === 'bar')
+              && trendScale.outliers.length > 0 && (
+                <div
+                  title={trendScale.outliers.map((item) => `${item.label}: ${formatCurrency(item.value)}`).join('\\n')}
+                  style={{
+                    position: 'absolute', top: 8, right: 8, zIndex: 2,
+                    maxWidth: '72%', padding: '3px 7px', borderRadius: 6,
+                    background: 'var(--chart-surface)', color: 'var(--text-primary)',
+                    border: '1px solid var(--border)', fontSize: 10, lineHeight: 1.25
+                  }}
+                >
+                  {trendScale.outliers.length} value{trendScale.outliers.length === 1 ? '' : 's'} above chart scale; hover for details
+                </div>
+              )}
           </div>
 
           <div className="chart-control-row chart-control-row-single">

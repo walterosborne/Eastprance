@@ -492,28 +492,40 @@ function getGoalLine(totalSeries) {
 }
 
 
-function getTrendScale(data, goalLine) {
+function getTrendScale(data, goalLine, latestTotal) {
   const values = ['controllable', 'uncontrollable', 'unclassified']
     .flatMap((key) => data[key].map((value, index) => ({
       value: Number(value),
       label: `${data.labels[index]} · ${key}`
     })))
     .filter((item) => Number.isFinite(item.value) && item.value > 0);
-  const sorted = values.map((item) => item.value).sort((left, right) => left - right);
-  if (sorted.length < 5) return { max: undefined, outliers: [] };
+  if (values.length === 0) return { max: undefined, outliers: [], peak: null };
 
-  const typicalHigh = sorted[Math.floor((sorted.length - 1) * 0.9)];
-  const largest = sorted[sorted.length - 1];
-  // One unusually large month should not flatten every other month against zero.
-  if (typicalHigh <= 0 || largest <= typicalHigh * 10) {
-    return { max: undefined, outliers: [] };
-  }
+  const monthlyPeaks = data.labels.map((_label, index) =>
+    Math.max(0, ...['controllable', 'uncontrollable', 'unclassified']
+      .map((key) => Number(data[key][index]))
+      .filter(Number.isFinite))
+  ).filter((value) => value > 0).sort((left, right) => left - right);
+  const medianPeak = monthlyPeaks[Math.floor((monthlyPeaks.length - 1) / 2)];
+  const numericGoal = Number(goalLine?.value) || 0;
+  const reference = Math.max(
+    medianPeak,
+    Math.min(Number(latestTotal) || 0, medianPeak * 3),
+    numericGoal
+  );
+  const extremeThreshold = reference * 6;
+  const outliers = values.filter((item) => item.value > extremeThreshold)
+    .sort((left, right) => right.value - left.value);
+  const inRangeMax = Math.max(
+    numericGoal,
+    ...values.filter((item) => item.value <= extremeThreshold).map((item) => item.value)
+  );
 
-  const max = Math.max(typicalHigh * 1.35, (goalLine?.value ?? 0) * 1.15);
   return {
-    max,
-    outliers: values.filter((item) => item.value > max)
-      .sort((left, right) => right.value - left.value)
+    // Set both bounds explicitly so a source spike cannot expand the chart behind the UI.
+    max: Math.max(inRangeMax * 1.12, 1),
+    outliers,
+    peak: [...values].sort((left, right) => right.value - left.value)[0]
   };
 }
 
@@ -798,7 +810,7 @@ function TrendChart({ width, variant, data, goalLine, scaleMax }) {
   ];
   const yAxis = [{
     min: 0,
-    ...(scaleMax == null ? {} : { max: scaleMax }),
+    ...(scaleMax == null ? {} : { max: scaleMax, domainLimit: 'strict' }),
     width: 66,
     valueFormatter: formatMillionsCurrencyAxis,
     tickLabelStyle: { fontSize: 11 }
@@ -961,7 +973,7 @@ export default function DatabricksRawComparisonCard() {
       ? sum + Number(row.cost) : sum, 0
   );
   const goalLine = useMemo(() => getGoalLine(trendData.controllable), [trendData.controllable]);
-  const trendScale = useMemo(() => getTrendScale(trendData, goalLine), [trendData, goalLine]);
+  const trendScale = useMemo(() => getTrendScale(trendData, goalLine, summaryValue), [trendData, goalLine, summaryValue]);
   const hasChartData = chartVariant === 'palette'
     ? paletteData.labels.length > 0
     : chartVariant === 'pareto'
@@ -1073,7 +1085,7 @@ export default function DatabricksRawComparisonCard() {
             )}
             {!state.loading && !state.error && hasChartData
               && (chartVariant === 'line' || chartVariant === 'bar')
-              && trendScale.outliers.length > 0 && (
+              && trendScale.peak && (
                 <div
                   title={trendScale.outliers.map((item) => `${item.label}: ${formatCurrency(item.value)}`).join('\n')}
                   style={{
@@ -1083,7 +1095,9 @@ export default function DatabricksRawComparisonCard() {
                     border: '1px solid var(--border)', fontSize: 10, lineHeight: 1.25
                   }}
                 >
-                  {trendScale.outliers.length} value{trendScale.outliers.length === 1 ? '' : 's'} above chart scale; hover for details
+                  Peak ${trendScale.peak.label}: ${formatOverviewCurrency(trendScale.peak.value)}
+                  {' · '}Scale ${formatOverviewCurrency(trendScale.max)}
+                  {trendScale.outliers.length > 0 ? ` · ${trendScale.outliers.length} above scale` : ''}
                 </div>
               )}
           </div>

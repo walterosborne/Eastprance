@@ -59,6 +59,10 @@ export function parseFacilityFilterToken(value) {
   };
 }
 
+export function isUnmappedCostCenterFacility(value) {
+  return /^Unmapped\s*\(CC\s+[^)]+\)$/i.test(String(value ?? '').replace(/\s+/g, ' ').trim());
+}
+
 export function facilityFilterMatches(selectedValue, groupValue, originalValue) {
   const selection = parseFacilityFilterToken(selectedValue);
   const normalizedSelection = normalizeComparable(selection.label);
@@ -70,7 +74,8 @@ export function facilityFilterMatches(selectedValue, groupValue, originalValue) 
   }
 
   if (selection.type === 'group') {
-    return normalizedSelection === normalizedGroup;
+    return normalizedSelection === normalizedGroup
+      || (normalizedSelection === 'unmapped' && isUnmappedCostCenterFacility(groupValue));
   }
 
   if (selection.type === 'original') {

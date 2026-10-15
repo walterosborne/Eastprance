@@ -4,6 +4,7 @@ import {
   makeBusinessUnitDivisionToken,
   makeFacilityGroupToken,
   makeFacilityOriginalToken,
+  isUnmappedCostCenterFacility,
   parseBusinessUnitFilterToken,
   parseFacilityFilterToken
 } from './hierarchyFilterUtils';
@@ -312,11 +313,16 @@ function HierarchyFilter({
 
 function mergeFacilityGroups(mappedGroups, fallbackGroups) {
   const groupsByKey = new Map();
+  let hasUnmappedCostCenters = false;
 
   (Array.isArray(mappedGroups) ? mappedGroups : []).forEach((entry) => {
     const group = normalizeLabel(entry?.group);
 
     if (!group) {
+      return;
+    }
+    if (isUnmappedCostCenterFacility(group)) {
+      hasUnmappedCostCenters = true;
       return;
     }
 
@@ -325,7 +331,9 @@ function mergeFacilityGroups(mappedGroups, fallbackGroups) {
       children: [...new Set(
         (Array.isArray(entry?.originals) ? entry.originals : [])
           .map(normalizeLabel)
-          .filter(Boolean)
+          .filter((original) => original
+            && (normalizeKey(group) !== 'unmapped'
+              || (normalizeKey(original) !== 'unmapped' && !isUnmappedCostCenterFacility(original))))
       )].sort((left, right) => left.localeCompare(right))
     });
   });
@@ -334,10 +342,19 @@ function mergeFacilityGroups(mappedGroups, fallbackGroups) {
     const group = normalizeLabel(groupValue);
     const key = normalizeKey(group);
 
+    if (isUnmappedCostCenterFacility(group)) {
+      hasUnmappedCostCenters = true;
+      return;
+    }
+
     if (group && !groupsByKey.has(key)) {
       groupsByKey.set(key, { parent: group, children: [] });
     }
   });
+
+  if (hasUnmappedCostCenters && !groupsByKey.has('unmapped')) {
+    groupsByKey.set('unmapped', { parent: 'Unmapped', children: [] });
+  }
 
   return [...groupsByKey.values()].sort((left, right) =>
     left.parent.localeCompare(right.parent)
@@ -356,6 +373,10 @@ function canonicalizeFacilitySelections(values, entries) {
 
   return [...new Set((Array.isArray(values) ? values : []).map((value) => {
     const parsed = parseFacilityFilterToken(value);
+
+    if (isUnmappedCostCenterFacility(parsed.label)) {
+      return makeFacilityGroupToken('Unmapped');
+    }
 
     if (parsed.type === 'group') {
       return makeFacilityGroupToken(parsed.label);

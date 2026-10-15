@@ -1083,23 +1083,6 @@ export default function DatabricksRawComparisonCard() {
                 />
               )
             )}
-            {!state.loading && !state.error && hasChartData
-              && (chartVariant === 'line' || chartVariant === 'bar')
-              && trendScale.peak && (
-                <div
-                  title={trendScale.outliers.map((item) => `${item.label}: ${formatCurrency(item.value)}`).join('\n')}
-                  style={{
-                    position: 'absolute', top: 8, right: 8, zIndex: 2,
-                    maxWidth: '72%', padding: '3px 7px', borderRadius: 6,
-                    background: 'var(--chart-surface)', color: 'var(--text-primary)',
-                    border: '1px solid var(--border)', fontSize: 10, lineHeight: 1.25
-                  }}
-                >
-                  Peak {trendScale.peak.label}: {formatOverviewCurrency(trendScale.peak.value)}
-                  {' · '}Scale {formatOverviewCurrency(trendScale.max)}
-                  {trendScale.outliers.length > 0 ? ` · ${trendScale.outliers.length} above scale` : ''}
-                </div>
-              )}
           </div>
 
           <div className="chart-control-row chart-control-row-single">

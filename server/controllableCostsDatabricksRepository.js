@@ -772,10 +772,9 @@ function buildMappedPayload({
 
     let costCategory = normalizeText(sourceRow.cost_category);
     let facilityMapping = dimensions.facilityByCostCenter.get(costCenter);
-    let facility = facilityMapping?.facility || (exactSqlExtractScope ? 'Unmapped' : `Unmapped (CC ${costCenter})`);
+    let facility = facilityMapping?.facility || `Unmapped (CC ${costCenter})`;
     let facilityCity = facilityMapping?.city || '';
     let facilityState = facilityMapping?.state || '';
-    let isUnmappedFacility = false;
 
     if (exactSqlExtractScope) {
       costCategory = getRawCostCategory(hierarchy.division, numericGlAccount);
@@ -791,9 +790,14 @@ function buildMappedPayload({
       const isSyntheticSdsFacility =
         hierarchy.division === SDS_DIVISION && SDS_CENTRAL_COST_CENTERS.has(costCenter);
 
-      // Keep otherwise eligible Raw costs with no facility key as Unmapped.
-      // The SQL extract still requires a facility, so these rows can differ.
-      isUnmappedFacility = !facilityMapping?.facility && !isSyntheticSdsFacility;
+      // Mirror create_qmi_controllable_costs_new_extract.sql: require a normal
+      // cost-center-key facility, except for the six central SDS cost centers.
+      if (!facilityMapping?.facility && !isSyntheticSdsFacility) {
+        trace?.record(traceRow, 'no_facility', hierarchy);
+        excludedBySqlScopeRowCount += 1;
+        return;
+      }
+
       if (isSyntheticSdsFacility) {
         facility = 'Strategic Deterrent Facility/Operations';
         facilityCity = '';
@@ -819,7 +823,7 @@ function buildMappedPayload({
 
     if (controllable === 'Unclassified') unclassifiedSourceRowCount += 1;
 
-    trace?.record(traceRow, isUnmappedFacility ? 'included_unmapped_facility' : 'included', hierarchy, facility);
+    trace?.record(traceRow, 'included', hierarchy, facility);
     mappedRows.push({
       date: `${year}-${String(month).padStart(2, '0')}-01`,
       year,

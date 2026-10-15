@@ -71,7 +71,10 @@ import {
 } from './HierarchyFilters';
 import {
   businessUnitFilterMatches,
-  facilityFilterMatches
+  facilityFilterMatches,
+  isUnmappedCostCenterFacility,
+  makeFacilityGroupToken,
+  parseFacilityFilterToken
 } from './hierarchyFilterUtils';
 
 const ALL_FILTER_VALUE = '__all__';
@@ -1347,7 +1350,10 @@ function getGlobalFilterOptions(rowsByMetric, dimensionKey) {
         return;
       }
 
-      const normalizedValue = normalizeDimensionValue(dimensionKey, row?.[fieldName]);
+      const rawValue = normalizeDimensionValue(dimensionKey, row?.[fieldName]);
+      const normalizedValue = dimensionKey === 'facility' && isUnmappedCostCenterFacility(rawValue)
+        ? 'Unmapped'
+        : rawValue;
 
       if (normalizedValue) {
         values.add(normalizedValue);
@@ -1403,7 +1409,13 @@ function normalizeGlobalFilters(value, optionsByDimension = null) {
     GLOBAL_FILTER_DIMENSIONS.map(({ key }) => {
       const selectedValues = Array.from(new Set(
         coerceFilterValues(value?.[key])
-          .map((selectedValue) => normalizeDimensionValue(key, selectedValue))
+          .map((selectedValue) => {
+            const normalizedValue = normalizeDimensionValue(key, selectedValue);
+            return key === 'facility'
+              && isUnmappedCostCenterFacility(parseFacilityFilterToken(normalizedValue).label)
+              ? makeFacilityGroupToken('Unmapped')
+              : normalizedValue;
+          })
           .filter((selectedValue) => selectedValue && !(key === 'division' && isExcludedDivision(selectedValue)))
       ));
       const availableOptions = optionsByDimension?.[key];

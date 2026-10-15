@@ -26,7 +26,7 @@ export function MappingOverview({ data }) {
     .map((row) => `${row.year}-${String(row.month).padStart(2, '0')}`))].sort();
   return <section className="ct-panel"><h2>5 · Exactly where do the Raw rows drop out?</h2>
     <p className="ct-note">All divisions and accounts in the Raw query, independent of the page filters. Each grouped source row is counted once at its first failed check, or as included. These are aggregated query rows, not individual transactions. Dollars are signed; the pre-mapping pool is broader than the card.</p>
-    <p className="ct-note">Both years use the latest cost-center hierarchy and the current facility key. A missing hierarchy match can mean an out-of-scope organization or an unmapped historical cost center; it does not prove missing source data.</p>
+    <p className="ct-note">Both years use the latest cost-center hierarchy and the current facility key. Eligible rows without a facility are included as Unmapped. A missing hierarchy match can mean an out-of-scope organization or an unmapped historical cost center; it does not prove missing source data.</p>
     <div className="ct-scroll"><table><thead><tr><th>Month</th><th>Before mapping</th>{Object.values(OUTCOMES).map((name) => <th key={name}>{name}</th>)}</tr></thead>
       <tbody>{months.map((key) => {
         const [year, month] = key.split('-').map(Number);
@@ -56,7 +56,7 @@ export function AccountInvestigation({ data, account, onAccountChange, months, d
   const before2025 = Object.values(stages2025).reduce((sum, row) => sum + row.rowCount, 0);
   const before2026 = Object.values(stages2026).reduce((sum, row) => sum + row.rowCount, 0);
   const samples = trace.filter((row) => row.year === sampleYear && months.includes(row.month) && row.account === account
-    && (reason === 'all' || (reason === 'rejected' ? row.outcome !== 'included' : row.outcome === reason)))
+    && (reason === 'all' || (reason === 'rejected' ? !['included', 'included_unmapped_facility'].includes(row.outcome) : row.outcome === reason)))
     .flatMap((row) => (row.samples ?? []).map((sample) => ({ ...sample, month: row.month, outcome: row.outcome })))
     .sort((a, b) => Math.abs(b.cost) - Math.abs(a.cost));
   const centerRows = costCenterComparison(sql, raw, months, sqlAccount, rawAccount, division);

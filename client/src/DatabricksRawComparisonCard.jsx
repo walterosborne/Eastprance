@@ -1095,8 +1095,8 @@ export default function DatabricksRawComparisonCard() {
                     border: '1px solid var(--border)', fontSize: 10, lineHeight: 1.25
                   }}
                 >
-                  Peak ${trendScale.peak.label}: ${formatOverviewCurrency(trendScale.peak.value)}
-                  {' · '}Scale ${formatOverviewCurrency(trendScale.max)}
+                  Peak {trendScale.peak.label}: {formatOverviewCurrency(trendScale.peak.value)}
+                  {' · '}Scale {formatOverviewCurrency(trendScale.max)}
                   {trendScale.outliers.length > 0 ? ` · ${trendScale.outliers.length} above scale` : ''}
                 </div>
               )}

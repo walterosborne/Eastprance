@@ -1075,7 +1075,7 @@ export default function DatabricksRawComparisonCard() {
               && (chartVariant === 'line' || chartVariant === 'bar')
               && trendScale.outliers.length > 0 && (
                 <div
-                  title={trendScale.outliers.map((item) => `${item.label}: ${formatCurrency(item.value)}`).join('\\n')}
+                  title={trendScale.outliers.map((item) => `${item.label}: ${formatCurrency(item.value)}`).join('\n')}
                   style={{
                     position: 'absolute', top: 8, right: 8, zIndex: 2,
                     maxWidth: '72%', padding: '3px 7px', borderRadius: 6,

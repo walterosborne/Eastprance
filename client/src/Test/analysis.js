@@ -5,8 +5,9 @@ export const OUTCOMES = {
   no_hierarchy: 'No eligible hierarchy match',
   outside_division: 'Outside CWI / SDS',
   account_rule: 'Division G/L rule',
-  no_facility: 'No eligible facility',
-  included: 'Included in Raw card'
+  no_facility: 'No eligible facility (old mapping)',
+  included: 'Included with mapped facility',
+  included_unmapped_facility: 'Included as Unmapped facility'
 };
 
 export function descriptionIndex(rows, trace = []) {

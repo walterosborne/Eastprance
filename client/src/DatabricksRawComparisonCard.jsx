@@ -499,7 +499,7 @@ function getTrendScale(data, goalLine, latestTotal) {
       label: `${data.labels[index]} · ${key}`
     })))
     .filter((item) => Number.isFinite(item.value) && item.value > 0);
-  if (values.length === 0) return { max: undefined, outliers: [], peak: null };
+  if (values.length === 0) return { max: undefined };
 
   const monthlyPeaks = data.labels.map((_label, index) =>
     Math.max(0, ...['controllable', 'uncontrollable', 'unclassified']
@@ -514,8 +514,6 @@ function getTrendScale(data, goalLine, latestTotal) {
     numericGoal
   );
   const extremeThreshold = reference * 6;
-  const outliers = values.filter((item) => item.value > extremeThreshold)
-    .sort((left, right) => right.value - left.value);
   const inRangeMax = Math.max(
     numericGoal,
     ...values.filter((item) => item.value <= extremeThreshold).map((item) => item.value)
@@ -523,9 +521,7 @@ function getTrendScale(data, goalLine, latestTotal) {
 
   return {
     // Set both bounds explicitly so a source spike cannot expand the chart behind the UI.
-    max: Math.max(inRangeMax * 1.12, 1),
-    outliers,
-    peak: [...values].sort((left, right) => right.value - left.value)[0]
+    max: Math.max(inRangeMax * 1.12, 1)
   };
 }
 

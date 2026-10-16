@@ -97,7 +97,7 @@ export default function CostTest() {
   });
   const downloadSds2025 = () => {
     const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const headings = ['Raw cost center', '2025 cost', 'G/L account', 'G/L description'];
+    const headings = ['Raw cost center (independent list)', '2025 cost', '', 'G/L account (independent list)', 'G/L description'];
     const lines = [headings.map(csvCell).join(',')];
     const rowCount = Math.max(sdsCenters2025.length, sdsAccounts2025.length);
     for (let index = 0; index < rowCount; index += 1) {
@@ -106,6 +106,7 @@ export default function CostTest() {
       lines.push([
         csvCell(center?.costCenter ?? ''),
         center ? center.cost.toFixed(2) : '',
+        '',
         csvCell(account?.[0] ?? ''),
         csvCell(account ? [...account[1]].sort().join(' / ') || 'Description unavailable' : '')
       ].join(','));
@@ -114,7 +115,7 @@ export default function CostTest() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = '2025_SDS_cost_centers_and_GL_accounts.csv';
+    link.download = '2025_SDS_independent_cost_centers_and_GL_accounts.csv';
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -205,7 +206,7 @@ export default function CostTest() {
       months={common2026} division={division} descriptions={descriptions}
     />}
 
-    <Panel title="2025 SDS cost centers" note="Databricks Raw rows that passed the 2025 SDS hierarchy and G/L rules. The left table shows each cost center once; the right table shows each G/L account once across all centers.">
+    <Panel title="2025 SDS cost centers" note="Databricks Raw rows that passed the 2025 SDS hierarchy and G/L rules. The left table shows each cost center once; the right table shows each G/L account once across all centers. These are independent lists: items on the same row do not correspond.">
       <div className="ct-controls"><button className="ct-export" type="button" onClick={downloadSds2025}>Download all as CSV for Excel</button>
         <label>Search cost centers
           <input type="search" value={sdsCenterSearch} onChange={(event) => setSdsCenterSearch(event.target.value)} placeholder="Cost center ID" />

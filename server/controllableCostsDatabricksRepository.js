@@ -792,12 +792,11 @@ function buildMappedPayload({
       const isSyntheticSdsFacility =
         hierarchy.division === SDS_DIVISION && SDS_CENTRAL_COST_CENTERS.has(costCenter);
 
-      // Mirror create_qmi_controllable_costs_new_extract.sql: require a normal
-      // cost-center-key facility, except for the six central SDS cost centers.
+      // Keep CWI's facility requirement. Eligible SDS rows with a hierarchy but
+      // no cost-center-key entry retain their costs under a single Unmapped facility.
       if (!facilityMapping?.facility && !isSyntheticSdsFacility) {
-        trace?.record(traceRow, 'no_facility', hierarchy);
         if (hierarchy.division === SDS_DIVISION) {
-          sdsNoFacilityCandidates.push({
+          const candidate = {
             year, month,
             division: hierarchy.division,
             business_unit: hierarchy.businessUnit,
@@ -810,8 +809,23 @@ function buildMappedPayload({
               sourceRow, costCategory, glAccount, controllability
             ),
             cost
+          };
+          sdsNoFacilityCandidates.push(candidate);
+          mappedRows.push({
+            ...candidate,
+            date: `${year}-${String(month).padStart(2, '0')}-01`,
+            quarter: `Q${Math.floor((month - 1) / 3) + 1}`,
+            sector: 'Defense Systems',
+            address: 'Unmapped',
+            facility_city: '',
+            facility_state: ''
           });
+          facilityUnmappedRowCount += 1;
+          if (candidate.controllable === 'Unclassified') unclassifiedSourceRowCount += 1;
+          trace?.record(traceRow, 'included', hierarchy, 'Unmapped');
+          return;
         }
+        trace?.record(traceRow, 'no_facility', hierarchy);
         excludedBySqlScopeRowCount += 1;
         return;
       }

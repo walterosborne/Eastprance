@@ -75,7 +75,8 @@ export function AccountInvestigation({ data, account, onAccountChange, months, d
     .reduce((sum, row) => sum + row.cost, 0);
   const scenarioRows = [2025, 2026].flatMap((year) => months.map((month) => ({
     year, month,
-    mapped: scenarioCost(sdsMapped, year, month, account),
+    mapped: scenarioCost(sdsMapped, year, month, account)
+      - scenarioCost(sdsMissingFacility, year, month, account),
     added: scenarioCost(sdsMissingFacility, year, month, account),
     allAdded: scenarioCost(sdsMissingFacility, year, month)
   })));
@@ -94,15 +95,15 @@ export function AccountInvestigation({ data, account, onAccountChange, months, d
     <div className="ct-scroll"><table><thead><tr><th>Outcome</th><th>2025 rows / amount</th><th>2026 rows / amount</th><th>2026 − 2025</th></tr></thead><tbody>
       {Object.entries(OUTCOMES).map(([key, label]) => <tr key={key}><td>{label}</td><AmountCell item={stages2025[key]} /><AmountCell item={stages2026[key]} /><td>{signed(stages2026[key].cost - stages2025[key].cost)}</td></tr>)}
     </tbody></table></div>
-    <h3>SDS facility what-if · {account}</h3>
-    <p className="ct-note">Diagnostic only: add Raw rows with a confirmed SDS hierarchy and an eligible SDS G/L account that fail solely because their cost center has no facility key. Their facility is labeled Unmapped. Rows without a hierarchy or outside the SDS G/L rules stay excluded. All classifications are included; the scorecard totals above and the Raw card are unchanged.</p>
+    <h3>SDS missing-facility impact · {account}</h3>
+    <p className="ct-note">The Raw card now includes rows with a confirmed SDS hierarchy and an eligible SDS G/L account when their cost center has no facility key. Their facility is labeled Unmapped. Rows without a hierarchy or outside the SDS G/L rules remain excluded. All classifications are included. This table shows the prior mapped amount, the added amount, and the current Raw total.</p>
     {division && division !== sdsDivision && <p className="ct-note">This SDS-only diagnostic is shown independently of the page's {division} division selection.</p>}
     <div className="ct-callouts ct-callouts-small">
       <div><b>2025 · {account} added</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0, account))}</strong></div>
       <div><b>2025 · all SDS added</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0))}</strong></div>
       <div><b>2026 · all SDS added</b><strong>{money(scenarioCost(sdsMissingFacility, 2026, 0))}</strong></div>
     </div>
-    <div className="ct-scroll"><table><thead><tr><th>Month</th><th>{account} currently mapped</th><th>{account} added as Unmapped</th><th>{account} what-if total</th><th>All SDS added</th></tr></thead><tbody>
+    <div className="ct-scroll"><table><thead><tr><th>Month</th><th>{account} previously mapped</th><th>{account} added as Unmapped</th><th>{account} current Raw total</th><th>All SDS added</th></tr></thead><tbody>
       {scenarioRows.map((row) => <tr key={`${row.year}-${row.month}`}>
         <td>{MONTHS[row.month - 1]} {row.year}</td><td>{money(row.mapped)}</td><td>{money(row.added)}</td>
         <td><b>{money(row.mapped + row.added)}</b></td><td>{money(row.allAdded)}</td>

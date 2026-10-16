@@ -8,6 +8,7 @@
 .ct-controls, .ct-inline { display: flex; flex-wrap: wrap; gap: 14px; margin: 14px 0; align-items: end; }
 .ct-page label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: #516554; }
 .ct-page select { min-width: 165px; max-width: 340px; background: #fff; padding: 8px 10px; border-radius: 7px; border: 1px solid #c4d0c6; color: #243929; }
+.ct-page input[type="search"] { min-width: 220px; max-width: 340px; background: #fff; padding: 8px 10px; border-radius: 7px; border: 1px solid #c4d0c6; color: #243929; }
 .ct-page .ct-checkbox { display: flex; align-items: center; gap: 7px; padding-bottom: 8px; }
 .ct-callouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
 .ct-callouts-small { grid-template-columns: repeat(2, minmax(0, 1fr)); }

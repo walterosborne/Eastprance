@@ -32,6 +32,8 @@ export default function CostTest() {
   const [accountFilter, setAccountFilter] = useState('all');
   const [showAll, setShowAll] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState('4100000');
+  const [sdsCenterSearch, setSdsCenterSearch] = useState('');
+  const [onlyUnmappedSds, setOnlyUnmappedSds] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -58,6 +60,33 @@ export default function CostTest() {
     sql: descriptionIndex(sql),
     raw: descriptionIndex(raw, data?.raw.mappingDiagnostics ?? [])
   }), [data]);
+  const sdsCenters2025 = useMemo(() => {
+    const centers = new Map();
+    for (const row of data?.raw.accountRows ?? []) {
+      if (row.year !== 2025 || row.division !== 'DS Strategic Deterrent Systems') continue;
+      const costCenter = row.cost_center || '(blank)';
+      const center = centers.get(costCenter) ?? {
+        costCenter, cost: 0, facilities: new Set(), accounts: new Map(), months: new Set()
+      };
+      center.cost += row.cost;
+      center.facilities.add(row.facility || 'Unmapped');
+      center.months.add(row.month);
+      const account = row.gl_account_cost_element;
+      const accountDescriptions = center.accounts.get(account) ?? new Set();
+      if (row.cost_element_description) accountDescriptions.add(row.cost_element_description);
+      center.accounts.set(account, accountDescriptions);
+      centers.set(costCenter, center);
+    }
+    return [...centers.values()].sort((left, right) =>
+      Math.abs(right.cost) - Math.abs(left.cost) || left.costCenter.localeCompare(right.costCenter));
+  }, [data]);
+  const visibleSdsCenters = sdsCenters2025.filter((center) => {
+    if (onlyUnmappedSds && !center.facilities.has('Unmapped')) return false;
+    const glDetails = [...center.accounts].map(([account, names]) =>
+      `${account} ${[...names].join(' ')}`).join(' ');
+    return [center.costCenter, [...center.facilities].join(' '), glDetails]
+      .join(' ').toLowerCase().includes(sdsCenterSearch.trim().toLowerCase());
+  });
   const focusAccount = (account) => {
     setSelectedAccount(account);
     document.getElementById('ct-investigation')?.scrollIntoView({ behavior: 'smooth' });
@@ -142,6 +171,19 @@ export default function CostTest() {
       key={selectedAccount} data={data} account={selectedAccount} onAccountChange={setSelectedAccount}
       months={common2026} division={division} descriptions={descriptions}
     />}
+
+    <Panel title="2025 SDS cost centers" note="Complete list of 2025 Databricks Raw cost centers that passed the SDS hierarchy and G/L rules. Unmapped means the cost center lacks a facility key. Use the workbook's Contract Name and Address columns to investigate possible aliases; matching by similar names alone is not proof.">
+      <div className="ct-controls"><label>Search cost center, facility, or G/L
+        <input type="search" value={sdsCenterSearch} onChange={(event) => setSdsCenterSearch(event.target.value)} placeholder="Cost center or account" />
+      </label><label className="ct-checkbox"><input type="checkbox" checked={onlyUnmappedSds} onChange={(event) => setOnlyUnmappedSds(event.target.checked)} />Only Unmapped</label></div>
+      <p className="ct-note">Showing {number(visibleSdsCenters.length)} of {number(sdsCenters2025.length)} SDS cost centers. Amounts cover all available 2025 months and all classifications, regardless of the page filters.</p>
+      <Table headings={['Raw cost center', 'Facility', '2025 cost', 'Months', 'G/L accounts and descriptions']} rows={visibleSdsCenters.map((center) =>
+        <tr key={center.costCenter}><td><b>{center.costCenter}</b></td>
+          <td className="ct-wrap">{[...center.facilities].sort().join(' / ')}</td>
+          <td>{money(center.cost)}</td><td>{[...center.months].sort((a, b) => a - b).map((month) => MONTHS[month - 1]).join(', ')}</td>
+          <td className="ct-wrap">{[...center.accounts].sort(([a], [b]) => a.localeCompare(b))
+            .map(([account, names]) => `${account} · ${[...names].sort().join(' / ') || 'description unavailable'}`).join('; ')}</td></tr>)} />
+    </Panel>
 
     <Panel title="4 · Is 2025 missing or differently mapped?" note="Monthly card totals are shown beside Raw's pre-mapping row count and cost. The pre-mapping pool spans a broader account and organization scope, so its dollars are diagnostic coverage only, not a third comparable card total.">
       <p className="ct-note">Shared 2025 months for account comparisons: {monthText(common2025)}. If SQL has no 2025 months, its extract cannot explain that year's account differences here.</p>

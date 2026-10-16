@@ -792,10 +792,10 @@ function buildMappedPayload({
       const isSyntheticSdsFacility =
         hierarchy.division === SDS_DIVISION && SDS_CENTRAL_COST_CENTERS.has(costCenter);
 
-      // Keep CWI's facility requirement. Eligible SDS rows with a hierarchy but
-      // no cost-center-key entry retain their costs under a single Unmapped facility.
+      // Only 2025 SDS rows with an eligible G/L and hierarchy can use Unmapped.
+      // All other years and divisions retain the original facility requirement.
       if (!facilityMapping?.facility && !isSyntheticSdsFacility) {
-        if (hierarchy.division === SDS_DIVISION) {
+        if (year === 2025 && hierarchy.division === SDS_DIVISION) {
           const candidate = {
             year, month,
             division: hierarchy.division,

@@ -80,12 +80,20 @@ export default function CostTest() {
     return [...centers.values()].sort((left, right) =>
       Math.abs(right.cost) - Math.abs(left.cost) || left.costCenter.localeCompare(right.costCenter));
   }, [data]);
+  const sdsAccounts2025 = useMemo(() => {
+    const accounts = new Map();
+    for (const center of sdsCenters2025) {
+      for (const [account, names] of center.accounts) {
+        const descriptions = accounts.get(account) ?? new Set();
+        for (const name of names) descriptions.add(name);
+        accounts.set(account, descriptions);
+      }
+    }
+    return [...accounts].sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true }));
+  }, [sdsCenters2025]);
   const visibleSdsCenters = sdsCenters2025.filter((center) => {
     if (onlyUnmappedSds && !center.facilities.has('Unmapped')) return false;
-    const glDetails = [...center.accounts].map(([account, names]) =>
-      `${account} ${[...names].join(' ')}`).join(' ');
-    return [center.costCenter, [...center.facilities].join(' '), glDetails]
-      .join(' ').toLowerCase().includes(sdsCenterSearch.trim().toLowerCase());
+    return center.costCenter.toLowerCase().includes(sdsCenterSearch.trim().toLowerCase());
   });
   const focusAccount = (account) => {
     setSelectedAccount(account);
@@ -172,17 +180,23 @@ export default function CostTest() {
       months={common2026} division={division} descriptions={descriptions}
     />}
 
-    <Panel title="2025 SDS cost centers" note="Complete list of 2025 Databricks Raw cost centers that passed the SDS hierarchy and G/L rules. Unmapped means the cost center lacks a facility key. Use the workbook's Contract Name and Address columns to investigate possible aliases; matching by similar names alone is not proof.">
-      <div className="ct-controls"><label>Search cost center, facility, or G/L
-        <input type="search" value={sdsCenterSearch} onChange={(event) => setSdsCenterSearch(event.target.value)} placeholder="Cost center or account" />
-      </label><label className="ct-checkbox"><input type="checkbox" checked={onlyUnmappedSds} onChange={(event) => setOnlyUnmappedSds(event.target.checked)} />Only Unmapped</label></div>
-      <p className="ct-note">Showing {number(visibleSdsCenters.length)} of {number(sdsCenters2025.length)} SDS cost centers. Amounts cover all available 2025 months and all classifications, regardless of the page filters.</p>
-      <Table headings={['Raw cost center', 'Facility', '2025 cost', 'Months', 'G/L accounts and descriptions']} rows={visibleSdsCenters.map((center) =>
-        <tr key={center.costCenter}><td><b>{center.costCenter}</b></td>
-          <td className="ct-wrap">{[...center.facilities].sort().join(' / ')}</td>
-          <td>{money(center.cost)}</td><td>{[...center.months].sort((a, b) => a - b).map((month) => MONTHS[month - 1]).join(', ')}</td>
-          <td className="ct-wrap">{[...center.accounts].sort(([a], [b]) => a.localeCompare(b))
-            .map(([account, names]) => `${account} · ${[...names].sort().join(' / ') || 'description unavailable'}`).join('; ')}</td></tr>)} />
+    <Panel title="2025 SDS cost centers" note="Databricks Raw rows that passed the 2025 SDS hierarchy and G/L rules. The left table shows each cost center once; the right table shows each G/L account once across all centers.">
+      <div className="ct-controls"><label>Search cost centers
+        <input type="search" value={sdsCenterSearch} onChange={(event) => setSdsCenterSearch(event.target.value)} placeholder="Cost center ID" />
+      </label><label className="ct-checkbox"><input type="checkbox" checked={onlyUnmappedSds} onChange={(event) => setOnlyUnmappedSds(event.target.checked)} />Only Unmapped centers</label></div>
+      <div className="ct-sds-lists">
+        <div><h3>Raw cost centers · {number(visibleSdsCenters.length)} of {number(sdsCenters2025.length)}</h3>
+          <p className="ct-note">All available 2025 months; signed costs.</p>
+          <Table headings={['Cost center', '2025 cost']} rows={visibleSdsCenters.map((center) =>
+            <tr key={center.costCenter}><td><b>{center.costCenter}</b></td><td>{money(center.cost)}</td></tr>)} />
+        </div>
+        <div><h3>G/L accounts · {number(sdsAccounts2025.length)} unique</h3>
+          <p className="ct-note">All 2025 SDS cost centers, independent of the left table's filters.</p>
+          <Table headings={['G/L account', 'Description']} rows={sdsAccounts2025.map(([account, names]) =>
+            <tr key={account}><td><b>{account}</b></td>
+              <td className="ct-wrap">{[...names].sort().join(' / ') || 'Description unavailable'}</td></tr>)} />
+        </div>
+      </div>
     </Panel>
 
     <Panel title="4 · Is 2025 missing or differently mapped?" note="Monthly card totals are shown beside Raw's pre-mapping row count and cost. The pre-mapping pool spans a broader account and organization scope, so its dollars are diagnostic coverage only, not a third comparable card total.">

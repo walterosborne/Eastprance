@@ -95,6 +95,31 @@ export default function CostTest() {
     if (onlyUnmappedSds && !center.facilities.has('Unmapped')) return false;
     return center.costCenter.toLowerCase().includes(sdsCenterSearch.trim().toLowerCase());
   });
+  const downloadSds2025 = () => {
+    const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const headings = ['Raw cost center', '2025 cost', 'G/L account', 'G/L description'];
+    const lines = [headings.map(csvCell).join(',')];
+    const rowCount = Math.max(sdsCenters2025.length, sdsAccounts2025.length);
+    for (let index = 0; index < rowCount; index += 1) {
+      const center = sdsCenters2025[index];
+      const account = sdsAccounts2025[index];
+      lines.push([
+        csvCell(center?.costCenter ?? ''),
+        center ? center.cost.toFixed(2) : '',
+        csvCell(account?.[0] ?? ''),
+        csvCell(account ? [...account[1]].sort().join(' / ') || 'Description unavailable' : '')
+      ].join(','));
+    }
+    const blob = new Blob(['\uFEFF', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '2025_SDS_cost_centers_and_GL_accounts.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
   const focusAccount = (account) => {
     setSelectedAccount(account);
     document.getElementById('ct-investigation')?.scrollIntoView({ behavior: 'smooth' });
@@ -181,9 +206,10 @@ export default function CostTest() {
     />}
 
     <Panel title="2025 SDS cost centers" note="Databricks Raw rows that passed the 2025 SDS hierarchy and G/L rules. The left table shows each cost center once; the right table shows each G/L account once across all centers.">
-      <div className="ct-controls"><label>Search cost centers
-        <input type="search" value={sdsCenterSearch} onChange={(event) => setSdsCenterSearch(event.target.value)} placeholder="Cost center ID" />
-      </label><label className="ct-checkbox"><input type="checkbox" checked={onlyUnmappedSds} onChange={(event) => setOnlyUnmappedSds(event.target.checked)} />Only Unmapped centers</label></div>
+      <div className="ct-controls"><button className="ct-export" type="button" onClick={downloadSds2025}>Download all as CSV for Excel</button>
+        <label>Search cost centers
+          <input type="search" value={sdsCenterSearch} onChange={(event) => setSdsCenterSearch(event.target.value)} placeholder="Cost center ID" />
+        </label><label className="ct-checkbox"><input type="checkbox" checked={onlyUnmappedSds} onChange={(event) => setOnlyUnmappedSds(event.target.checked)} />Only Unmapped centers</label></div>
       <div className="ct-sds-lists">
         <div><h3>Raw cost centers · {number(visibleSdsCenters.length)} of {number(sdsCenters2025.length)}</h3>
           <p className="ct-note">All available 2025 months; signed costs.</p>

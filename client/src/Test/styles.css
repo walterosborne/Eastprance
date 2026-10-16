@@ -10,6 +10,8 @@
 .ct-page select { min-width: 165px; max-width: 340px; background: #fff; padding: 8px 10px; border-radius: 7px; border: 1px solid #c4d0c6; color: #243929; }
 .ct-page input[type="search"] { min-width: 220px; max-width: 340px; background: #fff; padding: 8px 10px; border-radius: 7px; border: 1px solid #c4d0c6; color: #243929; }
 .ct-page .ct-checkbox { display: flex; align-items: center; gap: 7px; padding-bottom: 8px; }
+.ct-export { align-self: end; background: #1e4f38; color: #fff; border: 1px solid #1e4f38; border-radius: 7px; padding: 9px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+.ct-export:hover { background: #163c2b; }
 .ct-sds-lists { display: grid; grid-template-columns: minmax(250px, 2fr) minmax(300px, 3fr); gap: 16px; }
 .ct-sds-lists > div { min-width: 0; }
 .ct-sds-lists h3 { margin-top: 0; }

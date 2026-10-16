@@ -65,6 +65,21 @@ export function AccountInvestigation({ data, account, onAccountChange, months, d
   const aligned = centerRows.filter((row) => row.sqlPresent && row.rawPresent && Math.abs(row.delta) < 0.01).length;
   const sourceDescriptions = (year) => [...new Set(trace.filter((row) => row.year === year && months.includes(row.month) && row.account === account)
     .flatMap((row) => row.descriptions ?? []))].sort().join(' / ') || 'No returned description';
+  const sdsDivision = 'DS Strategic Deterrent Systems';
+  const sdsMapped = raw.filter((row) => row.division === sdsDivision);
+  const sdsMissingFacility = data.raw.sdsNoFacilityCandidates ?? [];
+  const scenarioCost = (rows, year, month, selectedAccount = '') => rows
+    .filter((row) => row.year === year && (month === 0 || row.month === month)
+      && months.includes(row.month)
+      && (!selectedAccount || row.gl_account_cost_element === selectedAccount))
+    .reduce((sum, row) => sum + row.cost, 0);
+  const scenarioRows = [2025, 2026].flatMap((year) => months.map((month) => ({
+    year, month,
+    mapped: scenarioCost(sdsMapped, year, month, account),
+    added: scenarioCost(sdsMissingFacility, year, month, account),
+    allAdded: scenarioCost(sdsMissingFacility, year, month)
+  })));
+
 
   return <section className="ct-panel" id="ct-investigation">
     <h2>Account investigation · {account}</h2>
@@ -78,6 +93,21 @@ export function AccountInvestigation({ data, account, onAccountChange, months, d
     {(!before2025 || !before2026) && <p className="ct-notice">{!before2025 ? '2025' : ''}{!before2025 && !before2026 ? ' and ' : ''}{!before2026 ? '2026' : ''}: no records for this account were returned by the date/G/L-filtered Raw query in these months. That absence occurs before QMI hierarchy/facility mapping; it does not establish that the account is absent from the entire Databricks table.</p>}
     <div className="ct-scroll"><table><thead><tr><th>Outcome</th><th>2025 rows / amount</th><th>2026 rows / amount</th><th>2026 − 2025</th></tr></thead><tbody>
       {Object.entries(OUTCOMES).map(([key, label]) => <tr key={key}><td>{label}</td><AmountCell item={stages2025[key]} /><AmountCell item={stages2026[key]} /><td>{signed(stages2026[key].cost - stages2025[key].cost)}</td></tr>)}
+    </tbody></table></div>
+    <h3>SDS facility what-if · {account}</h3>
+    <p className="ct-note">Diagnostic only: add Raw rows with a confirmed SDS hierarchy and an eligible SDS G/L account that fail solely because their cost center has no facility key. Their facility is labeled Unmapped. Rows without a hierarchy or outside the SDS G/L rules stay excluded. All classifications are included; the scorecard totals above and the Raw card are unchanged.</p>
+    {division && division !== sdsDivision && <p className="ct-note">This SDS-only diagnostic is shown independently of the page's {division} division selection.</p>}
+    <div className="ct-callouts ct-callouts-small">
+      <div><b>2025 · {account} added</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0, account))}</strong></div>
+      <div><b>2025 · all SDS added</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0))}</strong></div>
+      <div><b>2026 · all SDS added</b><strong>{money(scenarioCost(sdsMissingFacility, 2026, 0))}</strong></div>
+    </div>
+    <div className="ct-scroll"><table><thead><tr><th>Month</th><th>{account} currently mapped</th><th>{account} added as Unmapped</th><th>{account} what-if total</th><th>All SDS added</th></tr></thead><tbody>
+      {scenarioRows.map((row) => <tr key={`${row.year}-${row.month}`}>
+        <td>{MONTHS[row.month - 1]} {row.year}</td><td>{money(row.mapped)}</td><td>{money(row.added)}</td>
+        <td><b>{money(row.mapped + row.added)}</b></td><td>{money(row.allAdded)}</td>
+      </tr>)}
+      {!scenarioRows.length && <tr><td colSpan={5}>No shared months selected.</td></tr>}
     </tbody></table></div>
     <h3>B · Cost centers behind those outcomes</h3>
     <div className="ct-inline"><label>Year<select value={sampleYear} onChange={(e) => setSampleYear(Number(e.target.value))}><option>2025</option><option>2026</option></select></label>

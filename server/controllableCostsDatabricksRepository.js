@@ -727,6 +727,8 @@ function buildMappedPayload({
   exactSqlExtractScope
 }) {
   const mappedRows = [];
+  // Keep the SDS missing-facility scenario separate from the scorecard rows.
+  const sdsNoFacilityCandidates = [];
   const trace = exactSqlExtractScope ? createRawCostTrace() : null;
   let invalidSourceRowCount = 0;
   let hierarchyUnmatchedRowCount = 0;
@@ -794,6 +796,22 @@ function buildMappedPayload({
       // cost-center-key facility, except for the six central SDS cost centers.
       if (!facilityMapping?.facility && !isSyntheticSdsFacility) {
         trace?.record(traceRow, 'no_facility', hierarchy);
+        if (hierarchy.division === SDS_DIVISION) {
+          sdsNoFacilityCandidates.push({
+            year, month,
+            division: hierarchy.division,
+            business_unit: hierarchy.businessUnit,
+            gl_account_cost_element: glAccount,
+            cost_center: costCenter,
+            facility: 'Unmapped',
+            cost_category: costCategory,
+            cost_element_description: normalizeText(sourceRow.cost_element_description),
+            controllable: resolveControllability(
+              sourceRow, costCategory, glAccount, controllability
+            ),
+            cost
+          });
+        }
         excludedBySqlScopeRowCount += 1;
         return;
       }
@@ -874,6 +892,7 @@ function buildMappedPayload({
     // Used only by the unlinked /cost-test diagnostic page.
     ...(exactSqlExtractScope ? {
       accountRows: aggregateAccountRows(mappedRows),
+      sdsNoFacilityCandidates: aggregateAccountRows(sdsNoFacilityCandidates),
       rawSourceCoverage: getRawSourceCoverage(sourceRows),
       rawMappedCoverage: getRawSourceCoverage(mappedRows),
       mappingDiagnostics: trace.finish()

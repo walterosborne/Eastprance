@@ -59,7 +59,8 @@ export function buildCostTestDiagnostics(sqlDataset, rawDataset) {
       sourceCoverage: (rawDataset.rawSourceCoverage ?? []).filter(inRange),
       mappedCoverage: (rawDataset.rawMappedCoverage ?? []).filter(inRange),
       mappingDiagnostics: rawDataset.mappingDiagnostics ?? null,
-      accountRows: accountRows((rawDataset.accountRows ?? []).filter(inRange))
+      accountRows: accountRows((rawDataset.accountRows ?? []).filter(inRange)),
+      sdsNoFacilityCandidates: accountRows((rawDataset.sdsNoFacilityCandidates ?? []).filter(inRange))
     }
   };
 }

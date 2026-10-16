@@ -62,7 +62,7 @@ export default function CostTest() {
   }), [data]);
   const sdsCenters2025 = useMemo(() => {
     const centers = new Map();
-    for (const row of data?.raw.accountRows ?? []) {
+    for (const row of [...(data?.raw.accountRows ?? []), ...(data?.raw.sdsNoFacilityCandidates ?? [])]) {
       if (row.year !== 2025 || row.division !== 'DS Strategic Deterrent Systems') continue;
       const costCenter = row.cost_center || '(blank)';
       const center = centers.get(costCenter) ?? {
@@ -97,7 +97,7 @@ export default function CostTest() {
   });
   const downloadSds2025 = () => {
     const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const headings = ['Raw cost center (independent list)', '2025 cost', '', 'G/L account (independent list)', 'G/L description'];
+    const headings = ['Raw cost center (independent list)', '2025 cost', 'Facility key status', '', 'G/L account (independent list)', 'G/L description'];
     const lines = [headings.map(csvCell).join(',')];
     const rowCount = Math.max(sdsCenters2025.length, sdsAccounts2025.length);
     for (let index = 0; index < rowCount; index += 1) {
@@ -106,6 +106,7 @@ export default function CostTest() {
       lines.push([
         csvCell(center?.costCenter ?? ''),
         center ? center.cost.toFixed(2) : '',
+        center ? (center.facilities.has('Unmapped') ? 'Needs key' : 'Mapped') : '',
         '',
         csvCell(account?.[0] ?? ''),
         csvCell(account ? [...account[1]].sort().join(' / ') || 'Description unavailable' : '')
@@ -206,7 +207,7 @@ export default function CostTest() {
       months={common2026} division={division} descriptions={descriptions}
     />}
 
-    <Panel title="2025 SDS cost centers" note="Databricks Raw rows that passed the 2025 SDS hierarchy and G/L rules. The left table shows each cost center once; the right table shows each G/L account once across all centers. These are independent lists: items on the same row do not correspond.">
+    <Panel title="2025 SDS cost centers" note="2025 SDS rows with an eligible hierarchy and G/L account, including centers awaiting a facility key. Rows awaiting a key are excluded from the Raw card until mapped. The cost-center and G/L lists are independent; items on the same row do not correspond.">
       <div className="ct-controls"><button className="ct-export" type="button" onClick={downloadSds2025}>Download all as CSV for Excel</button>
         <label>Search cost centers
           <input type="search" value={sdsCenterSearch} onChange={(event) => setSdsCenterSearch(event.target.value)} placeholder="Cost center ID" />
@@ -214,8 +215,8 @@ export default function CostTest() {
       <div className="ct-sds-lists">
         <div><h3>Raw cost centers · {number(visibleSdsCenters.length)} of {number(sdsCenters2025.length)}</h3>
           <p className="ct-note">All available 2025 months; signed costs.</p>
-          <Table headings={['Cost center', '2025 cost']} rows={visibleSdsCenters.map((center) =>
-            <tr key={center.costCenter}><td><b>{center.costCenter}</b></td><td>{money(center.cost)}</td></tr>)} />
+          <Table headings={['Cost center', '2025 cost', 'Facility key']} rows={visibleSdsCenters.map((center) =>
+            <tr key={center.costCenter}><td><b>{center.costCenter}</b></td><td>{money(center.cost)}</td><td>{center.facilities.has('Unmapped') ? 'Needs key' : 'Mapped'}</td></tr>)} />
         </div>
         <div><h3>G/L accounts · {number(sdsAccounts2025.length)} unique</h3>
           <p className="ct-note">All 2025 SDS cost centers, independent of the left table's filters.</p>

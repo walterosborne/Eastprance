@@ -792,11 +792,12 @@ function buildMappedPayload({
       const isSyntheticSdsFacility =
         hierarchy.division === SDS_DIVISION && SDS_CENTRAL_COST_CENTERS.has(costCenter);
 
-      // Only 2025 SDS rows with an eligible G/L and hierarchy can use Unmapped.
-      // All other years and divisions retain the original facility requirement.
+      // Match the original SQL extract: the hierarchy, division-specific G/L,
+      // and facility key must all resolve. Retain rejected 2025 SDS candidates
+      // only for the /cost-test diagnostic while the cost-center key is updated.
       if (!facilityMapping?.facility && !isSyntheticSdsFacility) {
         if (year === 2025 && hierarchy.division === SDS_DIVISION) {
-          const candidate = {
+          sdsNoFacilityCandidates.push({
             year, month,
             division: hierarchy.division,
             business_unit: hierarchy.businessUnit,
@@ -809,21 +810,7 @@ function buildMappedPayload({
               sourceRow, costCategory, glAccount, controllability
             ),
             cost
-          };
-          sdsNoFacilityCandidates.push(candidate);
-          mappedRows.push({
-            ...candidate,
-            date: `${year}-${String(month).padStart(2, '0')}-01`,
-            quarter: `Q${Math.floor((month - 1) / 3) + 1}`,
-            sector: 'Defense Systems',
-            address: 'Unmapped',
-            facility_city: '',
-            facility_state: ''
           });
-          facilityUnmappedRowCount += 1;
-          if (candidate.controllable === 'Unclassified') unclassifiedSourceRowCount += 1;
-          trace?.record(traceRow, 'included', hierarchy, 'Unmapped');
-          return;
         }
         trace?.record(traceRow, 'no_facility', hierarchy);
         excludedBySqlScopeRowCount += 1;

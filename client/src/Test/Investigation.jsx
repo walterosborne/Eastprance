@@ -75,12 +75,10 @@ export function AccountInvestigation({ data, account, onAccountChange, months, d
     .reduce((sum, row) => sum + row.cost, 0);
   const scenarioRows = [2025, 2026].flatMap((year) => months.map((month) => ({
     year, month,
-    mapped: scenarioCost(sdsMapped, year, month, account)
-      - scenarioCost(sdsMissingFacility, year, month, account),
-    added: scenarioCost(sdsMissingFacility, year, month, account),
-    allAdded: scenarioCost(sdsMissingFacility, year, month)
+    mapped: scenarioCost(sdsMapped, year, month, account),
+    pending: scenarioCost(sdsMissingFacility, year, month, account),
+    allPending: scenarioCost(sdsMissingFacility, year, month)
   })));
-
 
   return <section className="ct-panel" id="ct-investigation">
     <h2>Account investigation · {account}</h2>
@@ -95,17 +93,17 @@ export function AccountInvestigation({ data, account, onAccountChange, months, d
     <div className="ct-scroll"><table><thead><tr><th>Outcome</th><th>2025 rows / amount</th><th>2026 rows / amount</th><th>2026 − 2025</th></tr></thead><tbody>
       {Object.entries(OUTCOMES).map(([key, label]) => <tr key={key}><td>{label}</td><AmountCell item={stages2025[key]} /><AmountCell item={stages2026[key]} /><td>{signed(stages2026[key].cost - stages2025[key].cost)}</td></tr>)}
     </tbody></table></div>
-    <h3>SDS missing-facility impact · {account}</h3>
-    <p className="ct-note">Only 2025 Raw rows with a confirmed SDS hierarchy and an eligible SDS G/L account are added when their cost center has no facility key. Their facility is labeled Unmapped. All other years and divisions retain the prior mapping rules. The table shows the previously mapped amount, the 2025 addition, and the current Raw total.</p>
+    <h3>SDS facility-key candidates · {account}</h3>
+    <p className="ct-note">The Raw card requires a valid facility key and eligible division-specific G/L account. These 2025 SDS rows already pass the hierarchy and G/L rules but are excluded because their cost centers have no facility key. Adding a valid key would move eligible rows into the mapped total. This is diagnostic only; pending amounts are not included in the current Raw card.</p>
     {division && division !== sdsDivision && <p className="ct-note">This SDS-only diagnostic is shown independently of the page's {division} division selection.</p>}
     <div className="ct-callouts ct-callouts-small">
-      <div><b>2025 · {account} added</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0, account))}</strong></div>
-      <div><b>2025 · all SDS added</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0))}</strong></div>
+      <div><b>2025 · {account} awaiting key</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0, account))}</strong></div>
+      <div><b>2025 · all SDS awaiting key</b><strong>{money(scenarioCost(sdsMissingFacility, 2025, 0))}</strong></div>
     </div>
-    <div className="ct-scroll"><table><thead><tr><th>Month</th><th>{account} previously mapped</th><th>{account} added as Unmapped</th><th>{account} current Raw total</th><th>All SDS added</th></tr></thead><tbody>
+    <div className="ct-scroll"><table><thead><tr><th>Month</th><th>{account} currently mapped</th><th>{account} awaiting key</th><th>{account} potential total</th><th>All SDS awaiting key</th></tr></thead><tbody>
       {scenarioRows.map((row) => <tr key={`${row.year}-${row.month}`}>
-        <td>{MONTHS[row.month - 1]} {row.year}</td><td>{money(row.mapped)}</td><td>{money(row.added)}</td>
-        <td><b>{money(row.mapped + row.added)}</b></td><td>{money(row.allAdded)}</td>
+        <td>{MONTHS[row.month - 1]} {row.year}</td><td>{money(row.mapped)}</td><td>{money(row.pending)}</td>
+        <td><b>{money(row.mapped + row.pending)}</b></td><td>{money(row.allPending)}</td>
       </tr>)}
       {!scenarioRows.length && <tr><td colSpan={5}>No shared months selected.</td></tr>}
     </tbody></table></div>

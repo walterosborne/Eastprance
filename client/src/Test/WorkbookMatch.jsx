@@ -43,7 +43,9 @@ const headerMonth = (heading) => {
   const text = norm(heading);
   if (/\b20(?!25)\d\d\b/.test(text)) return null;
   const index = MONTHS.findIndex((month) => new RegExp(`\\b${month.toLowerCase()}[a-z]*\\b`).test(text));
-  return index < 0 ? null : index + 1;
+  if (index >= 0) return index + 1;
+  const dated = text.match(/^2025[-/._ ](0?[1-9]|1[0-2])(?:[-/._ ]\d{1,2})?$/);
+  return dated ? +dated[1] : null;
 };
 const keyFor = (month, account) => `${month}|${account}`;
 

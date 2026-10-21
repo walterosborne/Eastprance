@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { accountComparison, CLASSES, descriptionIndex, MONTHS, monthsFor, rawYearChange, sum } from './analysis';
 import { AccountInvestigation, AccountLabel, MappingOverview } from './Investigation';
+import WorkbookMatch from './WorkbookMatch';
 import './styles.css';
 
 const money = (value) => new Intl.NumberFormat('en-US', {
@@ -350,6 +351,8 @@ export default function CostTest() {
           <td className="ct-wrap">{[...row.descriptions].sort().join(' / ') || 'Description unavailable'}</td>
           <td>{money(row.cost)}</td><td>{row.keyStatus}</td></tr>)} />
     </Panel>
+
+    <WorkbookMatch sdsMonthlyGlRows={sdsMonthlyGlRows} sdsCenters2025={sdsCenters2025} />
 
     <Panel title="4 · Is 2025 missing or differently mapped?" note="Monthly card totals are shown beside Raw's pre-mapping row count and cost. The pre-mapping pool spans a broader account and organization scope, so its dollars are diagnostic coverage only, not a third comparable card total.">
       <p className="ct-note">Shared 2025 months for account comparisons: {monthText(common2025)}. If SQL has no 2025 months, its extract cannot explain that year's account differences here.</p>

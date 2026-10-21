@@ -150,6 +150,48 @@ export default function CostTest() {
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };
+  const downloadSdsGrouped = () => {
+    const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const headings = ['Raw cost center', 'Facility key status', '2025 signed cost', 'Distinct G/L accounts',
+      ...MONTHS.map((month) => `${month} 2025`),
+      ...Array.from({ length: 5 }, (_, index) => `G/L #${index + 1} by absolute cost (account · description · signed total)`)];
+    const lines = [headings.map(csvCell).join(',')];
+    for (const center of sdsCenters2025) {
+      const rows = sdsMonthlyGlRows.filter((row) => row.costCenter === center.costCenter);
+      const accounts = new Map();
+      for (const row of rows) {
+        const entry = accounts.get(row.account) ?? { account: row.account, cost: 0, descriptions: new Set() };
+        entry.cost += row.cost;
+        for (const description of row.descriptions) entry.descriptions.add(description);
+        accounts.set(row.account, entry);
+      }
+      const largest = [...accounts.values()].sort((left, right) =>
+        Math.abs(right.cost) - Math.abs(left.cost) || left.account.localeCompare(right.account));
+      lines.push([
+        csvCell(center.costCenter),
+        csvCell([...center.statuses].sort().join(' / ')),
+        center.cost.toFixed(2),
+        accounts.size,
+        ...MONTHS.map((_, index) => rows.filter((row) => row.month === index + 1)
+          .reduce((total, row) => total + row.cost, 0).toFixed(2)),
+        ...Array.from({ length: 5 }, (_, index) => {
+          const entry = largest[index];
+          return csvCell(entry
+            ? `${entry.account} · ${[...entry.descriptions].sort().join(' / ') || 'Description unavailable'} · ${entry.cost.toFixed(2)}`
+            : '');
+        })
+      ].join(','));
+    }
+    const blob = new Blob(['\uFEFF', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '2025_SDS_grouped_by_cost_center.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
   const downloadSdsMonthlyGl = () => {
     const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     const headings = ['Raw cost center', 'Facility key status', 'Month', 'G/L account', 'G/L description', 'Signed cost'];
@@ -281,9 +323,10 @@ export default function CostTest() {
       </div>
     </Panel>
 
-    <Panel title="2025 SDS address matching" note="Compare these signed monthly G/L amounts with workbook totals grouped by Contract Name or Address, month, and Cost Element. Rows marked Needs key passed the SDS hierarchy and G/L rules but remain excluded from the Raw card until their facility key is added.">
+    <Panel title="2025 SDS address matching" note="The grouped CSV has one row per cost center: 2025 total, monthly totals, and its five largest G/L accounts. Compare monthly and G/L patterns with workbook totals grouped by Contract Name or Address. Needs key rows remain excluded from the Raw card until their facility key is added.">
       <div className="ct-controls">
-        <button className="ct-export" type="button" onClick={downloadSdsMonthlyGl}>Download all centers × months × G/L as CSV</button>
+        <button className="ct-export" type="button" onClick={downloadSdsGrouped}>Download grouped cost centers ({number(sdsCenters2025.length)} rows)</button>
+        <button className="ct-export" type="button" onClick={downloadSdsMonthlyGl}>Download detailed center × month × G/L</button>
         <label>Cost center
           <select value={focusedSdsCenter?.costCenter ?? ''} onChange={(event) => setSelectedSdsCenter(event.target.value)}>
             {sdsCenters2025.map((center) => <option key={center.costCenter} value={center.costCenter}>{center.costCenter} · {center.statuses.has('Needs key') ? 'Needs key' : 'Mapped'}</option>)}

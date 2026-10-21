@@ -34,6 +34,7 @@ export default function CostTest() {
   const [selectedAccount, setSelectedAccount] = useState('4100000');
   const [sdsCenterSearch, setSdsCenterSearch] = useState('');
   const [onlyUnmappedSds, setOnlyUnmappedSds] = useState(false);
+  const [selectedSdsCenter, setSelectedSdsCenter] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -60,16 +61,20 @@ export default function CostTest() {
     sql: descriptionIndex(sql),
     raw: descriptionIndex(raw, data?.raw.mappingDiagnostics ?? [])
   }), [data]);
+  const sdsMatchRows2025 = useMemo(() => [
+    ...(data?.raw.accountRows ?? []).map((row) => ({ ...row, keyStatus: 'Mapped' })),
+    ...(data?.raw.sdsNoFacilityCandidates ?? []).map((row) => ({ ...row, keyStatus: 'Needs key' }))
+  ].filter((row) => row.year === 2025 && row.division === 'DS Strategic Deterrent Systems'), [data]);
   const sdsCenters2025 = useMemo(() => {
     const centers = new Map();
-    for (const row of [...(data?.raw.accountRows ?? []), ...(data?.raw.sdsNoFacilityCandidates ?? [])]) {
+    for (const row of sdsMatchRows2025) {
       if (row.year !== 2025 || row.division !== 'DS Strategic Deterrent Systems') continue;
       const costCenter = row.cost_center || '(blank)';
       const center = centers.get(costCenter) ?? {
-        costCenter, cost: 0, facilities: new Set(), accounts: new Map(), months: new Set()
+        costCenter, cost: 0, statuses: new Set(), accounts: new Map(), months: new Set()
       };
       center.cost += row.cost;
-      center.facilities.add(row.facility || 'Unmapped');
+      center.statuses.add(row.keyStatus);
       center.months.add(row.month);
       const account = row.gl_account_cost_element;
       const accountDescriptions = center.accounts.get(account) ?? new Set();
@@ -79,7 +84,7 @@ export default function CostTest() {
     }
     return [...centers.values()].sort((left, right) =>
       Math.abs(right.cost) - Math.abs(left.cost) || left.costCenter.localeCompare(right.costCenter));
-  }, [data]);
+  }, [sdsMatchRows2025]);
   const sdsAccounts2025 = useMemo(() => {
     const accounts = new Map();
     for (const center of sdsCenters2025) {
@@ -92,9 +97,32 @@ export default function CostTest() {
     return [...accounts].sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true }));
   }, [sdsCenters2025]);
   const visibleSdsCenters = sdsCenters2025.filter((center) => {
-    if (onlyUnmappedSds && !center.facilities.has('Unmapped')) return false;
+    if (onlyUnmappedSds && !center.statuses.has('Needs key')) return false;
     return center.costCenter.toLowerCase().includes(sdsCenterSearch.trim().toLowerCase());
   });
+  const sdsMonthlyGlRows = useMemo(() => {
+    const entries = new Map();
+    for (const row of sdsMatchRows2025) {
+      const account = row.gl_account_cost_element || '(blank)';
+      const key = [row.cost_center, row.month, account, row.keyStatus].join('|');
+      const entry = entries.get(key) ?? {
+        costCenter: row.cost_center, month: row.month, account,
+        keyStatus: row.keyStatus, cost: 0, descriptions: new Set()
+      };
+      entry.cost += Number(row.cost) || 0;
+      if (row.cost_element_description) entry.descriptions.add(row.cost_element_description);
+      entries.set(key, entry);
+    }
+    const centerOrder = new Map(sdsCenters2025.map((center, index) => [center.costCenter, index]));
+    return [...entries.values()].sort((left, right) =>
+      (centerOrder.get(left.costCenter) ?? Infinity) - (centerOrder.get(right.costCenter) ?? Infinity)
+      || left.month - right.month || left.account.localeCompare(right.account, undefined, { numeric: true }));
+  }, [sdsMatchRows2025, sdsCenters2025]);
+  const focusedSdsCenter = sdsCenters2025.find((center) => center.costCenter === selectedSdsCenter)
+    ?? sdsCenters2025.find((center) => center.statuses.has('Needs key'))
+    ?? sdsCenters2025[0];
+  const focusedMonthlyGlRows = sdsMonthlyGlRows.filter((row) => row.costCenter === focusedSdsCenter?.costCenter);
+  const pendingSdsCenters = sdsCenters2025.filter((center) => center.statuses.has('Needs key'));
   const downloadSds2025 = () => {
     const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     const headings = ['Raw cost center (independent list)', '2025 cost', 'Facility key status', '', 'G/L account (independent list)', 'G/L description'];
@@ -106,7 +134,7 @@ export default function CostTest() {
       lines.push([
         csvCell(center?.costCenter ?? ''),
         center ? center.cost.toFixed(2) : '',
-        center ? (center.facilities.has('Unmapped') ? 'Needs key' : 'Mapped') : '',
+        center ? (center.statuses.has('Needs key') ? 'Needs key' : 'Mapped') : '',
         '',
         csvCell(account?.[0] ?? ''),
         csvCell(account ? [...account[1]].sort().join(' / ') || 'Description unavailable' : '')
@@ -117,6 +145,30 @@ export default function CostTest() {
     const link = document.createElement('a');
     link.href = url;
     link.download = '2025_SDS_independent_cost_centers_and_GL_accounts.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  const downloadSdsMonthlyGl = () => {
+    const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const headings = ['Raw cost center', 'Facility key status', 'Month', 'G/L account', 'G/L description', 'Signed cost'];
+    const lines = [headings.map(csvCell).join(',')];
+    for (const row of sdsMonthlyGlRows) {
+      lines.push([
+        csvCell(row.costCenter),
+        csvCell(row.keyStatus),
+        csvCell(`${MONTHS[row.month - 1]} 2025`),
+        csvCell(row.account),
+        csvCell([...row.descriptions].sort().join(' / ') || 'Description unavailable'),
+        row.cost.toFixed(2)
+      ].join(','));
+    }
+    const blob = new Blob(['\uFEFF', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '2025_SDS_cost_center_month_GL.csv';
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -216,7 +268,9 @@ export default function CostTest() {
         <div><h3>Raw cost centers · {number(visibleSdsCenters.length)} of {number(sdsCenters2025.length)}</h3>
           <p className="ct-note">All available 2025 months; signed costs.</p>
           <Table headings={['Cost center', '2025 cost', 'Facility key']} rows={visibleSdsCenters.map((center) =>
-            <tr key={center.costCenter}><td><b>{center.costCenter}</b></td><td>{money(center.cost)}</td><td>{center.facilities.has('Unmapped') ? 'Needs key' : 'Mapped'}</td></tr>)} />
+            <tr key={center.costCenter} className={focusedSdsCenter?.costCenter === center.costCenter ? 'ct-selected' : ''}>
+              <td><button type="button" className="ct-link" onClick={() => setSelectedSdsCenter(center.costCenter)}>{center.costCenter}</button></td>
+              <td>{money(center.cost)}</td><td>{center.statuses.has('Needs key') ? 'Needs key' : 'Mapped'}</td></tr>)} />
         </div>
         <div><h3>G/L accounts · {number(sdsAccounts2025.length)} unique</h3>
           <p className="ct-note">All 2025 SDS cost centers, independent of the left table's filters.</p>
@@ -225,6 +279,33 @@ export default function CostTest() {
               <td className="ct-wrap">{[...names].sort().join(' / ') || 'Description unavailable'}</td></tr>)} />
         </div>
       </div>
+    </Panel>
+
+    <Panel title="2025 SDS address matching" note="Compare these signed monthly G/L amounts with workbook totals grouped by Contract Name or Address, month, and Cost Element. Rows marked Needs key passed the SDS hierarchy and G/L rules but remain excluded from the Raw card until their facility key is added.">
+      <div className="ct-controls">
+        <button className="ct-export" type="button" onClick={downloadSdsMonthlyGl}>Download all centers × months × G/L as CSV</button>
+        <label>Cost center
+          <select value={focusedSdsCenter?.costCenter ?? ''} onChange={(event) => setSelectedSdsCenter(event.target.value)}>
+            {sdsCenters2025.map((center) => <option key={center.costCenter} value={center.costCenter}>{center.costCenter} · {center.statuses.has('Needs key') ? 'Needs key' : 'Mapped'}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="ct-callouts ct-callouts-small">
+        <div><b>Centers awaiting a key</b><strong>{number(pendingSdsCenters.length)}</strong><small>{money(pendingSdsCenters.reduce((total, center) => total + center.cost, 0))} in 2025 signed costs</small></div>
+        <div><b>{focusedSdsCenter?.costCenter ?? 'No center selected'} · 2025</b><strong>{focusedSdsCenter ? money(focusedSdsCenter.cost) : '—'}</strong>
+          <small>{focusedSdsCenter?.statuses.has('Needs key') ? 'Excluded until facility key is added' : 'Already mapped'}</small></div>
+      </div>
+      <h3>Monthly totals · {focusedSdsCenter?.costCenter ?? '—'}</h3>
+      <Table headings={['Month', 'Signed cost']} rows={MONTHS.map((month, index) => {
+        const rows = focusedMonthlyGlRows.filter((row) => row.month === index + 1);
+        return <tr key={month}><td>{month} 2025</td><td>{rows.length ? money(rows.reduce((total, row) => total + row.cost, 0)) : '—'}</td></tr>;
+      })} />
+      <h3>Monthly G/L details · {focusedSdsCenter?.costCenter ?? '—'}</h3>
+      <Table headings={['Month', 'G/L account', 'Description', 'Signed cost', 'Facility key']} rows={focusedMonthlyGlRows.map((row) =>
+        <tr key={`${row.month}-${row.account}-${row.keyStatus}`}>
+          <td>{MONTHS[row.month - 1]} 2025</td><td>{row.account}</td>
+          <td className="ct-wrap">{[...row.descriptions].sort().join(' / ') || 'Description unavailable'}</td>
+          <td>{money(row.cost)}</td><td>{row.keyStatus}</td></tr>)} />
     </Panel>
 
     <Panel title="4 · Is 2025 missing or differently mapped?" note="Monthly card totals are shown beside Raw's pre-mapping row count and cost. The pre-mapping pool spans a broader account and organization scope, so its dollars are diagnostic coverage only, not a third comparable card total.">

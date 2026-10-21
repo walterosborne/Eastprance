@@ -1,0 +1,50 @@
+SELECT
+    s.name AS schema_name,
+    o.name AS object_name,
+    o.type_desc AS object_type
+FROM sys.objects AS o
+JOIN sys.schemas AS s
+    ON s.schema_id = o.schema_id
+WHERE o.type IN ('U', 'V')
+  AND (
+       o.type = 'V'
+       AND (
+            s.name IN ('QAF', 'QAF_RawData')
+            OR o.name LIKE '%month%'
+            OR o.name LIKE '%escap%'
+            OR o.name LIKE '%deliver%'
+            OR o.name LIKE '%quality%'
+       )
+       OR s.name = 'QAF_RawData'
+          AND o.name IN ('PCMV', 'PMDH', 'PMSH', 'MYDT',
+                         'METC', 'MCVR', 'DATV', 'PROG')
+       OR s.name = 'QAF'
+          AND o.name IN ('QAF Data', 'QAF Months',
+                         'QAF Metrics', 'QAF Metric Versions',
+                         'QAF Programs')
+  )
+ORDER BY s.name, o.type_desc, o.name;
+
+SELECT
+    s.name AS schema_name,
+    o.name AS object_name,
+    c.column_id,
+    c.name AS column_name,
+    t.name AS data_type
+FROM sys.columns AS c
+JOIN sys.objects AS o
+    ON o.object_id = c.object_id
+JOIN sys.schemas AS s
+    ON s.schema_id = o.schema_id
+JOIN sys.types AS t
+    ON t.user_type_id = c.user_type_id
+WHERE
+    (s.name = 'QAF'
+     AND o.name IN ('QAF Data', 'QAF Months',
+                    'QAF Metrics', 'QAF Metric Versions',
+                    'QAF Programs'))
+    OR
+    (s.name = 'QAF_RawData'
+     AND o.name IN ('PCMV', 'PMDH', 'PMSH', 'MYDT',
+                    'METC', 'MCVR', 'DATV', 'PROG'))
+ORDER BY s.name, o.name, c.column_id;

@@ -1,50 +1,52 @@
-SELECT
-    s.name AS schema_name,
-    o.name AS object_name,
-    o.type_desc AS object_type
-FROM sys.objects AS o
-JOIN sys.schemas AS s
-    ON s.schema_id = o.schema_id
-WHERE o.type IN ('U', 'V')
-  AND (
-       o.type = 'V'
-       AND (
-            s.name IN ('QAF', 'QAF_RawData')
-            OR o.name LIKE '%month%'
-            OR o.name LIKE '%escap%'
-            OR o.name LIKE '%deliver%'
-            OR o.name LIKE '%quality%'
-       )
-       OR s.name = 'QAF_RawData'
-          AND o.name IN ('PCMV', 'PMDH', 'PMSH', 'MYDT',
-                         'METC', 'MCVR', 'DATV', 'PROG')
-       OR s.name = 'QAF'
-          AND o.name IN ('QAF Data', 'QAF Months',
-                         'QAF Metrics', 'QAF Metric Versions',
-                         'QAF Programs')
-  )
-ORDER BY s.name, o.type_desc, o.name;
+-- QMI Customer Escapes: next discovery queries
+-- Run this entire file in SQL Server Management Studio.
+-- Read-only; returns four result grids.
+USE [Quality Data Mart];
 
+-- 1. Columns in the two candidate monthly views.
 SELECT
     s.name AS schema_name,
-    o.name AS object_name,
+    o.name AS view_name,
     c.column_id,
-    c.name AS column_name,
-    t.name AS data_type
+    c.name AS column_name
 FROM sys.columns AS c
-JOIN sys.objects AS o
-    ON o.object_id = c.object_id
-JOIN sys.schemas AS s
-    ON s.schema_id = o.schema_id
-JOIN sys.types AS t
-    ON t.user_type_id = c.user_type_id
-WHERE
-    (s.name = 'QAF'
-     AND o.name IN ('QAF Data', 'QAF Months',
-                    'QAF Metrics', 'QAF Metric Versions',
-                    'QAF Programs'))
-    OR
-    (s.name = 'QAF_RawData'
-     AND o.name IN ('PCMV', 'PMDH', 'PMSH', 'MYDT',
-                    'METC', 'MCVR', 'DATV', 'PROG'))
+JOIN sys.objects AS o ON o.object_id = c.object_id
+JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+WHERE (s.name = 'QAF'
+       AND o.name = 'Monthly Data (metrics and data)')
+   OR (s.name = 'Grand Central'
+       AND o.name = 'Monthly Metrics - underlying data')
 ORDER BY s.name, o.name, c.column_id;
+
+-- 2. Find the Delivered Quality metrics and their component IDs.
+-- Keep candidate metrics for review before choosing which values to sum.
+SELECT
+    [METC-DATV_ID],
+    [Metric Level],
+    [Metric],
+    [Metric Title (indented)],
+    [Parent Metric (with level)],
+    [Metric Status]
+FROM [QAF].[QAF Metrics]
+WHERE [Metric] LIKE '%deliver%'
+   OR [Metric] LIKE '%defect%'
+   OR [Metric] LIKE '%escap%'
+   OR [Metric Title (indented)] LIKE '%deliver%'
+   OR [Metric Title (indented)] LIKE '%defect%'
+   OR [Metric Title (indented)] LIKE '%escap%'
+   OR [Parent Metric (with level)] LIKE '%Delivered Quality%'
+ORDER BY [Metric Sort Order];
+
+-- 3. Check whether the historical raw schema is visible.
+SELECT name AS schema_name
+FROM sys.schemas
+WHERE name LIKE '%QAF%'
+   OR name LIKE '%Raw%'
+ORDER BY name;
+
+-- 4. Check visibility of the raw monthly history/configuration/version tables.
+-- NULL can mean the object is absent or metadata permissions hide it.
+SELECT
+    OBJECT_ID(N'[QAF_RawData].[PMDH]') AS PMDH_object_id,
+    OBJECT_ID(N'[QAF_RawData].[PCMV]') AS PCMV_object_id,
+    OBJECT_ID(N'[QAF_RawData].[MCVR]') AS MCVR_object_id;

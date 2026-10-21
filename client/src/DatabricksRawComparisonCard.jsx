@@ -897,8 +897,12 @@ function ParetoChart({ width, data }) {
   );
 }
 
-export default function DatabricksRawComparisonCard() {
-  const [state, setState] = useState({ rows: [], loading: true, error: '' });
+export default function DatabricksRawComparisonCard({
+  state,
+  globalFilters,
+  selectedDateRange,
+  applyGlobalFilters
+}) {
   const [viewMode, setViewMode] = useState('monthly');
   const [chartVariant, setChartVariant] = useState('line');
   const [filterField, setFilterField] = useState(FILTER_FIELDS[0].value);
@@ -907,64 +911,46 @@ export default function DatabricksRawComparisonCard() {
   const [paletteColorField, setPaletteColorField] = useState(FILTER_FIELDS[1].value);
   const { chartHostRef, chartWidth } = useChartWidth();
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const response = await fetch('/api/controllable-costs-databricks-raw', {
-          signal: controller.signal,
-          credentials: 'same-origin'
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.error || payload?.message || 'Unable to load raw Databricks costs.');
-        }
-        setState({
-          rows: Array.isArray(payload?.rows) ? payload.rows : [],
-          loading: false,
-          error: ''
-        });
-      } catch (error) {
-        if (error?.name === 'AbortError') return;
-        setState({ rows: [], loading: false, error: error?.message || 'Unable to load raw Databricks costs.' });
-      }
-    }
-
-    void load();
-    return () => controller.abort();
-  }, []);
-
   const visibleRows = useMemo(() => getVisibleRows(state.rows), [state.rows]);
+  const globallyFilteredRows = useMemo(
+    () => applyGlobalFilters(visibleRows, 'controllableCostsDatabricksRaw', globalFilters),
+    [visibleRows, globalFilters, applyGlobalFilters]
+  );
   const filterValueOptions = useMemo(
-    () => getFilterOptions(visibleRows, filterField),
-    [visibleRows, filterField]
+    () => getFilterOptions(globallyFilteredRows, filterField),
+    [globallyFilteredRows, filterField]
   );
   const activeFilterValues = filterValues.filter((value) => filterValueOptions.includes(value));
-  const filteredRows = useMemo(
-    () => visibleRows.filter((row) => (
-      activeFilterValues.length === 0
-      || activeFilterValues.includes(normalizeText(row?.[filterField]))
-    )),
-    [visibleRows, filterField, activeFilterValues.join('|')]
-  );
-  const chartRows = chartVariant === 'line' || chartVariant === 'bar' ? filteredRows : visibleRows;
+  const filteredRows = globallyFilteredRows.filter((row) => (
+    activeFilterValues.length === 0
+    || activeFilterValues.includes(normalizeText(row?.[filterField]))
+  ));
+  const isTrend = chartVariant === 'line' || chartVariant === 'bar';
+  const selectedRows = isTrend ? filteredRows : globallyFilteredRows;
+  const inSelectedDateRange = (row) => {
+    const stamp = getMonthStamp(row);
+    return stamp != null && (
+      !selectedDateRange
+      || (stamp >= selectedDateRange.startStamp && stamp <= selectedDateRange.endStamp)
+    );
+  };
+  const chartRows = selectedRows.filter(inSelectedDateRange);
   const trendData = useMemo(
     () => buildTrendData(chartRows, viewMode),
     [chartRows, viewMode]
   );
   const paletteData = useMemo(
-    () => buildPaletteData(visibleRows, paletteGroupField, paletteColorField),
-    [visibleRows, paletteGroupField, paletteColorField]
+    () => buildPaletteData(chartRows, paletteGroupField, paletteColorField),
+    [chartRows, paletteGroupField, paletteColorField]
   );
   const paretoData = useMemo(
-    () => buildParetoData(visibleRows, filterField),
-    [visibleRows, filterField]
+    () => buildParetoData(chartRows, filterField),
+    [chartRows, filterField]
   );
-  const summaryMonth = getLatestDataMonth(chartRows,
+  const summaryMonth = getLatestDataMonth(selectedRows,
     (row) => hasKpiValue(row.cost) ? getMonthStamp(row) : null
   );
-  const summaryValue = chartRows.reduce((sum, row) =>
+  const summaryValue = selectedRows.reduce((sum, row) =>
     summaryMonth != null && getMonthStamp(row) === summaryMonth && hasKpiValue(row.cost)
       ? sum + Number(row.cost) : sum, 0
   );
@@ -1042,9 +1028,9 @@ export default function DatabricksRawComparisonCard() {
               <p className="chart-message">
                 {state.rows.length === 0
                   ? 'No Databricks Raw costs are available for charting.'
-                  : activeFilterValues.length > 0 && filteredRows.length === 0
+                  : globallyFilteredRows.length === 0 || (isTrend && filteredRows.length === 0)
                     ? 'No Databricks Raw costs were found for the selected filters.'
-                    : 'No Databricks Raw costs were found in the completed-month date range.'}
+                    : 'No Databricks Raw costs were found in the selected date range.'}
               </p>
             )}
             {!state.loading && !state.error && hasChartData && chartWidth > 0 && (

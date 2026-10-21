@@ -406,6 +406,11 @@ const GLOBAL_FILTER_FIELD_MAP = {
     businessUnit: 'business_unit',
     facility: 'facility'
   },
+  controllableCostsDatabricksRaw: {
+    division: 'division',
+    businessUnit: 'business_unit',
+    facility: 'facility'
+  },
   sif: {
     division: 'division',
     facility: 'site'
@@ -1730,6 +1735,7 @@ function getAvailableTimelineStamps({
   controllableCostsRows,
   controllableCostsNewRows = [],
   controllableCostsHanaRows = [],
+  controllableCostsDatabricksRawRows = [],
   sifRows,
   potentialSifRows,
   nmfrRows,
@@ -1740,7 +1746,7 @@ function getAvailableTimelineStamps({
 }) {
   const stampSet = new Set();
 
-  [controllableCostsRows, controllableCostsNewRows, controllableCostsHanaRows].forEach((rows) => {
+  [controllableCostsRows, controllableCostsNewRows, controllableCostsHanaRows, controllableCostsDatabricksRawRows].forEach((rows) => {
     rows.forEach((row) => {
       const stamp = getControllableCostsRowStamp(row);
 
@@ -5102,6 +5108,11 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [controllableCostsDatabricksRawState, setControllableCostsDatabricksRawState] = useState({
+    rows: [],
+    loading: CONTROLLABLE_COSTS_HANA_CARD_ENABLED,
+    error: ''
+  });
   const [sifState, setSifState] = useState({
     rows: [],
     loading: true,
@@ -5463,6 +5474,28 @@ export default function App() {
       }
     }
 
+    async function loadDatabricksRawData() {
+      try {
+        const payload = await fetchJson(
+          'controllable-costs-databricks-raw',
+          '/api/controllable-costs-databricks-raw'
+        );
+        if (!isMounted) return;
+        setControllableCostsDatabricksRawState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: ''
+        });
+      } catch (error) {
+        if (!isMounted) return;
+        setControllableCostsDatabricksRawState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load raw Databricks costs.'
+        });
+      }
+    }
+
     async function loadSifData() {
       const startTime = performance.now();
 
@@ -5796,6 +5829,7 @@ export default function App() {
     loadControllableCostsNewData();
     if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED) {
       loadControllableCostsHanaData();
+      loadDatabricksRawData();
     }
     loadSifData();
     loadPotentialSifData();
@@ -5919,6 +5953,7 @@ export default function App() {
     controllableCostsRows: [],
     controllableCostsNewRows: controllableCostsNewState.rows,
     controllableCostsHanaRows: controllableCostsHanaState.rows,
+    controllableCostsDatabricksRawRows: controllableCostsDatabricksRawState.rows,
     sifRows: sifState.rows,
     potentialSifRows: potentialSifState.rows,
     nmfrRows: nmfrState.rows,
@@ -6021,6 +6056,7 @@ export default function App() {
   const dashboardRowsByMetric = {
     controllableCostsNew: controllableCostsNewState.rows,
     controllableCostsHana: controllableCostsHanaState.rows,
+    controllableCostsDatabricksRaw: controllableCostsDatabricksRawState.rows,
     sif: sifState.rows,
     potentialSif: potentialSifState.rows,
     nmfr: nmfrState.rows,
@@ -9229,7 +9265,12 @@ export default function App() {
             )}
 
             {visibleCards.controllableCostsDatabricksRaw && (
-              <DatabricksRawComparisonCard />
+              <DatabricksRawComparisonCard
+                state={controllableCostsDatabricksRawState}
+                globalFilters={activeGlobalFilters}
+                selectedDateRange={selectedDateRange}
+                applyGlobalFilters={applyGlobalFilters}
+              />
             )}
 
             {visibleCards.sif && (

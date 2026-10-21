@@ -1,52 +1,87 @@
--- QMI Customer Escapes: next discovery queries
--- Run this entire file in SQL Server Management Studio.
--- Read-only; returns four result grids.
+-- QMI Customer Escapes: identify V01/V02 and January 2025 history
+-- Run this whole file in [Quality Data Mart]. Read-only; four result grids.
+-- Delivered Quality candidate branches from QAF Metrics:
+-- 12 = Ext Rpt SW Defects; 13 = Ext Rpt HW Defects;
+-- 14 = Ext Rpt Documentation Defects.
+-- We have NOT yet validated which version and score to sum.
 USE [Quality Data Mart];
 
--- 1. Columns in the two candidate monthly views.
+-- 1. Version definitions for the three external-report defect metrics.
+SELECT
+    [METC_ID],
+    [MCVR_ID],
+    [Version Number],
+    [Standard Version Indicator],
+    [Formula Description],
+    [Data Variables]
+FROM [QAF].[QAF Metric Versions]
+WHERE [METC_ID] IN (12, 13, 14)
+ORDER BY [METC_ID], [Version Number];
+
+-- 2. Recent monthly coverage by branch, level, version, and reporting status.
+-- Parent ID includes the level-4 input rows beneath each level-3 metric.
+SELECT
+    [Level],
+    [METC_ID],
+    [Metric parent METC_ID],
+    [Title],
+    [MCVR_ID],
+    [MCVR Version number],
+    [QAF Reporting Status],
+    COUNT(*) AS row_count,
+    COUNT(DISTINCT [PROG_ID]) AS program_count,
+    MIN([Month]) AS first_month,
+    MAX([Month]) AS last_month
+FROM [QAF].[Monthly Data (metrics and data)]
+WHERE ([METC_ID] IN (12, 13, 14)
+       OR [Metric parent METC_ID] IN (12, 13, 14))
+  AND [Month] >= '2026-01-01'
+GROUP BY
+    [Level], [METC_ID], [Metric parent METC_ID], [Title],
+    [MCVR_ID], [MCVR Version number], [QAF Reporting Status]
+ORDER BY
+    [METC_ID], [Level], [MCVR Version number], [QAF Reporting Status];
+
+-- 3. A small sample of the actual values behind those metrics.
+SELECT TOP (60)
+    [Month],
+    [PROG_ID],
+    [Program],
+    [Level],
+    [METC_ID],
+    [Metric parent METC_ID],
+    [Title],
+    [MCVR Version number],
+    [Data input],
+    [Score calculated],
+    [Score entered],
+    [Final score],
+    [Final color],
+    [QAF Reporting Status]
+FROM [QAF].[Monthly Data (metrics and data)]
+WHERE [Metric parent METC_ID] IN (12, 13, 14)
+  AND [Level] = 4
+  AND [Month] >= '2026-01-01'
+ORDER BY [Month] DESC, [METC_ID], [MCVR Version number], [PROG_ID];
+
+-- 4. Find actual raw-table names for historical data.
+-- The previous check used short aliases (PMDH/PCMV/MCVR), but the
+-- diagram shows longer table names such as QAFPMDH and QAFMCVR.
 SELECT
     s.name AS schema_name,
-    o.name AS view_name,
-    c.column_id,
-    c.name AS column_name
-FROM sys.columns AS c
-JOIN sys.objects AS o ON o.object_id = c.object_id
+    o.name AS object_name,
+    o.type_desc AS object_type
+FROM sys.objects AS o
 JOIN sys.schemas AS s ON s.schema_id = o.schema_id
-WHERE (s.name = 'QAF'
-       AND o.name = 'Monthly Data (metrics and data)')
-   OR (s.name = 'Grand Central'
-       AND o.name = 'Monthly Metrics - underlying data')
-ORDER BY s.name, o.name, c.column_id;
-
--- 2. Find the Delivered Quality metrics and their component IDs.
--- Keep candidate metrics for review before choosing which values to sum.
-SELECT
-    [METC-DATV_ID],
-    [Metric Level],
-    [Metric],
-    [Metric Title (indented)],
-    [Parent Metric (with level)],
-    [Metric Status]
-FROM [QAF].[QAF Metrics]
-WHERE [Metric] LIKE '%deliver%'
-   OR [Metric] LIKE '%defect%'
-   OR [Metric] LIKE '%escap%'
-   OR [Metric Title (indented)] LIKE '%deliver%'
-   OR [Metric Title (indented)] LIKE '%defect%'
-   OR [Metric Title (indented)] LIKE '%escap%'
-   OR [Parent Metric (with level)] LIKE '%Delivered Quality%'
-ORDER BY [Metric Sort Order];
-
--- 3. Check whether the historical raw schema is visible.
-SELECT name AS schema_name
-FROM sys.schemas
-WHERE name LIKE '%QAF%'
-   OR name LIKE '%Raw%'
-ORDER BY name;
-
--- 4. Check visibility of the raw monthly history/configuration/version tables.
--- NULL can mean the object is absent or metadata permissions hide it.
-SELECT
-    OBJECT_ID(N'[QAF_RawData].[PMDH]') AS PMDH_object_id,
-    OBJECT_ID(N'[QAF_RawData].[PCMV]') AS PCMV_object_id,
-    OBJECT_ID(N'[QAF_RawData].[MCVR]') AS MCVR_object_id;
+WHERE s.name = 'QAF_RawData'
+  AND o.type IN ('U', 'V')
+  AND (
+       o.name LIKE '%PMDH%'
+       OR o.name LIKE '%PCMV%'
+       OR o.name LIKE '%MCVR%'
+       OR o.name LIKE '%METC%'
+       OR o.name LIKE '%MYDT%'
+       OR o.name LIKE '%PROG%'
+       OR o.name LIKE '%DATV%'
+  )
+ORDER BY o.name;

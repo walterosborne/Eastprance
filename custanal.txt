@@ -1,59 +1,70 @@
--- QMI Customer Escapes: DEFENSE SYSTEMS scope only
--- Read-only in [Quality Data Mart]. Run both queries and send the grids.
--- Validated count = FINAL values for V02 variables: software 148,
--- hardware 151, documentation 154. The 2025/2026 population check
--- previously included all sectors; these queries isolate DS.
+-- QMI Customer Escapes: compact DS coverage comparison
+-- Read-only in [Quality Data Mart]. Run both queries and send both grids.
+-- V02 finalized values are validated against the recent QAF table.
+-- The 2025 DS trend has changing program coverage; investigate before
+-- interpreting year-over-year movement as a quality change.
 USE [Quality Data Mart];
 
--- 1. DS monthly trend and reporting-program coverage since Jan 2025.
+WITH program_month AS (
+    SELECT
+        md.[MYDT_From_DT] AS data_month,
+        p.[PMDH_PROG_ID] AS program_id,
+        pc.[PCMY_PROG_Division] AS division,
+        pc.[PCMY_PROG_BusinessUnit] AS business_unit,
+        SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS escapes
+    FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
+    JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
+        ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
+    JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
+        ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
+    WHERE p.[PMDH_Level] = 4
+      AND p.[PMDH_DATV_ID] IN (148, 151, 154)
+      AND pc.[PCMY_Status] = 'FINAL'
+      AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
+      AND md.[MYDT_From_DT] IN ('2025-12-01', '2026-01-01')
+    GROUP BY md.[MYDT_From_DT], p.[PMDH_PROG_ID],
+             pc.[PCMY_PROG_Division], pc.[PCMY_PROG_BusinessUnit]
+)
 SELECT
-    md.[MYDT_From_DT] AS data_month,
-    COUNT(DISTINCT p.[PMDH_PROG_ID]) AS reporting_programs,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 148 THEN 1 ELSE 0 END) AS software_rows,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 151 THEN 1 ELSE 0 END) AS hardware_rows,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 154 THEN 1 ELSE 0 END) AS documentation_rows,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 148
-             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS software_escapes,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 151
-             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS hardware_escapes,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 154
-             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS documentation_escapes,
-    SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS total_customer_escapes
-FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
-JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
-    ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
-JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
-    ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
-WHERE p.[PMDH_Level] = 4
-  AND p.[PMDH_DATV_ID] IN (148, 151, 154)
-  AND pc.[PCMY_Status] = 'FINAL'
-  AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
-  AND md.[MYDT_From_DT] >= '2025-01-01'
-GROUP BY md.[MYDT_From_DT]
-ORDER BY data_month;
+    division, business_unit,
+    SUM(CASE WHEN data_month = '2025-12-01' THEN 1 ELSE 0 END) AS dec_programs,
+    SUM(CASE WHEN data_month = '2026-01-01' THEN 1 ELSE 0 END) AS jan_programs,
+    SUM(CASE WHEN data_month = '2025-12-01' THEN escapes ELSE 0 END) AS dec_escapes,
+    SUM(CASE WHEN data_month = '2026-01-01' THEN escapes ELSE 0 END) AS jan_escapes
+FROM program_month
+GROUP BY division, business_unit
+ORDER BY division, business_unit;
 
--- 2. DS division/BU coverage at the Dec 2025 to Jan 2026 boundary.
--- PCMY stores the organization alignment for that reporting month.
+-- Of January's DS programs, how many also reported in December?
+WITH program_month AS (
+    SELECT DISTINCT
+        md.[MYDT_From_DT] AS data_month,
+        p.[PMDH_PROG_ID] AS program_id,
+        pc.[PCMY_PROG_Division] AS division
+    FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
+    JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
+        ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
+    JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
+        ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
+    WHERE p.[PMDH_Level] = 4
+      AND p.[PMDH_DATV_ID] IN (148, 151, 154)
+      AND pc.[PCMY_Status] = 'FINAL'
+      AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
+      AND md.[MYDT_From_DT] IN ('2025-12-01', '2026-01-01')
+),
+december AS (
+    SELECT DISTINCT program_id FROM program_month
+    WHERE data_month = '2025-12-01'
+)
 SELECT
-    md.[MYDT_From_DT] AS data_month,
-    pc.[PCMY_PROG_Division] AS division,
-    pc.[PCMY_PROG_BusinessUnit] AS business_unit,
-    COUNT(DISTINCT p.[PMDH_PROG_ID]) AS reporting_programs,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 148 THEN 1 ELSE 0 END) AS software_rows,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 151 THEN 1 ELSE 0 END) AS hardware_rows,
-    SUM(CASE WHEN p.[PMDH_DATV_ID] = 154 THEN 1 ELSE 0 END) AS documentation_rows,
-    SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS total_customer_escapes
-FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
-JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
-    ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
-JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
-    ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
-WHERE p.[PMDH_Level] = 4
-  AND p.[PMDH_DATV_ID] IN (148, 151, 154)
-  AND pc.[PCMY_Status] = 'FINAL'
-  AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
-  AND md.[MYDT_From_DT] IN ('2025-12-01', '2026-01-01')
-GROUP BY md.[MYDT_From_DT],
-         pc.[PCMY_PROG_Division],
-         pc.[PCMY_PROG_BusinessUnit]
-ORDER BY division, business_unit, data_month;
+    j.division,
+    COUNT(DISTINCT j.program_id) AS jan_programs,
+    COUNT(DISTINCT CASE WHEN d.program_id IS NOT NULL
+                        THEN j.program_id END) AS also_in_december,
+    COUNT(DISTINCT CASE WHEN d.program_id IS NULL
+                        THEN j.program_id END) AS new_to_january
+FROM program_month AS j
+LEFT JOIN december AS d ON d.program_id = j.program_id
+WHERE j.data_month = '2026-01-01'
+GROUP BY j.division
+ORDER BY j.division;

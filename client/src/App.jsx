@@ -7804,7 +7804,7 @@ export default function App() {
     { includeZero: true, minFloor: 0 }
   );
   const customerEscapesMetricInfo = buildCustomerEscapesMetricInfo(
-    [
+    METRIC_INFO.customerEscapes ?? [
       'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
       'These are defective-unit counts, not distinct incidents. Reporting-program coverage changed substantially in 2025–26.'
     ],

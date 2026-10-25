@@ -1743,6 +1743,7 @@ function getAvailableTimelineStamps({
   potentialSifRows,
   nmfrRows,
   otdRows = [],
+  customerEscapesRows = [],
   laborRows = [],
   laborNewRows = [],
   laborHanaRows = []
@@ -1767,6 +1768,11 @@ function getAvailableTimelineStamps({
         stampSet.add(stamp);
       }
     });
+  });
+
+  customerEscapesRows.forEach((row) => {
+    const stamp = Date.parse(`${String(row.data_month).slice(0, 10)}T00:00:00Z`);
+    if (Number.isFinite(stamp)) stampSet.add(stamp);
   });
 
   const otdYears = new Set(otdRows.map((row) => getOtdRowYear(row)));
@@ -5976,6 +5982,7 @@ export default function App() {
     potentialSifRows: potentialSifState.rows,
     nmfrRows: nmfrState.rows,
     otdRows: otdState.rows,
+    customerEscapesRows: customerEscapesState.rows,
     laborRows: [],
     laborNewRows: laborNewState.rows,
     laborHanaRows: laborHanaState.rows

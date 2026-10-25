@@ -18,7 +18,7 @@ function normalizeMonth(value) {
     const date = XLSX.SSF.parse_date_code(value);
     if (date) return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
   }
-  const match = String(value ?? '').trim().match(/^(\\d{4})-(\\d{2})-(\\d{2})/);
+  const match = String(value ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (match) return `${match[1]}-${match[2]}-${match[3]}`;
   throw new Error(`Invalid customer escapes data_month: ${String(value)}`);
 }

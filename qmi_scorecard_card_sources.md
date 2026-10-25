@@ -189,3 +189,9 @@ The replacement labor utilization data uses actual labor hours directly from DBM
 The replacement source groups the actual hours by year, month, Division, Business Unit, cost center, and labor category. Labor categories containing `Direct` or `Indirect` are grouped accordingly; unexpected values remain grouped as `Other`.
 
 *Legacy SQL-backed cards can fall back to bundled Excel/JSON data if their database reads fail.*
+
+
+## Customer Escapes
+
+- **`[QAF_RawData].[PMDH_Program_MonthYear_Data_History]` (SQL Database: `Quality Data Mart`)** — FINAL, level-4 V02 data inputs (IDs 148 software, 151 hardware, 154 documentation). Join `PMDH_MYDT_ID` to `MYDT_Month_Year_Date.MYDT_ID` for reporting month and `PMDH_PCMY_ID` to `PCMY_Program_Configuration_Month_Year.PCMY_ID` for monthly status and organizational snapshot. Only `PCMY_PROG_Sector = 'Defense Systems'` is included. The card sums reported defective delivered units by month and shows the number of reporting programs. This is not a distinct escape-incident count. V01 significant-defect variables (147, 150, 153) are subsets and are not added to V02.
+- Historical coverage increases sharply in 2025–26: five reporting programs in January 2025 versus 158 in January 2026. Treat year-over-year raw-count comparisons with caution. Recent overlapping raw V02 totals were reconciled to QAF monthly data. The app uses dedicated `qafserver/qafdatabase/qafuser/qafpassword` connection settings and fails visibly if unavailable.

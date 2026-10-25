@@ -521,7 +521,7 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
   potentialSif: ['line', 'bar', 'palette', 'pareto'],
   nmfr: ['line', 'bar', 'palette', 'pareto'],
   otd: ['line', 'bar', 'palette', 'pareto'],
-  customerEscapes: ['line', 'bar'],
+  customerEscapes: ['line', 'bar', 'palette', 'pareto'],
   labor: ['line', 'bar', 'palette', 'pareto'],
   laborNew: ['line', 'bar', 'palette', 'pareto'],
   laborHana: ['line', 'bar', 'palette', 'pareto']
@@ -2091,6 +2091,51 @@ function calculateNmfrFromNearMissCount(nearMissCount, exposureHours) {
   }
 
   return Number(((200000 * nearMissCount) / exposureHours).toFixed(2));
+}
+
+function getCustomerEscapesEntries(rows, selectedDateRange) {
+  return rows.flatMap((row) => {
+    const month = String(row.data_month ?? '').slice(0, 10);
+    const stamp = Date.parse(`${month}T00:00:00Z`);
+    if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange)) return [];
+    return [
+      { ...row, defect_type: 'Software', value: Number(row.software_escapes) || 0 },
+      { ...row, defect_type: 'Hardware', value: Number(row.hardware_escapes) || 0 },
+      { ...row, defect_type: 'Documentation', value: Number(row.documentation_escapes) || 0 }
+    ];
+  });
+}
+
+function buildCustomerEscapesPalette(rows, groupField, colorField, selectedDateRange) {
+  const groups = new Map();
+  const colorTotals = new Map();
+  getCustomerEscapesEntries(rows, selectedDateRange).forEach((entry) => {
+    if (entry.value <= 0) return;
+    const groupLabel = normalizeParetoCategoryLabel(entry[groupField]);
+    const colorLabel = normalizeParetoCategoryLabel(entry[colorField]);
+    const group = groups.get(groupLabel) ?? {
+      label: groupLabel, total: 0, breakdown: new Map()
+    };
+    group.total += entry.value;
+    group.breakdown.set(colorLabel, (group.breakdown.get(colorLabel) ?? 0) + entry.value);
+    groups.set(groupLabel, group);
+    colorTotals.set(colorLabel, (colorTotals.get(colorLabel) ?? 0) + entry.value);
+  });
+  const sortedGroups = [...groups.values()].sort((a, b) =>
+    b.total - a.total || a.label.localeCompare(b.label)
+  );
+  const { visibleGroups, visibleColorLabels } = getVisiblePaletteGroupsAndColorLabels(
+    sortedGroups, colorTotals
+  );
+  return {
+    labels: visibleGroups.map((group) => group.label),
+    series: visibleColorLabels.map((label, index) => ({
+      id: `customer-escapes-palette-${label}`,
+      label,
+      color: CONTROLLABLE_PALETTE_COLORS[index % CONTROLLABLE_PALETTE_COLORS.length],
+      data: visibleGroups.map((group) => group.breakdown.get(label) ?? 0)
+    }))
+  };
 }
 
 function buildSafetyParetoChartData(rows, fieldName, selectedDateRange, metricKey) {
@@ -5145,6 +5190,8 @@ export default function App() {
   const [customerEscapesViewMode, setCustomerEscapesViewMode] = useState('monthly');
   const [customerEscapesFilterField, setCustomerEscapesFilterField] = useState('division');
   const [customerEscapesFilterValues, setCustomerEscapesFilterValues] = useState([]);
+  const [customerEscapesPaletteGroupField, setCustomerEscapesPaletteGroupField] = useState('business_unit');
+  const [customerEscapesPaletteColorField, setCustomerEscapesPaletteColorField] = useState('defect_type');
   const [otdState, setOtdState] = useState({
     rows: [],
     loading: true,
@@ -7715,6 +7762,58 @@ export default function App() {
     customerEscapesBuckets.set(key, bucket);
   });
   const customerEscapesChartRows = [...customerEscapesBuckets.values()];
+  const isCustomerEscapesPalette = chartVariants.customerEscapes === 'palette';
+  const isCustomerEscapesPareto = chartVariants.customerEscapes === 'pareto';
+  const customerEscapesPaletteFields = customerEscapesFilterFields;
+  const customerEscapesPaletteGroupOptions = customerEscapesPaletteFields.filter(
+    (field) => field.value !== customerEscapesPaletteColorField
+  );
+  const customerEscapesPaletteColorOptions = customerEscapesPaletteFields.filter(
+    (field) => field.value !== customerEscapesPaletteGroupField
+  );
+  const customerEscapesPalette = buildCustomerEscapesPalette(
+    filteredCustomerEscapesRows, customerEscapesPaletteGroupField,
+    customerEscapesPaletteColorField, selectedDateRange
+  );
+  const customerEscapesPareto = buildParetoChartData(
+    getCustomerEscapesEntries(filteredCustomerEscapesRows, selectedDateRange).map((entry) => ({
+      category: entry[customerEscapesFilterField], value: entry.value
+    })),
+    PALETTE_MAX_GROUPS
+  );
+  const customerEscapesForecastRows = isCustomerEscapesPalette || isCustomerEscapesPareto
+    ? customerEscapesMonthly : customerEscapesChartRows;
+  const customerEscapesForecastValues = isCustomerEscapesPalette || isCustomerEscapesPareto
+    ? customerEscapesMonthly.map((month) =>
+      month.software + month.hardware + month.documentation
+    ) : customerEscapesChartRows.map((row) => row.total);
+  const customerEscapesForecast = useCalculatedMetricGoalLine({
+    metricKey: 'customer-escapes-forecast',
+    timeline: customerEscapesViewMode,
+    seriesValues: customerEscapesForecastValues,
+    loading: customerEscapesState.loading,
+    error: customerEscapesState.error,
+    calculateGoalLine: forecastIncidentGoalLineFromSeries
+  });
+  const customerEscapesExpectedValue = Number(customerEscapesForecast.goalLine?.expectedValue);
+  const customerEscapesExpectedLine = Number.isFinite(customerEscapesExpectedValue)
+    && customerEscapesForecastRows.length > 0
+    && !isCustomerEscapesPalette && !isCustomerEscapesPareto
+    ? {
+      value: customerEscapesExpectedValue,
+      label: `Expected ${formatNumber(customerEscapesExpectedValue)}`
+    }
+    : null;
+  const customerEscapesMetricInfo = [
+    'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
+    'These are defective-unit counts, not distinct incidents. Reporting-program coverage changed substantially in 2025–26.',
+    customerEscapesForecast.status === 'ready'
+      ? `ARIMA(1,0,1) expected next ${INCIDENT_VIEW_CONFIG[customerEscapesViewMode].label.toLowerCase()} value: ${formatNumber(customerEscapesExpectedValue)}. Reporting coverage can affect this forecast.`
+      : customerEscapesForecast.status === 'average_fallback'
+        ? `Expected value ${formatNumber(customerEscapesExpectedValue)} uses the average of ${customerEscapesForecast.observationCount} periods; ARIMA requires ${CALCULATED_GOAL_MIN_OBSERVATIONS}.`
+        : 'Expected value is unavailable until data for the selected chart are loaded.'
+  ];
+
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
       .cardKeys
@@ -9955,10 +10054,13 @@ export default function App() {
               <article className="analytics-card" style={{ order: 7 }}>
                 <CardHeader
                   title="Customer Escapes"
-                  info={[
-                    'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
-                    'These are defective-unit counts, not distinct incidents. The latest month includes reporting programs whose coverage changed substantially in 2025–26.'
-                  ]}
+                  info={customerEscapesMetricInfo}
+                  tooltipLegend={isCustomerEscapesPalette
+                    ? buildTooltipLegend(
+                      `Color by ${customerEscapesPaletteFields.find(
+                        (field) => field.value === customerEscapesPaletteColorField
+                      )?.label ?? 'category'}`, customerEscapesPalette.series
+                    ) : null}
                 />
                 <div className="dashboard-grid">
                   <div className="visual-column">
@@ -9979,30 +10081,67 @@ export default function App() {
                         </p>
                       )}
                       {!customerEscapesState.loading && !customerEscapesState.error
-                        && customerEscapesChartRows.length === 0 && (
+                        && (isCustomerEscapesPalette
+                          ? customerEscapesPalette.labels.length === 0
+                          : isCustomerEscapesPareto
+                            ? customerEscapesPareto.labels.length === 0
+                            : customerEscapesChartRows.length === 0) && (
                           <p className="chart-message">
                             No customer escapes data for the selected filters and date range.
                           </p>
                         )}
                       {!customerEscapesState.loading && !customerEscapesState.error
-                        && customerEscapesChartRows.length > 0
-                        && customerEscapesChartWidth > 0 && (
-                          <MetricTrendChart
-                            selectedDateRange={selectedDateRange}
-                            variant={chartVariants.customerEscapes === 'bar' ? 'bar' : 'line'}
-                            width={customerEscapesChartWidth}
-                            height={CHART_HEIGHT}
-                            margin={DEFAULT_CHART_MARGIN}
-                            labels={customerEscapesChartRows.map((row) => row.label)}
-                            yAxis={[{ min: 0 }]}
-                            series={[{
-                              label: 'Customer Escapes',
-                              data: customerEscapesChartRows.map((row) => row.total),
-                              color: 'var(--chart-line)',
-                              valueFormatter: formatNumber
-                            }]}
-                            sx={sharedChartSx}
-                          />
+                        && customerEscapesChartWidth > 0
+                        && (isCustomerEscapesPalette
+                          ? customerEscapesPalette.labels.length > 0
+                          : isCustomerEscapesPareto
+                            ? customerEscapesPareto.labels.length > 0
+                            : customerEscapesChartRows.length > 0) && (
+                          isCustomerEscapesPareto ? (
+                            <ParetoMetricChart
+                              width={customerEscapesChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={customerEscapesPareto.labels}
+                              values={customerEscapesPareto.values}
+                              cumulativeShares={customerEscapesPareto.cumulativeShares}
+                              barLabel="Customer Escapes"
+                              barColor="var(--chart-line)"
+                              barAxis={SIF_Y_AXIS}
+                              barValueFormatter={formatNumber}
+                              sx={sharedChartSx}
+                            />
+                          ) : isCustomerEscapesPalette ? (
+                            <StackedCategoryBarChart
+                              width={customerEscapesChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={customerEscapesPalette.labels}
+                              yAxis={SIF_Y_AXIS}
+                              series={customerEscapesPalette.series.map((series) => ({
+                                ...series, valueFormatter: formatNumber
+                              }))}
+                              sx={sharedChartSx}
+                            />
+                          ) : (
+                            <MetricTrendChart
+                              selectedDateRange={selectedDateRange}
+                              variant={chartVariants.customerEscapes === 'bar' ? 'bar' : 'line'}
+                              width={customerEscapesChartWidth}
+                              height={CHART_HEIGHT}
+                              margin={DEFAULT_CHART_MARGIN}
+                              labels={customerEscapesChartRows.map((row) => row.label)}
+                              yAxis={SIF_Y_AXIS}
+                              series={[{
+                                label: 'Customer Escapes',
+                                data: customerEscapesChartRows.map((row) => row.total),
+                                color: 'var(--chart-line)',
+                                valueFormatter: formatNumber
+                              }]}
+                              goalLine={customerEscapesExpectedLine}
+                              sx={sharedChartSx}
+                            />
+                          )
                         )}
                     </div>
                     <div className="chart-control-row chart-control-row-single">
@@ -10014,9 +10153,12 @@ export default function App() {
                           }))}
                           alwaysGridToggle
                           supportsFilter
+                          supportsPalette
+                          supportsPareto
                           filterToggleAriaLabel="Customer escapes time series"
                           filterFieldValue={customerEscapesFilterField}
                           filterFieldOptions={customerEscapesFilterFields}
+                          paretoFieldOptions={customerEscapesFilterFields}
                           filterFieldAriaLabel="Select customer escapes filter field"
                           onFilterFieldChange={(field) => {
                             setCustomerEscapesFilterField(field);
@@ -10029,6 +10171,33 @@ export default function App() {
                           )?.allLabel ?? 'All'}
                           filterValueAriaLabel="Select customer escapes filter values"
                           onFilterValueChange={setCustomerEscapesFilterValues}
+                          paletteToggleAriaLabel="Customer escapes grouped color chart"
+                          paletteGroupFieldValue={customerEscapesPaletteGroupField}
+                          paletteGroupFieldOptions={customerEscapesPaletteGroupOptions}
+                          paletteGroupFieldAriaLabel="Select customer escapes group field"
+                          onPaletteGroupFieldChange={(field) => {
+                            setCustomerEscapesPaletteGroupField(field);
+                            if (field === customerEscapesPaletteColorField) {
+                              setCustomerEscapesPaletteColorField(
+                                customerEscapesPaletteFields.find((option) =>
+                                  option.value !== field
+                                )?.value ?? 'defect_type'
+                              );
+                            }
+                          }}
+                          paletteColorFieldValue={customerEscapesPaletteColorField}
+                          paletteColorFieldOptions={customerEscapesPaletteColorOptions}
+                          paletteColorFieldAriaLabel="Select customer escapes color field"
+                          onPaletteColorFieldChange={(field) => {
+                            setCustomerEscapesPaletteColorField(field);
+                            if (field === customerEscapesPaletteGroupField) {
+                              setCustomerEscapesPaletteGroupField(
+                                customerEscapesPaletteFields.find((option) =>
+                                  option.value !== field
+                                )?.value ?? 'business_unit'
+                              );
+                            }
+                          }}
                         />
                       </div>
                     </div>

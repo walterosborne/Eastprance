@@ -5143,6 +5143,8 @@ export default function App() {
   });
   const [customerEscapesState, setCustomerEscapesState] = useState({ rows: [], loading: true, error: '' });
   const [customerEscapesViewMode, setCustomerEscapesViewMode] = useState('monthly');
+  const [customerEscapesFilterField, setCustomerEscapesFilterField] = useState('division');
+  const [customerEscapesFilterValues, setCustomerEscapesFilterValues] = useState([]);
   const [otdState, setOtdState] = useState({
     rows: [],
     loading: true,
@@ -7652,29 +7654,50 @@ export default function App() {
   const filteredCustomerEscapesRows = applyGlobalFilters(
     customerEscapesState.rows, 'customerEscapes', activeGlobalFilters
   );
-  const customerEscapesMonths = new Map();
-  filteredCustomerEscapesRows.forEach((row) => {
-    const month = String(row.data_month ?? '').slice(0, 10);
-    const stamp = Date.parse(`${month}T00:00:00Z`);
-    if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange)) return;
-    const bucket = customerEscapesMonths.get(month) ?? {
-      month, stamp, software: 0, hardware: 0, documentation: 0, programs: new Set()
-    };
-    bucket.software += Number(row.software_escapes) || 0;
-    bucket.hardware += Number(row.hardware_escapes) || 0;
-    bucket.documentation += Number(row.documentation_escapes) || 0;
-    bucket.programs.add(row.program_id);
-    customerEscapesMonths.set(month, bucket);
-  });
-  const customerEscapesMonthly = [...customerEscapesMonths.values()]
-    .sort((left, right) => left.stamp - right.stamp);
+  const customerEscapesFilterFields = [
+    { value: 'division', label: 'Division', allLabel: 'All divisions' },
+    { value: 'business_unit', label: 'Business Unit', allLabel: 'All business units' },
+    { value: 'defect_type', label: 'Defect Type', allLabel: 'All defect types' }
+  ];
+  const customerEscapesFilterOptions = customerEscapesFilterField === 'defect_type'
+    ? ['Software', 'Hardware', 'Documentation']
+    : [...new Set(filteredCustomerEscapesRows
+      .map((row) => String(row[customerEscapesFilterField] ?? '').trim())
+      .filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  const activeCustomerEscapesFilterValues = customerEscapesFilterValues.filter(
+    (value) => customerEscapesFilterOptions.includes(value)
+  );
+  const customerEscapesChartSourceRows = customerEscapesFilterField === 'defect_type'
+    || activeCustomerEscapesFilterValues.length === 0
+    ? filteredCustomerEscapesRows
+    : filteredCustomerEscapesRows.filter((row) =>
+      activeCustomerEscapesFilterValues.includes(String(row[customerEscapesFilterField] ?? '').trim())
+    );
+  function summarizeCustomerEscapes(rows) {
+    const months = new Map();
+    rows.forEach((row) => {
+      const month = String(row.data_month ?? '').slice(0, 10);
+      const stamp = Date.parse(`${month}T00:00:00Z`);
+      if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange)) return;
+      const bucket = months.get(month) ?? {
+        month, stamp, software: 0, hardware: 0, documentation: 0, programs: new Set()
+      };
+      bucket.software += Number(row.software_escapes) || 0;
+      bucket.hardware += Number(row.hardware_escapes) || 0;
+      bucket.documentation += Number(row.documentation_escapes) || 0;
+      bucket.programs.add(row.program_id);
+      months.set(month, bucket);
+    });
+    return [...months.values()].sort((left, right) => left.stamp - right.stamp);
+  }
+  const customerEscapesMonthly = summarizeCustomerEscapes(filteredCustomerEscapesRows);
   const customerEscapesLatest = customerEscapesMonthly.at(-1);
   const customerEscapesKpi = customerEscapesLatest
     ? formatNumber(customerEscapesLatest.software + customerEscapesLatest.hardware
       + customerEscapesLatest.documentation)
     : '--';
   const customerEscapesBuckets = new Map();
-  customerEscapesMonthly.forEach((month) => {
+  summarizeCustomerEscapes(customerEscapesChartSourceRows).forEach((month) => {
     const year = month.month.slice(0, 4);
     const quarter = Math.floor((Number(month.month.slice(5, 7)) - 1) / 3) + 1;
     const key = customerEscapesViewMode === 'yearly' ? year
@@ -7682,12 +7705,13 @@ export default function App() {
         : month.month;
     const label = customerEscapesViewMode === 'monthly'
       ? formatMonthStamp(month.stamp) : key;
-    const bucket = customerEscapesBuckets.get(key) ?? {
-      label, software: 0, hardware: 0, documentation: 0
-    };
-    bucket.software += month.software;
-    bucket.hardware += month.hardware;
-    bucket.documentation += month.documentation;
+    const bucket = customerEscapesBuckets.get(key) ?? { label, total: 0 };
+    const show = (type) => customerEscapesFilterField !== 'defect_type'
+      || activeCustomerEscapesFilterValues.length === 0
+      || activeCustomerEscapesFilterValues.includes(type);
+    bucket.total += (show('Software') ? month.software : 0)
+      + (show('Hardware') ? month.hardware : 0)
+      + (show('Documentation') ? month.documentation : 0);
     customerEscapesBuckets.set(key, bucket);
   });
   const customerEscapesChartRows = [...customerEscapesBuckets.values()];
@@ -9933,16 +9957,8 @@ export default function App() {
                   title="Customer Escapes"
                   info={[
                     'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
-                    'These are defective-unit counts, not distinct incidents. Reporting-program coverage changed substantially in 2025–26.'
+                    'These are defective-unit counts, not distinct incidents. The latest month includes reporting programs whose coverage changed substantially in 2025–26.'
                   ]}
-                  tooltipLegend={{
-                    title: 'Defect category',
-                    items: [
-                      { label: 'Software', color: 'var(--chart-line)' },
-                      { label: 'Hardware', color: 'var(--chart-palette-2)' },
-                      { label: 'Documentation', color: 'var(--chart-palette-3)' }
-                    ]
-                  }}
                 />
                 <div className="dashboard-grid">
                   <div className="visual-column">
@@ -9979,14 +9995,12 @@ export default function App() {
                             margin={DEFAULT_CHART_MARGIN}
                             labels={customerEscapesChartRows.map((row) => row.label)}
                             yAxis={[{ min: 0 }]}
-                            series={[
-                              { label: 'Software', data: customerEscapesChartRows.map((row) => row.software),
-                                color: 'var(--chart-line)', valueFormatter: formatNumber },
-                              { label: 'Hardware', data: customerEscapesChartRows.map((row) => row.hardware),
-                                color: 'var(--chart-palette-2)', valueFormatter: formatNumber },
-                              { label: 'Documentation', data: customerEscapesChartRows.map((row) => row.documentation),
-                                color: 'var(--chart-palette-3)', valueFormatter: formatNumber }
-                            ]}
+                            series={[{
+                              label: 'Customer Escapes',
+                              data: customerEscapesChartRows.map((row) => row.total),
+                              color: 'var(--chart-line)',
+                              valueFormatter: formatNumber
+                            }]}
                             sx={sharedChartSx}
                           />
                         )}
@@ -9998,6 +10012,23 @@ export default function App() {
                           onChange={(variant) => setChartVariants((current) => ({
                             ...current, customerEscapes: variant
                           }))}
+                          alwaysGridToggle
+                          supportsFilter
+                          filterToggleAriaLabel="Customer escapes time series"
+                          filterFieldValue={customerEscapesFilterField}
+                          filterFieldOptions={customerEscapesFilterFields}
+                          filterFieldAriaLabel="Select customer escapes filter field"
+                          onFilterFieldChange={(field) => {
+                            setCustomerEscapesFilterField(field);
+                            setCustomerEscapesFilterValues([]);
+                          }}
+                          filterValue={activeCustomerEscapesFilterValues}
+                          filterValueOptions={customerEscapesFilterOptions}
+                          filterValueAllLabel={customerEscapesFilterFields.find(
+                            (field) => field.value === customerEscapesFilterField
+                          )?.allLabel ?? 'All'}
+                          filterValueAriaLabel="Select customer escapes filter values"
+                          onFilterValueChange={setCustomerEscapesFilterValues}
                         />
                       </div>
                     </div>
@@ -10016,12 +10047,6 @@ export default function App() {
                         ))}
                       </ToggleButtonGroup>
                     </div>
-                    {customerEscapesLatest && (
-                      <p className="chart-message">
-                        {customerEscapesLatest.programs.size} programs reported in the latest month;
-                        coverage changes affect comparisons.
-                      </p>
-                    )}
                   </div>
                 </div>
               </article>

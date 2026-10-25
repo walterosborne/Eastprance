@@ -1,16 +1,60 @@
--- QMI Customer Escapes: compact DS coverage comparison
--- Read-only in [Quality Data Mart]. Run both queries and send both grids.
--- V02 finalized values are validated against the recent QAF table.
--- The 2025 DS trend has changing program coverage; investigate before
--- interpreting year-over-year movement as a quality change.
+-- QMI Customer Escapes: Defense Systems, January 2025 onward
+-- Read-only SQL Server queries for [Quality Data Mart].
+-- V02 input variables 148/151/154 are total reported SW/HW/documentation
+-- escapes; validated against recent QAF totals in the overlapping months.
+-- FINAL is the month status. An absent program/month is not a zero.
+--
+-- Observed: Dec 2025 -> Jan 2026 DS reporting programs 83 -> 158.
+-- WS 11 -> 92, with 81 Jan WS programs absent in Dec; CWI 60 -> 62.
+-- Thus raw monthly totals reflect substantial coverage changes.
 USE [Quality Data Mart];
 
+-- 1. Monthly division coverage and escapes. This shows exactly when each
+-- division's reporting population changed, from January 2025 onward.
 WITH program_month AS (
     SELECT
         md.[MYDT_From_DT] AS data_month,
         p.[PMDH_PROG_ID] AS program_id,
         pc.[PCMY_PROG_Division] AS division,
-        pc.[PCMY_PROG_BusinessUnit] AS business_unit,
+        SUM(CASE WHEN p.[PMDH_DATV_ID] = 148
+                 THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS software_escapes,
+        SUM(CASE WHEN p.[PMDH_DATV_ID] = 151
+                 THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS hardware_escapes,
+        SUM(CASE WHEN p.[PMDH_DATV_ID] = 154
+                 THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS documentation_escapes
+    FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
+    JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
+        ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
+    JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
+        ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
+    WHERE p.[PMDH_Level] = 4
+      AND p.[PMDH_DATV_ID] IN (148, 151, 154)
+      AND pc.[PCMY_Status] = 'FINAL'
+      AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
+      AND md.[MYDT_From_DT] >= '2025-01-01'
+      AND md.[MYDT_From_DT] < '2026-10-01'
+    GROUP BY md.[MYDT_From_DT], p.[PMDH_PROG_ID],
+             pc.[PCMY_PROG_Division]
+)
+SELECT
+    data_month, division,
+    COUNT(*) AS reporting_programs,
+    SUM(software_escapes) AS software_escapes,
+    SUM(hardware_escapes) AS hardware_escapes,
+    SUM(documentation_escapes) AS documentation_escapes,
+    SUM(software_escapes + hardware_escapes + documentation_escapes) AS total_escapes
+FROM program_month
+GROUP BY data_month, division
+ORDER BY data_month, division;
+
+-- 2. Year-over-year matched-program check, January-September.
+-- Counts/sums for programs with a FINAL V02 row in both corresponding
+-- months; the matched columns are comparable coverage, not a rate or
+-- an assertion that reporting methods remained identical.
+WITH program_month AS (
+    SELECT
+        md.[MYDT_From_DT] AS data_month,
+        p.[PMDH_PROG_ID] AS program_id,
         SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS escapes
     FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
     JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
@@ -21,50 +65,44 @@ WITH program_month AS (
       AND p.[PMDH_DATV_ID] IN (148, 151, 154)
       AND pc.[PCMY_Status] = 'FINAL'
       AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
-      AND md.[MYDT_From_DT] IN ('2025-12-01', '2026-01-01')
-    GROUP BY md.[MYDT_From_DT], p.[PMDH_PROG_ID],
-             pc.[PCMY_PROG_Division], pc.[PCMY_PROG_BusinessUnit]
-)
-SELECT
-    division, business_unit,
-    SUM(CASE WHEN data_month = '2025-12-01' THEN 1 ELSE 0 END) AS dec_programs,
-    SUM(CASE WHEN data_month = '2026-01-01' THEN 1 ELSE 0 END) AS jan_programs,
-    SUM(CASE WHEN data_month = '2025-12-01' THEN escapes ELSE 0 END) AS dec_escapes,
-    SUM(CASE WHEN data_month = '2026-01-01' THEN escapes ELSE 0 END) AS jan_escapes
-FROM program_month
-GROUP BY division, business_unit
-ORDER BY division, business_unit;
-
--- Of January's DS programs, how many also reported in December?
-WITH program_month AS (
-    SELECT DISTINCT
-        md.[MYDT_From_DT] AS data_month,
-        p.[PMDH_PROG_ID] AS program_id,
-        pc.[PCMY_PROG_Division] AS division
-    FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
-    JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
-        ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
-    JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
-        ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
-    WHERE p.[PMDH_Level] = 4
-      AND p.[PMDH_DATV_ID] IN (148, 151, 154)
-      AND pc.[PCMY_Status] = 'FINAL'
-      AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
-      AND md.[MYDT_From_DT] IN ('2025-12-01', '2026-01-01')
+      AND (
+            md.[MYDT_From_DT] >= '2025-01-01'
+        AND md.[MYDT_From_DT] < '2025-10-01'
+         OR md.[MYDT_From_DT] >= '2026-01-01'
+        AND md.[MYDT_From_DT] < '2026-10-01'
+      )
+    GROUP BY md.[MYDT_From_DT], p.[PMDH_PROG_ID]
 ),
-december AS (
-    SELECT DISTINCT program_id FROM program_month
-    WHERE data_month = '2025-12-01'
+monthly AS (
+    SELECT data_month, COUNT(*) AS reporting_programs,
+           SUM(escapes) AS total_escapes
+    FROM program_month
+    GROUP BY data_month
+),
+matched AS (
+    SELECT
+        a.data_month AS month_2025,
+        COUNT(*) AS programs_2025,
+        COUNT(b.program_id) AS programs_in_both_years,
+        SUM(CASE WHEN b.program_id IS NOT NULL THEN a.escapes ELSE 0 END)
+            AS escapes_2025_matched,
+        SUM(CASE WHEN b.program_id IS NOT NULL THEN b.escapes ELSE 0 END)
+            AS escapes_2026_matched
+    FROM program_month AS a
+    LEFT JOIN program_month AS b
+        ON b.program_id = a.program_id
+       AND b.data_month = DATEADD(YEAR, 1, a.data_month)
+    WHERE a.data_month < '2025-10-01'
+    GROUP BY a.data_month
 )
 SELECT
-    j.division,
-    COUNT(DISTINCT j.program_id) AS jan_programs,
-    COUNT(DISTINCT CASE WHEN d.program_id IS NOT NULL
-                        THEN j.program_id END) AS also_in_december,
-    COUNT(DISTINCT CASE WHEN d.program_id IS NULL
-                        THEN j.program_id END) AS new_to_january
-FROM program_month AS j
-LEFT JOIN december AS d ON d.program_id = j.program_id
-WHERE j.data_month = '2026-01-01'
-GROUP BY j.division
-ORDER BY j.division;
+    m.month_2025,
+    m.programs_2025,
+    n.reporting_programs AS programs_2026,
+    m.programs_in_both_years,
+    m.escapes_2025_matched,
+    m.escapes_2026_matched,
+    n.total_escapes AS all_2026_escapes
+FROM matched AS m
+LEFT JOIN monthly AS n ON n.data_month = DATEADD(YEAR, 1, m.month_2025)
+ORDER BY m.month_2025;

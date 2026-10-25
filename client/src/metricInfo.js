@@ -194,6 +194,12 @@ function buildArimaMetricInfo(
   ]);
 }
 
+function buildCustomerEscapesMetricInfo(baseInfo, goalLineDetails = null) {
+  return buildArimaMetricInfo(baseInfo, goalLineDetails, {
+    explanation: 'ARIMA projects the next reported-defective-unit count from the selected timeline. Changes in reporting-program coverage can affect this forecast.'
+  });
+}
+
 function buildNmfrMetricInfo(baseInfo, goalLineDetails = null) {
   return buildArimaMetricInfo(baseInfo, goalLineDetails, {
     explanation: 'ARIMA projects the next NMFR value from the selected timeline.'
@@ -238,6 +244,7 @@ export {
   METRIC_INFO,
   appendMetricInfo,
   buildControllableCostsMetricInfo,
+  buildCustomerEscapesMetricInfo,
   buildLaborMetricInfo,
   buildLaborHanaMetricInfo,
   buildNmfrMetricInfo,

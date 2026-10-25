@@ -76,6 +76,18 @@ function getDbmConnectionConfigFromEnv() {
   };
 }
 
+function getQafConnectionConfigFromEnv() {
+  const configuredRequestTimeout = Number(getFirstDefinedEnvValue('qafrequesttimeout', 'QAFREQUESTTIMEOUT'));
+  return {
+    server: getFirstDefinedEnvValue('qafserver', 'QAFSERVER'),
+    database: getFirstDefinedEnvValue('qafdatabase', 'QAFDATABASE') || 'Quality Data Mart',
+    user: getFirstDefinedEnvValue('qafuser', 'QAFUSER'),
+    password: getFirstDefinedEnvValue('qafpassword', 'QAFPASSWORD'),
+    requestTimeout: Number.isFinite(configuredRequestTimeout) && configuredRequestTimeout > 0
+      ? configuredRequestTimeout : 120000
+  };
+}
+
 function getMissingConnectionFields(config, prefix = '') {
   const missingFields = [];
 
@@ -100,6 +112,16 @@ function getMissingConnectionFields(config, prefix = '') {
 
 export function getConnectionConfig(connectionName = 'default') {
   const defaultConfig = getPrimaryConnectionConfigFromEnv();
+
+  if (connectionName === 'qaf') {
+    const qafConfig = getQafConnectionConfigFromEnv();
+    return {
+      connectionName: 'qaf',
+      config: qafConfig,
+      missing: getMissingConnectionFields(qafConfig, 'qaf'),
+      source: 'qaf-env'
+    };
+  }
 
   if (connectionName === 'dbm') {
     const dbmConfig = getDbmConnectionConfigFromEnv();

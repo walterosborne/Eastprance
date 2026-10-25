@@ -64,7 +64,6 @@ import {
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
 import DatabricksRawComparisonCard from './DatabricksRawComparisonCard';
-import CustomerEscapesCard from './CustomerEscapesCard';
 import {
   BusinessUnitHierarchyFilter,
   FacilityHierarchyFilter,
@@ -509,6 +508,7 @@ const DEFAULT_CHART_VARIANTS = {
   potentialSif: 'line',
   nmfr: 'line',
   otd: 'line',
+  customerEscapes: 'line',
   labor: 'line',
   laborNew: 'line',
   laborHana: 'line'
@@ -521,6 +521,7 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
   potentialSif: ['line', 'bar', 'palette', 'pareto'],
   nmfr: ['line', 'bar', 'palette', 'pareto'],
   otd: ['line', 'bar', 'palette', 'pareto'],
+  customerEscapes: ['line', 'bar'],
   labor: ['line', 'bar', 'palette', 'pareto'],
   laborNew: ['line', 'bar', 'palette', 'pareto'],
   laborHana: ['line', 'bar', 'palette', 'pareto']
@@ -5141,6 +5142,7 @@ export default function App() {
     source: ''
   });
   const [customerEscapesState, setCustomerEscapesState] = useState({ rows: [], loading: true, error: '' });
+  const [customerEscapesViewMode, setCustomerEscapesViewMode] = useState('monthly');
   const [otdState, setOtdState] = useState({
     rows: [],
     loading: true,
@@ -5314,6 +5316,7 @@ export default function App() {
     useChartWidth();
   const { chartHostRef: nmfrChartHostRef, chartWidth: nmfrChartWidth } = useChartWidth();
   const { chartHostRef: otdChartHostRef, chartWidth: otdChartWidth } = useChartWidth();
+  const { chartHostRef: customerEscapesChartHostRef, chartWidth: customerEscapesChartWidth } = useChartWidth();
   const { chartHostRef: laborChartHostRef, chartWidth: laborChartWidth } = useChartWidth();
   const { chartHostRef: laborNewChartHostRef, chartWidth: laborNewChartWidth } = useChartWidth();
   const { chartHostRef: laborHanaChartHostRef, chartWidth: laborHanaChartWidth } = useChartWidth();
@@ -7646,6 +7649,48 @@ export default function App() {
     requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
     timelineLabel: LABOR_VIEW_CONFIG[laborHanaViewMode]?.label
   });
+  const filteredCustomerEscapesRows = applyGlobalFilters(
+    customerEscapesState.rows, 'customerEscapes', activeGlobalFilters
+  );
+  const customerEscapesMonths = new Map();
+  filteredCustomerEscapesRows.forEach((row) => {
+    const month = String(row.data_month ?? '').slice(0, 10);
+    const stamp = Date.parse(`${month}T00:00:00Z`);
+    if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange)) return;
+    const bucket = customerEscapesMonths.get(month) ?? {
+      month, stamp, software: 0, hardware: 0, documentation: 0, programs: new Set()
+    };
+    bucket.software += Number(row.software_escapes) || 0;
+    bucket.hardware += Number(row.hardware_escapes) || 0;
+    bucket.documentation += Number(row.documentation_escapes) || 0;
+    bucket.programs.add(row.program_id);
+    customerEscapesMonths.set(month, bucket);
+  });
+  const customerEscapesMonthly = [...customerEscapesMonths.values()]
+    .sort((left, right) => left.stamp - right.stamp);
+  const customerEscapesLatest = customerEscapesMonthly.at(-1);
+  const customerEscapesKpi = customerEscapesLatest
+    ? formatNumber(customerEscapesLatest.software + customerEscapesLatest.hardware
+      + customerEscapesLatest.documentation)
+    : '--';
+  const customerEscapesBuckets = new Map();
+  customerEscapesMonthly.forEach((month) => {
+    const year = month.month.slice(0, 4);
+    const quarter = Math.floor((Number(month.month.slice(5, 7)) - 1) / 3) + 1;
+    const key = customerEscapesViewMode === 'yearly' ? year
+      : customerEscapesViewMode === 'quarterly' ? `${year} Q${quarter}`
+        : month.month;
+    const label = customerEscapesViewMode === 'monthly'
+      ? formatMonthStamp(month.stamp) : key;
+    const bucket = customerEscapesBuckets.get(key) ?? {
+      label, software: 0, hardware: 0, documentation: 0
+    };
+    bucket.software += month.software;
+    bucket.hardware += month.hardware;
+    bucket.documentation += month.documentation;
+    customerEscapesBuckets.set(key, bucket);
+  });
+  const customerEscapesChartRows = [...customerEscapesBuckets.values()];
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
       .cardKeys
@@ -9883,11 +9928,103 @@ export default function App() {
             )}
 
             {visibleCards.customerEscapes && (
-              <CustomerEscapesCard
-                state={customerEscapesState}
-                rows={applyGlobalFilters(customerEscapesState.rows, 'customerEscapes', activeGlobalFilters)}
-                selectedDateRange={selectedDateRange}
-              />
+              <article className="analytics-card" style={{ order: 7 }}>
+                <CardHeader
+                  title="Customer Escapes"
+                  info={[
+                    'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
+                    'These are defective-unit counts, not distinct incidents. Reporting-program coverage changed substantially in 2025–26.'
+                  ]}
+                  tooltipLegend={{
+                    title: 'Defect category',
+                    items: [
+                      { label: 'Software', color: 'var(--chart-line)' },
+                      { label: 'Hardware', color: 'var(--chart-palette-2)' },
+                      { label: 'Documentation', color: 'var(--chart-palette-3)' }
+                    ]
+                  }}
+                />
+                <div className="dashboard-grid">
+                  <div className="visual-column">
+                    <MetricOverviewBand
+                      value={customerEscapesState.loading || customerEscapesState.error
+                        ? '--' : customerEscapesKpi}
+                      label="Reported Defective Units"
+                      sublabel={<KpiMonthLabel stamp={customerEscapesLatest?.stamp} />}
+                      ariaLabel="Customer escapes overview"
+                    />
+                    <div ref={customerEscapesChartHostRef} className="chart-host">
+                      {customerEscapesState.loading && (
+                        <p className="chart-message">Loading customer escapes...</p>
+                      )}
+                      {!customerEscapesState.loading && customerEscapesState.error && (
+                        <p className="chart-message chart-message-error">
+                          {customerEscapesState.error}
+                        </p>
+                      )}
+                      {!customerEscapesState.loading && !customerEscapesState.error
+                        && customerEscapesChartRows.length === 0 && (
+                          <p className="chart-message">
+                            No customer escapes data for the selected filters and date range.
+                          </p>
+                        )}
+                      {!customerEscapesState.loading && !customerEscapesState.error
+                        && customerEscapesChartRows.length > 0
+                        && customerEscapesChartWidth > 0 && (
+                          <MetricTrendChart
+                            selectedDateRange={selectedDateRange}
+                            variant={chartVariants.customerEscapes === 'bar' ? 'bar' : 'line'}
+                            width={customerEscapesChartWidth}
+                            height={CHART_HEIGHT}
+                            margin={DEFAULT_CHART_MARGIN}
+                            labels={customerEscapesChartRows.map((row) => row.label)}
+                            yAxis={[{ min: 0 }]}
+                            series={[
+                              { label: 'Software', data: customerEscapesChartRows.map((row) => row.software),
+                                color: 'var(--chart-line)', valueFormatter: formatNumber },
+                              { label: 'Hardware', data: customerEscapesChartRows.map((row) => row.hardware),
+                                color: 'var(--chart-palette-2)', valueFormatter: formatNumber },
+                              { label: 'Documentation', data: customerEscapesChartRows.map((row) => row.documentation),
+                                color: 'var(--chart-palette-3)', valueFormatter: formatNumber }
+                            ]}
+                            sx={sharedChartSx}
+                          />
+                        )}
+                    </div>
+                    <div className="chart-control-row chart-control-row-single">
+                      <div className="chart-control-row-toggle">
+                        <ChartTypeToggle
+                          value={chartVariants.customerEscapes}
+                          onChange={(variant) => setChartVariants((current) => ({
+                            ...current, customerEscapes: variant
+                          }))}
+                        />
+                      </div>
+                    </div>
+                    <div className="chart-footer chart-footer-match-labor">
+                      <ToggleButtonGroup
+                        value={customerEscapesViewMode}
+                        exclusive
+                        fullWidth
+                        onChange={(_event, mode) => { if (mode) setCustomerEscapesViewMode(mode); }}
+                        sx={timelineToggleGroupSx}
+                      >
+                        {Object.entries(INCIDENT_VIEW_CONFIG).map(([mode, config]) => (
+                          <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                            {config.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    </div>
+                    {customerEscapesLatest && (
+                      <p className="chart-message">
+                        {customerEscapesLatest.programs.size} programs reported in the latest month;
+                        coverage changes affect comparisons.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </article>
             )}
             {visibleCards.otd && (
               <article className="analytics-card" style={{ order: 6 }}>

@@ -1,5 +1,5 @@
 import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChartColumn, faChartLine } from '@fortawesome/free-solid-svg-icons';
 import {
@@ -897,7 +897,7 @@ function ParetoChart({ width, data }) {
   );
 }
 
-export default function DatabricksRawComparisonCard({
+export default memo(function DatabricksRawComparisonCard({
   state,
   globalFilters,
   selectedDateRange,
@@ -920,40 +920,50 @@ export default function DatabricksRawComparisonCard({
     () => getFilterOptions(globallyFilteredRows, filterField),
     [globallyFilteredRows, filterField]
   );
-  const activeFilterValues = filterValues.filter((value) => filterValueOptions.includes(value));
-  const filteredRows = globallyFilteredRows.filter((row) => (
+  const activeFilterValues = useMemo(
+    () => filterValues.filter((value) => filterValueOptions.includes(value)),
+    [filterValues, filterValueOptions]
+  );
+  const filteredRows = useMemo(() => globallyFilteredRows.filter((row) => (
     activeFilterValues.length === 0
     || activeFilterValues.includes(normalizeText(row?.[filterField]))
-  ));
+  )), [globallyFilteredRows, activeFilterValues, filterField]);
   const isTrend = chartVariant === 'line' || chartVariant === 'bar';
   const selectedRows = isTrend ? filteredRows : globallyFilteredRows;
-  const inSelectedDateRange = (row) => {
+  const startStamp = selectedDateRange?.startStamp;
+  const endStamp = selectedDateRange?.endStamp;
+  const chartRows = useMemo(() => selectedRows.filter((row) => {
     const stamp = getMonthStamp(row);
     return stamp != null && (
-      !selectedDateRange
-      || (stamp >= selectedDateRange.startStamp && stamp <= selectedDateRange.endStamp)
+      startStamp == null || (stamp >= startStamp && stamp <= endStamp)
     );
-  };
-  const chartRows = selectedRows.filter(inSelectedDateRange);
+  }), [selectedRows, startStamp, endStamp]);
   const trendData = useMemo(
     () => buildTrendData(chartRows, viewMode),
     [chartRows, viewMode]
   );
   const paletteData = useMemo(
-    () => buildPaletteData(chartRows, paletteGroupField, paletteColorField),
-    [chartRows, paletteGroupField, paletteColorField]
+    () => chartVariant === 'palette'
+      ? buildPaletteData(chartRows, paletteGroupField, paletteColorField)
+      : { labels: [], series: [] },
+    [chartRows, paletteGroupField, paletteColorField, chartVariant]
   );
   const paretoData = useMemo(
-    () => buildParetoData(chartRows, filterField),
-    [chartRows, filterField]
+    () => chartVariant === 'pareto'
+      ? buildParetoData(chartRows, filterField)
+      : { labels: [], series: [] },
+    [chartRows, filterField, chartVariant]
   );
-  const summaryMonth = getLatestDataMonth(selectedRows,
-    (row) => hasKpiValue(row.cost) ? getMonthStamp(row) : null
-  );
-  const summaryValue = selectedRows.reduce((sum, row) =>
-    summaryMonth != null && getMonthStamp(row) === summaryMonth && hasKpiValue(row.cost)
-      ? sum + Number(row.cost) : sum, 0
-  );
+  const { summaryMonth, summaryValue } = useMemo(() => {
+    const month = getLatestDataMonth(selectedRows,
+      (row) => hasKpiValue(row.cost) ? getMonthStamp(row) : null
+    );
+    const value = selectedRows.reduce((sum, row) =>
+      month != null && getMonthStamp(row) === month && hasKpiValue(row.cost)
+        ? sum + Number(row.cost) : sum, 0
+    );
+    return { summaryMonth: month, summaryValue: value };
+  }, [selectedRows]);
   const goalLine = useMemo(() => getGoalLine(trendData.controllable), [trendData.controllable]);
   const trendScale = useMemo(() => getTrendScale(trendData, goalLine, summaryValue), [trendData, goalLine, summaryValue]);
   const hasChartData = chartVariant === 'palette'
@@ -1120,5 +1130,5 @@ export default function DatabricksRawComparisonCard({
       </div>
     </article>
   );
-}
+});
 

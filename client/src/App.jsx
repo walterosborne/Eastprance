@@ -64,6 +64,7 @@ import {
 import { getMetricGoalLine } from './metricGoals';
 import { SITE_BRANDING } from './siteBranding';
 import DatabricksRawComparisonCard from './DatabricksRawComparisonCard';
+import CustomerEscapesCard from './CustomerEscapesCard';
 import {
   BusinessUnitHierarchyFilter,
   FacilityHierarchyFilter,
@@ -428,6 +429,7 @@ const GLOBAL_FILTER_FIELD_MAP = {
     businessUnit: 'business_unit',
     facility: 'site'
   },
+  customerEscapes: { division: 'division', businessUnit: 'business_unit' },
   labor: {
     facility: 'forecasted_cc'
   },
@@ -464,6 +466,7 @@ const CARD_CHIP_OPTIONS = [
       'potentialSif',
       'nmfr',
       'otd',
+      'customerEscapes',
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
@@ -494,7 +497,7 @@ const CARD_CHIP_OPTIONS = [
     key: 'programManagement',
     label: 'Program Management',
     icon: faClipboardCheck,
-    cardKeys: ['otd']
+    cardKeys: ['otd', 'customerEscapes']
   }
 ];
 
@@ -5131,6 +5134,7 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [customerEscapesState, setCustomerEscapesState] = useState({ rows: [], loading: true, error: '' });
   const [otdState, setOtdState] = useState({
     rows: [],
     loading: true,
@@ -5631,6 +5635,19 @@ export default function App() {
       }
     }
 
+    async function loadCustomerEscapesData() {
+      try {
+        const payload = await fetchJson('customer-escapes', '/api/customer-escapes');
+        if (isMounted) setCustomerEscapesState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [], loading: false, error: ''
+        });
+      } catch (error) {
+        if (isMounted) setCustomerEscapesState({
+          rows: [], loading: false, error: error.message || 'Unable to load customer escapes.'
+        });
+      }
+    }
+
     async function loadOtdData() {
       const startTime = performance.now();
 
@@ -5835,6 +5852,7 @@ export default function App() {
     loadPotentialSifData();
     loadNmfrData();
     loadOtdData();
+    loadCustomerEscapesData();
     if (LEGACY_LABOR_CARD_ENABLED) {
       loadLaborData();
     }
@@ -6061,6 +6079,7 @@ export default function App() {
     potentialSif: potentialSifState.rows,
     nmfr: nmfrState.rows,
     otd: otdState.rows,
+    customerEscapes: customerEscapesState.rows,
     laborNew: laborNewState.rows,
     laborHana: laborHanaState.rows
   };
@@ -7636,6 +7655,7 @@ export default function App() {
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
     otd: activeCardKeys.has('otd'),
+    customerEscapes: activeCardKeys.has('customerEscapes'),
     labor: LEGACY_LABOR_CARD_ENABLED && activeCardKeys.has('labor'),
     laborNew: activeCardKeys.has('laborNew'),
     laborHana: LABOR_HANA_CARD_ENABLED && activeCardKeys.has('laborHana')
@@ -9855,6 +9875,13 @@ export default function App() {
               </article>
             )}
 
+            {visibleCards.customerEscapes && (
+              <CustomerEscapesCard
+                state={customerEscapesState}
+                rows={applyGlobalFilters(customerEscapesState.rows, 'customerEscapes', activeGlobalFilters)}
+                selectedDateRange={selectedDateRange}
+              />
+            )}
             {visibleCards.otd && (
               <article className="analytics-card" style={{ order: 6 }}>
                 <CardHeader

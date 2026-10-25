@@ -7782,8 +7782,6 @@ export default function App() {
     })),
     PALETTE_MAX_GROUPS
   );
-  const customerEscapesForecastRows = isCustomerEscapesPalette || isCustomerEscapesPareto
-    ? customerEscapesMonthly : customerEscapesChartRows;
   const customerEscapesForecastValues = isCustomerEscapesPalette || isCustomerEscapesPareto
     ? customerEscapesMonthly.map((month) =>
       month.software + month.hardware + month.documentation

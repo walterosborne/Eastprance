@@ -7796,7 +7796,8 @@ export default function App() {
     calculateGoalLine: forecastIncidentGoalLineFromSeries
   });
   const customerEscapesExpectedValue = Number(customerEscapesForecast.goalLine?.expectedValue);
-  const customerEscapesExpectedLine = Number.isFinite(customerEscapesExpectedValue)
+  const customerEscapesExpectedLine = customerEscapesForecast.goalLine?.expectedValue != null
+    && Number.isFinite(customerEscapesExpectedValue)
     && customerEscapesForecastRows.length > 0
     && !isCustomerEscapesPalette && !isCustomerEscapesPareto
     ? {

@@ -53,6 +53,7 @@ import {
 } from './arimaGoalLines';
 import {
   buildControllableCostsMetricInfo,
+  buildCustomerEscapesMetricInfo,
   buildLaborMetricInfo,
   buildLaborHanaMetricInfo,
   buildNmfrMetricInfo,
@@ -7795,34 +7796,33 @@ export default function App() {
     error: customerEscapesState.error,
     calculateGoalLine: forecastIncidentGoalLineFromSeries
   });
-  const customerEscapesExpectedValue = Number(customerEscapesForecast.goalLine?.expectedValue);
-  const customerEscapesExpectedLine = customerEscapesForecast.goalLine?.expectedValue != null
-    && Number.isFinite(customerEscapesExpectedValue)
-    && customerEscapesForecastRows.length > 0
-    && !isCustomerEscapesPalette && !isCustomerEscapesPareto
-    ? {
-      value: customerEscapesExpectedValue,
-      label: `Expected ${formatNumber(customerEscapesExpectedValue)}`
-    }
-    : null;
   const customerEscapesYAxis = buildDynamicNumericYAxis(
     SIF_Y_AXIS,
     [customerEscapesChartRows.map((row) => row.total)],
-    { includeZero: true, minFloor: 0, goalLine: customerEscapesExpectedLine }
+    { includeZero: true, minFloor: 0 }
   );
   const customerEscapesPaletteYAxis = buildStackedNumericYAxis(
     SIF_Y_AXIS, customerEscapesPalette.series,
     { includeZero: true, minFloor: 0 }
   );
-  const customerEscapesMetricInfo = [
-    'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
-    'These are defective-unit counts, not distinct incidents. Reporting-program coverage changed substantially in 2025–26.',
-    customerEscapesForecast.status === 'ready'
-      ? `ARIMA(1,0,1) expected next ${INCIDENT_VIEW_CONFIG[customerEscapesViewMode].label.toLowerCase()} value: ${formatNumber(customerEscapesExpectedValue)}. Reporting coverage can affect this forecast.`
-      : customerEscapesForecast.status === 'average_fallback'
-        ? `Expected value ${formatNumber(customerEscapesExpectedValue)} uses the average of ${customerEscapesForecast.observationCount} periods; ARIMA requires ${CALCULATED_GOAL_MIN_OBSERVATIONS}.`
-        : 'Expected value is unavailable until data for the selected chart are loaded.'
-  ];
+  const customerEscapesMetricInfo = buildCustomerEscapesMetricInfo(
+    [
+      'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
+      'These are defective-unit counts, not distinct incidents. Reporting-program coverage changed substantially in 2025–26.'
+    ],
+    {
+      ...customerEscapesForecast.goalLine,
+      expectedValue: customerEscapesForecast.goalLine?.expectedValue ?? NaN,
+      averageValue: customerEscapesForecast.goalLine?.averageValue ?? NaN,
+      status: customerEscapesForecast.status,
+      observationCount: customerEscapesForecast.observationCount,
+      requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
+      timelineLabel: INCIDENT_VIEW_CONFIG[customerEscapesViewMode]?.label,
+      forecastMonthLabel: getNextTimelinePeriodLabelAfterStamp(
+        customerEscapesLatest?.stamp, customerEscapesViewMode
+      )
+    }
+  );
 
   const activeCardKeys = new Set(
     (CARD_CHIP_OPTIONS.find((cardGroup) => cardGroup.key === selectedCardGroup) ?? CARD_CHIP_OPTIONS[0])
@@ -10148,7 +10148,6 @@ export default function App() {
                                 color: 'var(--chart-line)',
                                 valueFormatter: formatNumber
                               }]}
-                              goalLine={customerEscapesExpectedLine}
                               sx={sharedChartSx}
                             />
                           )

@@ -1,77 +1,104 @@
--- QMI Customer Escapes: raw history keys and current data-variable values
--- Read-only. Run in [Quality Data Mart] and send the three result grids.
--- The current metric version is 041; V01/V02 in the notes are DATA VARIABLES.
--- Candidate counts are level-4 IDs 148 (software), 151 (hardware),
--- and 154 (documentation). IDs 147/150/153 are the significant subsets.
--- This is exploratory; do not sum both a total and its subset.
+-- QMI Customer Escapes: historical counts from QAF raw monthly data
+-- Read-only in [Quality Data Mart]. Run all four queries and send their grids.
+-- V02 count variables: SW 148, HW 151, documentation 154.
+-- V01 significant subsets: SW 147, HW 150, documentation 153.
+-- Metric version 041 is distinct from those V01/V02 data-variable codes.
 USE [Quality Data Mart];
 
--- 1. Columns and types needed to build the January 2025 onward raw-data join.
+-- 1. Confirm variable IDs and definitions in the historical source.
 SELECT
-    o.name AS table_name,
-    c.column_id,
-    c.name AS column_name,
-    t.name AS data_type
-FROM sys.columns AS c
-JOIN sys.objects AS o ON o.object_id = c.object_id
-JOIN sys.schemas AS s ON s.schema_id = o.schema_id
-JOIN sys.types AS t ON t.user_type_id = c.user_type_id
-WHERE s.name = 'QAF_RawData'
-  AND o.name IN (
-      'PMDH_Program_MonthYear_Data_History',
-      'PCMV_Program_Configuration_Metric_Version',
-      'PCMY_Program_Configuration_Month_Year',
-      'MYDT_Month_Year_Date',
-      'DATV_Data_Variable',
-      'METC_Metric',
-      'MCVR_Metric_Version',
-      'PROG_Program'
-  )
-ORDER BY o.name, c.column_id;
+    [DATV_ID], [DATV_CD], [DATV_Name], [DATV_Description]
+FROM [QAF_RawData].[DATV_Data_Variable]
+WHERE [DATV_ID] IN (147, 148, 150, 151, 153, 154)
+ORDER BY [DATV_ID];
 
--- 2. Check the recent QAF data inputs by variable and reporting status.
--- Display Data is a presentation field; a numeric sum here is diagnostic only.
+-- 2. Coverage and statuses, with the raw parent metric ID exposed.
 SELECT
-    d.[METC-DATV_ID] AS data_variable_id,
-    d.[DATV V0x] AS variable_code,
-    d.[QAF Reporting Status] AS reporting_status,
-    COUNT(*) AS row_count,
-    COUNT(DISTINCT d.[PROG_ID]) AS program_count,
-    MIN(mo.[Data Month]) AS first_month,
-    MAX(mo.[Data Month]) AS last_month,
-    COUNT(TRY_CONVERT(decimal(18, 2), d.[Display Data])) AS numeric_display_rows,
-    SUM(TRY_CONVERT(decimal(18, 2), d.[Display Data])) AS diagnostic_display_sum
-FROM [QAF].[QAF Data] AS d
-JOIN [QAF].[QAF Months] AS mo ON mo.[MYDT_ID] = d.[MYDT_ID]
-WHERE d.[QAF Metric Level] = 4
-  AND d.[METC-DATV_ID] IN (147, 148, 150, 151, 153, 154)
-  AND mo.[Data Month] >= '2025-01-01'
-GROUP BY d.[METC-DATV_ID], d.[DATV V0x], d.[QAF Reporting Status]
-ORDER BY d.[METC-DATV_ID], d.[DATV V0x], d.[QAF Reporting Status];
+    p.[PMDH_DATV_ID] AS variable_id,
+    p.[PMDH_METC_ID] AS metric_id,
+    dv.[DATV_CD] AS variable_code,
+    pc.[PCMY_Status] AS month_status,
+    COUNT(*) AS rows_found,
+    COUNT(DISTINCT p.[PMDH_PROG_ID]) AS programs_found,
+    MIN(md.[MYDT_From_DT]) AS first_month,
+    MAX(md.[MYDT_From_DT]) AS last_month,
+    COUNT(p.[PMDH_Data_Value]) AS populated_values
+FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
+JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
+    ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
+LEFT JOIN [QAF_RawData].[DATV_Data_Variable] AS dv
+    ON dv.[DATV_ID] = p.[PMDH_DATV_ID]
+LEFT JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
+    ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
+WHERE p.[PMDH_Level] = 4
+  AND p.[PMDH_DATV_ID] IN (147, 148, 150, 151, 153, 154)
+  AND md.[MYDT_From_DT] >= '2025-01-01'
+GROUP BY p.[PMDH_DATV_ID], p.[PMDH_METC_ID],
+         dv.[DATV_CD], pc.[PCMY_Status]
+ORDER BY variable_id, metric_id, month_status;
 
--- 3. Five recent FINAL examples for each candidate variable.
-WITH examples AS (
-    SELECT
-        mo.[Data Month] AS data_month,
-        d.[PROG_ID] AS program_id,
-        d.[METC-DATV_ID] AS data_variable_id,
-        d.[DATV V0x] AS variable_code,
-        d.[Display Data] AS display_data,
-        d.[Score Final] AS final_score,
-        d.[QAF Reporting Status] AS reporting_status,
-        ROW_NUMBER() OVER (
-            PARTITION BY d.[METC-DATV_ID]
-            ORDER BY mo.[Data Month] DESC, d.[PROG_ID]
-        ) AS rn
-    FROM [QAF].[QAF Data] AS d
-    JOIN [QAF].[QAF Months] AS mo ON mo.[MYDT_ID] = d.[MYDT_ID]
-    WHERE d.[QAF Metric Level] = 4
-      AND d.[METC-DATV_ID] IN (147, 148, 150, 151, 153, 154)
-      AND d.[QAF Reporting Status] = 'FINAL'
+-- 3. One row per month: FINAL V02 totals and duplicate-row signal.
+-- This is provisional until the overlap comparison below is reviewed.
+SELECT
+    md.[MYDT_From_DT] AS data_month,
+    SUM(CASE WHEN pc.[PCMY_Status] = 'FINAL' AND p.[PMDH_DATV_ID] = 148
+             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS software_escapes,
+    SUM(CASE WHEN pc.[PCMY_Status] = 'FINAL' AND p.[PMDH_DATV_ID] = 151
+             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS hardware_escapes,
+    SUM(CASE WHEN pc.[PCMY_Status] = 'FINAL' AND p.[PMDH_DATV_ID] = 154
+             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS documentation_escapes,
+    SUM(CASE WHEN pc.[PCMY_Status] = 'FINAL'
+             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS total_escapes,
+    SUM(CASE WHEN pc.[PCMY_Status] = 'FINAL' THEN 1 ELSE 0 END) AS final_rows,
+    SUM(CASE WHEN pc.[PCMY_Status] <> 'FINAL' OR pc.[PCMY_Status] IS NULL
+             THEN 1 ELSE 0 END) AS other_status_rows,
+    SUM(CASE WHEN pc.[PCMY_Status] = 'FINAL' THEN 1 ELSE 0 END)
+      - COUNT(DISTINCT CASE WHEN pc.[PCMY_Status] = 'FINAL'
+          THEN CONCAT(p.[PMDH_PROG_ID], ':', p.[PMDH_DATV_ID]) END)
+          AS extra_final_program_variable_rows
+FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
+JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
+    ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
+LEFT JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
+    ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
+WHERE p.[PMDH_Level] = 4
+  AND p.[PMDH_DATV_ID] IN (148, 151, 154)
+  AND md.[MYDT_From_DT] >= '2025-01-01'
+GROUP BY md.[MYDT_From_DT]
+ORDER BY data_month;
+
+-- 4. Compare overlapping FINAL months with the recent QAF table.
+WITH raw_monthly AS (
+    SELECT md.[MYDT_From_DT] AS data_month,
+           COUNT(*) AS raw_rows,
+           SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS raw_total
+    FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
+    JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
+        ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
+    JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
+        ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
+    WHERE p.[PMDH_Level] = 4
+      AND p.[PMDH_DATV_ID] IN (148, 151, 154)
+      AND pc.[PCMY_Status] = 'FINAL'
+      AND md.[MYDT_From_DT] >= '2025-10-01'
+    GROUP BY md.[MYDT_From_DT]
+),
+recent_monthly AS (
+    SELECT qm.[Data Month] AS data_month,
+           COUNT(*) AS recent_rows,
+           SUM(TRY_CONVERT(decimal(18, 2), q.[Display Data])) AS recent_total
+    FROM [QAF].[QAF Data] AS q
+    JOIN [QAF].[QAF Months] AS qm ON qm.[MYDT_ID] = q.[MYDT_ID]
+    WHERE q.[QAF Metric Level] = 4
+      AND q.[METC-DATV_ID] IN (148, 151, 154)
+      AND q.[QAF Reporting Status] = 'FINAL'
+      AND qm.[Data Month] >= '2025-10-01'
+    GROUP BY qm.[Data Month]
 )
-SELECT
-    data_month, program_id, data_variable_id, variable_code,
-    display_data, final_score, reporting_status
-FROM examples
-WHERE rn <= 5
-ORDER BY data_variable_id, data_month DESC, program_id;
+SELECT COALESCE(r.data_month, q.data_month) AS data_month,
+       r.raw_rows, q.recent_rows,
+       r.raw_total, q.recent_total,
+       r.raw_total - q.recent_total AS raw_minus_recent
+FROM raw_monthly AS r
+FULL OUTER JOIN recent_monthly AS q ON q.data_month = r.data_month
+ORDER BY data_month;

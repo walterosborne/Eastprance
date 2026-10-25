@@ -1,11 +1,11 @@
--- QMI Customer Escapes: investigate the reporting-population change
+-- QMI Customer Escapes: DEFENSE SYSTEMS scope only
 -- Read-only in [Quality Data Mart]. Run both queries and send the grids.
--- Raw FINAL V02 values (DATV IDs 148/151/154) matched recent QAF
--- exactly for every overlapping month from Oct 2025 through Sep 2026.
--- January 2026 has many more reporting rows than December 2025.
+-- Validated count = FINAL values for V02 variables: software 148,
+-- hardware 151, documentation 154. The 2025/2026 population check
+-- previously included all sectors; these queries isolate DS.
 USE [Quality Data Mart];
 
--- 1. Monthly program coverage alongside the validated escape count.
+-- 1. DS monthly trend and reporting-program coverage since Jan 2025.
 SELECT
     md.[MYDT_From_DT] AS data_month,
     COUNT(DISTINCT p.[PMDH_PROG_ID]) AS reporting_programs,
@@ -17,7 +17,8 @@ SELECT
     SUM(CASE WHEN p.[PMDH_DATV_ID] = 151
              THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS hardware_escapes,
     SUM(CASE WHEN p.[PMDH_DATV_ID] = 154
-             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS documentation_escapes
+             THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS documentation_escapes,
+    SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS total_customer_escapes
 FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
 JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
     ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
@@ -26,23 +27,22 @@ JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
 WHERE p.[PMDH_Level] = 4
   AND p.[PMDH_DATV_ID] IN (148, 151, 154)
   AND pc.[PCMY_Status] = 'FINAL'
+  AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
   AND md.[MYDT_From_DT] >= '2025-01-01'
 GROUP BY md.[MYDT_From_DT]
 ORDER BY data_month;
 
--- 2. Which business units gained or lost reporting programs at the
--- December 2025 / January 2026 boundary? Use the historical PCMY
--- organization snapshot, not today's program attributes.
+-- 2. DS division/BU coverage at the Dec 2025 to Jan 2026 boundary.
+-- PCMY stores the organization alignment for that reporting month.
 SELECT
     md.[MYDT_From_DT] AS data_month,
-    pc.[PCMY_PROG_Sector] AS sector,
     pc.[PCMY_PROG_Division] AS division,
     pc.[PCMY_PROG_BusinessUnit] AS business_unit,
     COUNT(DISTINCT p.[PMDH_PROG_ID]) AS reporting_programs,
     SUM(CASE WHEN p.[PMDH_DATV_ID] = 148 THEN 1 ELSE 0 END) AS software_rows,
     SUM(CASE WHEN p.[PMDH_DATV_ID] = 151 THEN 1 ELSE 0 END) AS hardware_rows,
     SUM(CASE WHEN p.[PMDH_DATV_ID] = 154 THEN 1 ELSE 0 END) AS documentation_rows,
-    SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS customer_escapes
+    SUM(CONVERT(decimal(18, 2), p.[PMDH_Data_Value])) AS total_customer_escapes
 FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
 JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
     ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
@@ -51,9 +51,9 @@ JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
 WHERE p.[PMDH_Level] = 4
   AND p.[PMDH_DATV_ID] IN (148, 151, 154)
   AND pc.[PCMY_Status] = 'FINAL'
+  AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
   AND md.[MYDT_From_DT] IN ('2025-12-01', '2026-01-01')
 GROUP BY md.[MYDT_From_DT],
-         pc.[PCMY_PROG_Sector],
          pc.[PCMY_PROG_Division],
          pc.[PCMY_PROG_BusinessUnit]
-ORDER BY sector, division, business_unit, data_month;
+ORDER BY division, business_unit, data_month;

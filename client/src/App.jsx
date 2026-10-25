@@ -449,6 +449,7 @@ const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
 const LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED = false;
 const LEGACY_LABOR_CARD_ENABLED = false;
 const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = true;
+const DATABRICKS_PROCESSED_CARD_ENABLED = false;
 const LABOR_HANA_CARD_ENABLED = false;
 
 const CARD_CHIP_OPTIONS = [
@@ -460,7 +461,10 @@ const CARD_CHIP_OPTIONS = [
       ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
       'controllableCostsNew',
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
-        ? ['controllableCostsHana', 'controllableCostsDatabricksRaw']
+        ? [
+          ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
+          'controllableCostsDatabricksRaw'
+        ]
         : []),
       'sif',
       'potentialSif',
@@ -480,7 +484,10 @@ const CARD_CHIP_OPTIONS = [
       ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
       'controllableCostsNew',
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
-        ? ['controllableCostsHana', 'controllableCostsDatabricksRaw']
+        ? [
+          ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
+          'controllableCostsDatabricksRaw'
+        ]
         : []),
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
@@ -7831,7 +7838,8 @@ export default function App() {
       LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED && activeCardKeys.has('controllableCosts'),
     controllableCostsNew: activeCardKeys.has('controllableCostsNew'),
     controllableCostsHana:
-      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsHana'),
+      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && DATABRICKS_PROCESSED_CARD_ENABLED
+      && activeCardKeys.has('controllableCostsHana'),
     controllableCostsDatabricksRaw:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsDatabricksRaw'),
     sif: activeCardKeys.has('sif'),

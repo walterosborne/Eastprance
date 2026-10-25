@@ -34,10 +34,15 @@ export default function CustomerEscapesCard({ state, rows, selectedDateRange }) 
       </div>
       <div className="dashboard-grid">
         <div className="visual-column">
-          <div className="metric-overview-band" aria-label="Customer escapes overview">
-            <strong>{latestTotal == null ? '--' : formatCount(latestTotal)}</strong>
-            <span>Reported defective units · {latest?.month ?? 'No month'}</span>
-          </div>
+          <section className="metric-overview-band" aria-label="Customer escapes overview">
+            <div className="metric-overview-summary metric-overview-summary-kpi-only">
+              <div className="metric-overview-primary">
+                <div className="metric-overview-value">{latestTotal == null || state.error ? '--' : formatCount(latestTotal)}</div>
+                <p className="metric-overview-label">Reported defective units</p>
+                <p className="metric-overview-sublabel">{latest?.month ?? 'No month'}</p>
+              </div>
+            </div>
+          </section>
           {state.loading ? <p className="chart-message">Loading customer escapes...</p>
             : state.error ? <p className="chart-message chart-message-error">{state.error}</p>
             : !series.length ? <p className="chart-message">No customer escapes data for the selected filters and date range.</p>

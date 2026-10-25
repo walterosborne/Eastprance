@@ -4626,6 +4626,41 @@ function useChartWidth() {
   return { chartHostRef: setChartHost, chartWidth };
 }
 
+function useBalancedCardColumns(cardCount) {
+  const [gridElement, setGridElement] = useState(null);
+  const [columnCount, setColumnCount] = useState(1);
+
+  useEffect(() => {
+    if (!gridElement) return undefined;
+    const updateColumns = () => {
+      const gap = Number.parseFloat(window.getComputedStyle(gridElement).columnGap) || 0;
+      const width = gridElement.clientWidth;
+      // Keep the existing 300px minimum and prefer complete, equally sized rows.
+      const capacity = Math.max(1, Math.floor((width + gap) / (300 + gap)));
+      const maximum = Math.min(capacity, Math.max(cardCount, 1));
+      let columns = maximum;
+      for (let candidate = maximum; candidate >= 2; candidate -= 1) {
+        if (cardCount % candidate === 0) {
+          columns = candidate;
+          break;
+        }
+      }
+      setColumnCount((current) => current === columns ? current : columns);
+    };
+    updateColumns();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null : new ResizeObserver(updateColumns);
+    observer?.observe(gridElement);
+    window.addEventListener('resize', updateColumns);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateColumns);
+    };
+  }, [gridElement, cardCount]);
+
+  return { cardsGridRef: setGridElement, columnCount };
+}
+
 async function fetchJson(scope, url) {
   const startTime = performance.now();
 
@@ -7851,7 +7886,10 @@ export default function App() {
     laborNew: activeCardKeys.has('laborNew'),
     laborHana: LABOR_HANA_CARD_ENABLED && activeCardKeys.has('laborHana')
   };
-  const hasVisibleCards = activeCardKeys.size > 0;
+  const visibleCardCount = Object.values(visibleCards).filter(Boolean).length;
+  const { cardsGridRef, columnCount: cardsGridColumns } =
+    useBalancedCardColumns(visibleCardCount);
+  const hasVisibleCards = visibleCardCount > 0;
   const nextThemeLabel = themeMode === 'light' ? 'Dark' : 'Light';
   const nextThemeIcon = themeMode === 'light' ? faMoon : faSun;
   const isChipActive = (cardGroupKey) => selectedCardGroup === cardGroupKey;
@@ -8819,7 +8857,7 @@ export default function App() {
             )}
           </div>
 
-          <div className="cards-grid">
+          <div ref={cardsGridRef} className="cards-grid" style={{ gridTemplateColumns: `repeat(${cardsGridColumns}, minmax(0, 1fr))` }}>
             {visibleCards.controllableCosts && (
               <article className="analytics-card" style={{ order: 1 }}>
                 <CardHeader

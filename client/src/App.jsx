@@ -7805,6 +7805,15 @@ export default function App() {
       label: `Expected ${formatNumber(customerEscapesExpectedValue)}`
     }
     : null;
+  const customerEscapesYAxis = buildDynamicNumericYAxis(
+    SIF_Y_AXIS,
+    [customerEscapesChartRows.map((row) => row.total)],
+    { includeZero: true, minFloor: 0, goalLine: customerEscapesExpectedLine }
+  );
+  const customerEscapesPaletteYAxis = buildStackedNumericYAxis(
+    SIF_Y_AXIS, customerEscapesPalette.series,
+    { includeZero: true, minFloor: 0 }
+  );
   const customerEscapesMetricInfo = [
     'Defense Systems FINAL V02 reported delivered units with software, hardware, or documentation defects.',
     'These are defective-unit counts, not distinct incidents. Reporting-program coverage changed substantially in 2025–26.',
@@ -10118,7 +10127,7 @@ export default function App() {
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
                               labels={customerEscapesPalette.labels}
-                              yAxis={SIF_Y_AXIS}
+                              yAxis={customerEscapesPaletteYAxis}
                               series={customerEscapesPalette.series.map((series) => ({
                                 ...series, valueFormatter: formatNumber
                               }))}
@@ -10132,7 +10141,7 @@ export default function App() {
                               height={CHART_HEIGHT}
                               margin={DEFAULT_CHART_MARGIN}
                               labels={customerEscapesChartRows.map((row) => row.label)}
-                              yAxis={SIF_Y_AXIS}
+                              yAxis={customerEscapesYAxis}
                               series={[{
                                 label: 'Customer Escapes',
                                 data: customerEscapesChartRows.map((row) => row.total),

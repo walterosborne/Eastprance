@@ -54,6 +54,7 @@ import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
 import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
 import { readOtdData } from './otdRepository.js';
+import { readCustomerEscapesData } from './customerEscapesRepository.js';
 import {
   getSafetyMetricPayload,
   readSafetyEventMetricsData,
@@ -119,6 +120,7 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
   );
 }
 registerSqlDatasetCache('otd', readOtdData);
+registerSqlDatasetCache('customer-escapes', readCustomerEscapesData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
 if (LABOR_HANA_DATASET_ENABLED) {
   registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
@@ -496,6 +498,14 @@ app.get(['/dbm-diagnostics-full', '/api/dbm-diagnostics-full'], async (request, 
       error: error.message
     });
   }
+});
+
+app.get('/api/customer-escapes', async (request, response) => {
+  await sendDatasetResponse(
+    request, response, 'customer-escapes',
+    () => getCachedSqlDataset('customer-escapes'),
+    'Unable to read customer escapes data.'
+  );
 });
 
 app.get('/api/otd', async (request, response) => {

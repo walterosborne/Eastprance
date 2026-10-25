@@ -1,87 +1,77 @@
--- QMI Customer Escapes: identify V01/V02 and January 2025 history
--- Run this whole file in [Quality Data Mart]. Read-only; four result grids.
--- Delivered Quality candidate branches from QAF Metrics:
--- 12 = Ext Rpt SW Defects; 13 = Ext Rpt HW Defects;
--- 14 = Ext Rpt Documentation Defects.
--- We have NOT yet validated which version and score to sum.
+-- QMI Customer Escapes: raw history keys and current data-variable values
+-- Read-only. Run in [Quality Data Mart] and send the three result grids.
+-- The current metric version is 041; V01/V02 in the notes are DATA VARIABLES.
+-- Candidate counts are level-4 IDs 148 (software), 151 (hardware),
+-- and 154 (documentation). IDs 147/150/153 are the significant subsets.
+-- This is exploratory; do not sum both a total and its subset.
 USE [Quality Data Mart];
 
--- 1. Version definitions for the three external-report defect metrics.
+-- 1. Columns and types needed to build the January 2025 onward raw-data join.
 SELECT
-    [METC_ID],
-    [MCVR_ID],
-    [Version Number],
-    [Standard Version Indicator],
-    [Formula Description],
-    [Data Variables]
-FROM [QAF].[QAF Metric Versions]
-WHERE [METC_ID] IN (12, 13, 14)
-ORDER BY [METC_ID], [Version Number];
-
--- 2. Recent monthly coverage by branch, level, version, and reporting status.
--- Parent ID includes the level-4 input rows beneath each level-3 metric.
-SELECT
-    [Level],
-    [METC_ID],
-    [Metric parent METC_ID],
-    [Title],
-    [MCVR_ID],
-    [MCVR Version number],
-    [QAF Reporting Status],
-    COUNT(*) AS row_count,
-    COUNT(DISTINCT [PROG_ID]) AS program_count,
-    MIN([Month]) AS first_month,
-    MAX([Month]) AS last_month
-FROM [QAF].[Monthly Data (metrics and data)]
-WHERE ([METC_ID] IN (12, 13, 14)
-       OR [Metric parent METC_ID] IN (12, 13, 14))
-  AND [Month] >= '2026-01-01'
-GROUP BY
-    [Level], [METC_ID], [Metric parent METC_ID], [Title],
-    [MCVR_ID], [MCVR Version number], [QAF Reporting Status]
-ORDER BY
-    [METC_ID], [Level], [MCVR Version number], [QAF Reporting Status];
-
--- 3. A small sample of the actual values behind those metrics.
-SELECT TOP (60)
-    [Month],
-    [PROG_ID],
-    [Program],
-    [Level],
-    [METC_ID],
-    [Metric parent METC_ID],
-    [Title],
-    [MCVR Version number],
-    [Data input],
-    [Score calculated],
-    [Score entered],
-    [Final score],
-    [Final color],
-    [QAF Reporting Status]
-FROM [QAF].[Monthly Data (metrics and data)]
-WHERE [Metric parent METC_ID] IN (12, 13, 14)
-  AND [Level] = 4
-  AND [Month] >= '2026-01-01'
-ORDER BY [Month] DESC, [METC_ID], [MCVR Version number], [PROG_ID];
-
--- 4. Find actual raw-table names for historical data.
--- The previous check used short aliases (PMDH/PCMV/MCVR), but the
--- diagram shows longer table names such as QAFPMDH and QAFMCVR.
-SELECT
-    s.name AS schema_name,
-    o.name AS object_name,
-    o.type_desc AS object_type
-FROM sys.objects AS o
+    o.name AS table_name,
+    c.column_id,
+    c.name AS column_name,
+    t.name AS data_type
+FROM sys.columns AS c
+JOIN sys.objects AS o ON o.object_id = c.object_id
 JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+JOIN sys.types AS t ON t.user_type_id = c.user_type_id
 WHERE s.name = 'QAF_RawData'
-  AND o.type IN ('U', 'V')
-  AND (
-       o.name LIKE '%PMDH%'
-       OR o.name LIKE '%PCMV%'
-       OR o.name LIKE '%MCVR%'
-       OR o.name LIKE '%METC%'
-       OR o.name LIKE '%MYDT%'
-       OR o.name LIKE '%PROG%'
-       OR o.name LIKE '%DATV%'
+  AND o.name IN (
+      'PMDH_Program_MonthYear_Data_History',
+      'PCMV_Program_Configuration_Metric_Version',
+      'PCMY_Program_Configuration_Month_Year',
+      'MYDT_Month_Year_Date',
+      'DATV_Data_Variable',
+      'METC_Metric',
+      'MCVR_Metric_Version',
+      'PROG_Program'
   )
-ORDER BY o.name;
+ORDER BY o.name, c.column_id;
+
+-- 2. Check the recent QAF data inputs by variable and reporting status.
+-- Display Data is a presentation field; a numeric sum here is diagnostic only.
+SELECT
+    d.[METC-DATV_ID] AS data_variable_id,
+    d.[DATV V0x] AS variable_code,
+    d.[QAF Reporting Status] AS reporting_status,
+    COUNT(*) AS row_count,
+    COUNT(DISTINCT d.[PROG_ID]) AS program_count,
+    MIN(mo.[Data Month]) AS first_month,
+    MAX(mo.[Data Month]) AS last_month,
+    COUNT(TRY_CONVERT(decimal(18, 2), d.[Display Data])) AS numeric_display_rows,
+    SUM(TRY_CONVERT(decimal(18, 2), d.[Display Data])) AS diagnostic_display_sum
+FROM [QAF].[QAF Data] AS d
+JOIN [QAF].[QAF Months] AS mo ON mo.[MYDT_ID] = d.[MYDT_ID]
+WHERE d.[QAF Metric Level] = 4
+  AND d.[METC-DATV_ID] IN (147, 148, 150, 151, 153, 154)
+  AND mo.[Data Month] >= '2025-01-01'
+GROUP BY d.[METC-DATV_ID], d.[DATV V0x], d.[QAF Reporting Status]
+ORDER BY d.[METC-DATV_ID], d.[DATV V0x], d.[QAF Reporting Status];
+
+-- 3. Five recent FINAL examples for each candidate variable.
+WITH examples AS (
+    SELECT
+        mo.[Data Month] AS data_month,
+        d.[PROG_ID] AS program_id,
+        d.[METC-DATV_ID] AS data_variable_id,
+        d.[DATV V0x] AS variable_code,
+        d.[Display Data] AS display_data,
+        d.[Score Final] AS final_score,
+        d.[QAF Reporting Status] AS reporting_status,
+        ROW_NUMBER() OVER (
+            PARTITION BY d.[METC-DATV_ID]
+            ORDER BY mo.[Data Month] DESC, d.[PROG_ID]
+        ) AS rn
+    FROM [QAF].[QAF Data] AS d
+    JOIN [QAF].[QAF Months] AS mo ON mo.[MYDT_ID] = d.[MYDT_ID]
+    WHERE d.[QAF Metric Level] = 4
+      AND d.[METC-DATV_ID] IN (147, 148, 150, 151, 153, 154)
+      AND d.[QAF Reporting Status] = 'FINAL'
+)
+SELECT
+    data_month, program_id, data_variable_id, variable_code,
+    display_data, final_score, reporting_status
+FROM examples
+WHERE rn <= 5
+ORDER BY data_variable_id, data_month DESC, program_id;

@@ -929,15 +929,23 @@ a.branding-banner-main:hover {
 }
 
 .cards-grid {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   width: 100%;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 1.05rem;
   margin-top: var(--dashboard-section-gap);
-  justify-content: stretch;
-  justify-items: stretch;
+  justify-content: space-evenly;
   align-items: stretch;
   min-width: 0;
+}
+
+.cards-grid > .analytics-card {
+  flex: 1 1 300px;
+  max-width: 360px;
+}
+
+.cards-grid > .cards-empty-state {
+  flex: 1 1 100%;
 }
 
 .cards-empty-state {
@@ -1958,9 +1966,8 @@ h1 {
     width: min(100%, 220px);
   }
 
-  .cards-grid {
-    grid-template-columns: 1fr;
-    justify-items: stretch;
+  .cards-grid > .analytics-card {
+    flex-basis: 100%;
   }
 
   .analytics-card,

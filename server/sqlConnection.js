@@ -1,4 +1,7 @@
 import sql from 'mssql';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 import {
   createTimer,
   formatDuration,
@@ -82,8 +85,8 @@ function getQafConnectionConfigFromEnv() {
   // Specifying a domain opts into NTLM; without one, preserve SQL authentication.
   const authMode = (getFirstDefinedEnvValue('qafauth', 'QAFAUTH') || (domain ? 'ntlm' : 'sql'))
     .trim().toLowerCase();
-  if (!['sql', 'ntlm'].includes(authMode)) {
-    throw new Error('Unsupported QAF authentication mode. Use sql or ntlm.');
+  if (!['sql', 'ntlm', 'kerberos'].includes(authMode)) {
+    throw new Error('Unsupported QAF authentication mode. Use sql, ntlm, or kerberos.');
   }
 
   return {
@@ -129,7 +132,9 @@ export function getConnectionConfig(connectionName = 'default') {
       connectionName: 'qaf',
       config: qafConfig,
       missing: [
-        ...getMissingConnectionFields(qafConfig, 'qaf'),
+        ...(qafConfig.authMode === 'kerberos'
+          ? ['server', 'database'].filter(field => !qafConfig[field]).map(field => `qaf${field}`)
+          : getMissingConnectionFields(qafConfig, 'qaf')),
         ...(qafConfig.authMode === 'ntlm' && !qafConfig.domain ? ['qafdomain'] : [])
       ],
       source: 'qaf-env'
@@ -213,6 +218,35 @@ function getPoolKey(config, poolName = 'default') {
   ].join('|');
 }
 
+function formatOdbcValue(value) {
+  // ODBC brace-quoted values safely contain spaces, semicolons, and closing braces.
+  return `{${String(value).replace(/}/g, '}}')}}`;
+}
+
+function getKerberosOdbcConfig(config) {
+  // Windows: integrated SSPI credentials of the process account.
+  // Linux: the default Kerberos credential cache, provisioned outside this app.
+  // Neither platform authenticates using qafuser/qafpassword in this mode.
+  const connectionString = [
+    'Driver={ODBC Driver 18 for SQL Server}',
+    `Server=${formatOdbcValue(config.server)}`,
+    `Database=${formatOdbcValue(config.database)}`,
+    'Trusted_Connection=yes',
+    'Encrypt=yes',
+    // Preserve TLS policy of existing Tedious connections. Prefer a trusted
+    // SQL Server certificate and TrustServerCertificate=no when available.
+    'TrustServerCertificate=yes'
+  ].join(';') + ';';
+
+  return {
+    server: config.server,
+    database: config.database,
+    connectionString,
+    requestTimeout: config.requestTimeout,
+    options: { trustedConnection: true, useUTC: true }
+  };
+}
+
 export async function getPool(config, poolName = 'default') {
   const poolKey = getPoolKey(config, poolName);
   const existingPoolPromise = poolPromises.get(poolKey);
@@ -239,16 +273,25 @@ export async function getPool(config, poolName = 'default') {
         }
       : { user: config.user, password: config.password };
 
-    const connectionPool = new sql.ConnectionPool({
-      server: config.server,
-      database: config.database,
-      ...credentials,
-      requestTimeout: config.requestTimeout,
-      options: {
-        encrypt: true,
-        trustServerCertificate: true
-      }
-    });
+    // The native ODBC driver supports Kerberos/Windows integrated authentication.
+    // All other SQL connections continue using the existing Tedious driver.
+    const driver = config.authMode === 'kerberos'
+      ? require('mssql/msnodesqlv8')
+      : sql;
+    const connectionPool = new driver.ConnectionPool(
+      config.authMode === 'kerberos'
+        ? getKerberosOdbcConfig(config)
+        : {
+            server: config.server,
+            database: config.database,
+            ...credentials,
+            requestTimeout: config.requestTimeout,
+            options: {
+              encrypt: true,
+              trustServerCertificate: true
+            }
+          }
+    );
 
     const poolPromise = connectionPool.connect().catch((error) => {
       logError('sql', 'SQL connection pool failed to connect.', error, {

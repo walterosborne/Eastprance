@@ -28,71 +28,85 @@ The container setup is currently split across:
 
 Keep both files in sync with whatever build process you use in OpenShift.
 
-## Customer Escapes — Quality Data Mart authentication
+## Customer Escapes — Quality Data Mart YY account
 
-The Customer Escapes data query is unchanged. QAF authentication is selected with
-`qafauth`: `sql`, `ntlm`, or `kerberos`. Omit `qafauth` to preserve
-existing behavior (NTLM when `qafdomain` is set; SQL login otherwise).
-Only the QAF pool uses the optional ODBC/Kerberos driver; all other pools retain
-their existing connection methods.
+**Normal developer workflow:** Keep VS Code, Node and the rest of your computer
+signed in under your own account. The QAF connection must use an approved
+YY service account and **does not need you to sign in to Windows as YY**.
 
-### Windows integrated authentication (first diagnostic)
+### OpenShift: password-backed Kerberos for YY
 
-Install **Microsoft ODBC Driver 18 for SQL Server** on the Windows computer.
-Sign in to Windows (or run the Node process) **as the authorized YY account**.
-Then configure `server/.env`:
+The QAF-only mode `kerberos-password` runs `kinit` with the YY service
+account and its password (provided securely on stdin, never as a CLI argument).
+It maintains a private Kerberos ticket cache and reacquires a ticket every
+30 minutes. The Microsoft SQL Server ODBC driver uses that ticket for the
+Customer Escapes connection. The other SQL data sources are unchanged.
+
+Put these keys in an **approved OpenShift Secret** and expose them as
+environment variables on the *QMI Node application container* (not just
+OAuth2 Proxy):
 
 ```dotenv
 qafserver=YOUR_SQL_SERVER_FQDN
 qafdatabase=Quality Data Mart
-qafauth=kerberos
+qafauth=kerberos-password
+qafuser=YOUR_YY_USERNAME
+qafrealm=YOUR_AD_KERBEROS_REALM_FQDN
+qafpassword=YOUR_YY_PASSWORD
 ```
 
-Run `npm run test:qaf --workspace server` to execute a read-only
-connection/authentication test. A success message reports SQL Server's
-`auth_scheme` (preferably `KERBEROS`) and the effective SQL login.
-Running VS Code under a different Windows identity means Kerberos will use
-**that** identity; this mode ignores `qafdomain`, `qafuser`, and
-`qafpassword`. If `auth_scheme` is NTLM, Windows connected with integrated
-authentication but did not negotiate Kerberos.
+`qafrealm` is the actual Kerberos realm (normally the uppercase AD DNS
+domain), not necessarily the short `USERDOMAIN` shown by `whoami`.
+Optionally set `qafprincipal=YY_USERNAME@REALM.EXAMPLE` instead of
+the `qafuser` + `qafrealm` combination if your KDC requires a
+different principal form. `qafdomain` is used only for NTLM.
+Do **not** put YY credentials in GitHub or client-side `VITE_*` settings.
 
-### OpenShift Linux service
+**System prerequisites remain necessary:** the runtime Linux image must
+contain Microsoft ODBC Driver 18 for SQL Server, unixODBC, MIT Kerberos
+`kinit` and system libraries; the container must have an appropriate
+`krb5.conf` (or `KRB5_CONFIG`); DNS, SPN, clock and network access to
+both the SQL Server and Active Directory KDC must work. A legitimate
+service-account password and successful Windows sign-in do not by
+themselves establish these conditions. Use this password-based workflow
+only if permitted by company policy. If a keytab or workload identity
+is required, use the existing `qafauth=kerberos` mode with a
+platform-provisioned ticket cache instead.
 
-Linux does not inherit the interactive Windows login, and a YY username and
-password in an OpenShift Secret **do not by themselves create a Kerberos ticket**.
-For QAF Kerberos mode the platform team must provision:
+**Testing:** `npm run test:qaf --workspace server` makes a read-only
+connection attempt and reports the resulting SQL login and auth scheme.
+When the full dashboard is deployed, verify that
+`/api/customer-escapes` reports `source: "mssql"`, not the Excel fallback.
+No production access is claimed until the real connection is tested.
 
-1. A base/runtime image with Microsoft ODBC Driver 18, the requisite native
-   driver libraries, and Kerberos client libraries. The Node dependency
-   `msnodesqlv8` is locked in the repository, but the **system ODBC
-   driver must also be installed in the runtime image**. Do not assume the
-   existing OpenShift image includes it.
-2. Network reachability to the SQL Server FQDN and the Active Directory KDC;
-   appropriate DNS/SPN registration and clock synchronization.
-3. An approved account credential mechanism (preferably an AD-issued keytab
-   protected as an OpenShift Secret), a `krb5.conf` configuration, and a
-   Kerberos credential cache accessible by the Node process (via `KRB5CCNAME`).
-   Obtain the initial ticket using `kinit -k -t /path/to/keytab PRINCIPAL@REALM`
-   in a platform-managed init process, not from the web app.
-4. Ongoing ticket renewal/reacquisition, including across restarts, because
-   Kerberos tickets expire. Share only the ticket cache with the Node container,
-   using approved filesystem permissions.
+### Windows local testing (without running VS Code as YY)
 
-Set `qafserver`, `qafdatabase`, `qafauth=kerberos` on the **application
-container**, not only the OAuth proxy. Do not store keytabs, tickets,
-`krb5.conf` with sensitive mappings, or passwords in GitHub or the image.
-The app does not perform `kinit` or credential renewal. Coordinate the
-OpenShift setup with corporate platform/security administrators.
+Windows ODBC integrated authentication uses the **Node server process**
+network identity; it does **not** accept an alternate domain password just
+by setting `qafuser` and `qafpassword`. The Linux `kerberos-password`
+flow is therefore explicitly unsupported on Windows.
 
-For legacy authentication, `qafauth=ntlm` uses `qafdomain`, `qafuser`,
-and `qafpassword`; `qafauth=sql` uses `qafuser` and `qafpassword`.
-These secrets belong only in `server/.env` on local machines or approved
-runtime Secrets, never in Git.
+For a Windows-only check, leave VS Code under your normal user. Set
+`qafauth=kerberos` in `server/.env`, then in a terminal run:
 
-Finally verify that the Customer Escapes endpoint reads QAF with
-`source: "mssql"` rather than its Excel fallback, and that the YY
-identity has SELECT permission on the required `QAF_RawData` tables.
-A successful Kerberos handshake alone does not establish database access.
+```cmd
+runas /netonly /user:DOMAIN\YY_USERNAME cmd
+```
+
+Type the YY password at the Windows prompt. In the new Command Prompt
+window, navigate to the project directory and run
+`npm run test:qaf --workspace server` or just the Node backend.
+Only that launched process uses the YY network credentials.
+You do **not** need to run VS Code under the YY account.
+This step is optional; it does not affect the OpenShift secret-based workflow.
+
+### Other authentication modes
+
+`qafauth=ntlm` uses `qafdomain`, `qafuser` and `qafpassword`;
+`qafauth=sql` uses SQL credentials. Omitting `qafauth` keeps
+the previous default (NTLM if domain present, SQL otherwise).
+`qafauth=kerberos` uses an existing integrated identity/ticket.
+The account still requires SELECT access to the source QAF tables.
 
 ## Important runtime env vars
 

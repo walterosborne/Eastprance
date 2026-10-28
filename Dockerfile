@@ -1,6 +1,20 @@
 # Node can use the system trust bundle after update-ca-trust finishes.
 ENV NODE_EXTRA_CA_CERTS=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 
+# Optional Quality Data Mart Kerberos support. The work build supplies a
+# UBI9 Node base image before this Dockerfile fragment. Opt-in to avoid
+# affecting installations which do not use the QAF Kerberos data source.
+# Microsoft ODBC Driver 18 requires corporate approval and reachable RPM repos.
+ARG INSTALL_QAF_KERBEROS_DEPS=false
+USER 0
+RUN if [ "$INSTALL_QAF_KERBEROS_DEPS" = "true" ]; then \
+      curl -fsSL https://packages.microsoft.com/config/rhel/9/prod.repo \
+        -o /etc/yum.repos.d/microsoft-prod.repo \
+      && ACCEPT_EULA=Y microdnf install -y msodbcsql18 unixODBC krb5-workstation \
+      && microdnf clean all; \
+    fi
+USER 1001
+
 WORKDIR /opt/app-root/src
 
 # Install workspace dependencies before copying the full source tree.
@@ -32,5 +46,5 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-# This app uses the Node mssql driver, so no system ODBC driver install is required.
+# The default mssql driver needs no ODBC packages; QAF Kerberos does when enabled.
 CMD ["node", "server/start.js"]

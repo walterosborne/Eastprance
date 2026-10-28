@@ -14,10 +14,10 @@ a password, does not upload data, and does not modify the database.
 While signed into Windows normally, open **Command Prompt** and run:
 
 ```cmd
-runas /netonly /user:DOMAIN\YY_USERNAME "powershell.exe -NoProfile"
+runas /netonly /user:YY_SAMACCOUNTNAME@northgrum.com "powershell.exe -NoProfile"
 ```
 
-Type the YY password at Windows' password prompt. This starts a separate
+Type the YY password at Windows' password prompt. Use the UPN account format required by the company authentication guidance. This starts a separate
 PowerShell process with YY **network credentials**. VS Code and the rest of
 your desktop stay under your usual account. Your local `whoami` may still
 show your personal account because `/netonly` changes network credentials,

@@ -92,7 +92,9 @@ function getQafConnectionConfigFromEnv() {
   const user = getFirstDefinedEnvValue('qafuser', 'QAFUSER');
   const realm = getFirstDefinedEnvValue('qafrealm', 'QAFREALM');
   const kerberosPrincipal = getFirstDefinedEnvValue('qafprincipal', 'QAFPRINCIPAL')
-    || (user && realm ? `${user}@${realm.toUpperCase()}` : undefined);
+    || (user && user.includes('@')
+      ? user
+      : user && realm ? `${user}@${realm.toUpperCase()}` : undefined);
 
   return {
     server: getFirstDefinedEnvValue('qafserver', 'QAFSERVER'),
@@ -105,6 +107,13 @@ function getQafConnectionConfigFromEnv() {
     requestTimeout: Number.isFinite(configuredRequestTimeout) && configuredRequestTimeout > 0
       ? configuredRequestTimeout : 120000
   };
+}
+
+function isFullyQualifiedSqlServer(server) {
+  // SQL Server supports host,port and host\\instance. Validate the hostname,
+  // not the instance/port portion, so Kerberos cannot silently fall back to NTLM.
+  const hostname = String(server ?? '').split(/[\\,]/, 1)[0];
+  return /^[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$/.test(hostname);
 }
 
 function getMissingConnectionFields(config, prefix = '') {
@@ -144,7 +153,13 @@ export function getConnectionConfig(connectionName = 'default') {
         ...(qafConfig.authMode === 'ntlm' && !qafConfig.domain ? ['qafdomain'] : []),
         ...(qafConfig.authMode === 'kerberos-password' && !qafConfig.password ? ['qafpassword'] : []),
         ...(qafConfig.authMode === 'kerberos-password' && !qafConfig.kerberosPrincipal
-          ? ['qafprincipal (or qafuser + qafrealm)'] : [])
+          ? ['qafprincipal (or qafuser@REALM, or qafuser + qafrealm)'] : []),
+        ...(qafConfig.authMode === 'kerberos-password' && qafConfig.kerberosPrincipal
+          && !/^[^\\s@\\\\]+@[^\\s@\\\\]+$/.test(qafConfig.kerberosPrincipal)
+          ? ['qafprincipal must be user@KERBEROS.REALM'] : []),
+        ...(['kerberos', 'kerberos-password'].includes(qafConfig.authMode)
+          && qafConfig.server && !isFullyQualifiedSqlServer(qafConfig.server)
+          ? ['qafserver must be a fully qualified DNS hostname, not a short name or IP'] : [])
       ],
       source: 'qaf-env'
     };

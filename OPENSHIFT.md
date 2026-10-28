@@ -28,39 +28,71 @@ The container setup is currently split across:
 
 Keep both files in sync with whatever build process you use in OpenShift.
 
-## Customer Escapes — Quality Data Mart domain account
+## Customer Escapes — Quality Data Mart authentication
 
-The Customer Escapes repository supports a dedicated QAF SQL login or an optional
-Active Directory domain login via NTLM (if permitted by the organization).
+The Customer Escapes data query is unchanged. QAF authentication is selected with
+`qafauth`: `sql`, `ntlm`, or `kerberos`. Omit `qafauth` to preserve
+existing behavior (NTLM when `qafdomain` is set; SQL login otherwise).
+Only the QAF pool uses the optional ODBC/Kerberos driver; all other pools retain
+their existing connection methods.
 
-For an approved read-only domain account, set these environment variables on the **app
-container** (not the OAuth2 Proxy container):
+### Windows integrated authentication (first diagnostic)
+
+Install **Microsoft ODBC Driver 18 for SQL Server** on the Windows computer.
+Sign in to Windows (or run the Node process) **as the authorized YY account**.
+Then configure `server/.env`:
 
 ```dotenv
-qafserver=YOUR_SQL_SERVER
+qafserver=YOUR_SQL_SERVER_FQDN
 qafdatabase=Quality Data Mart
-qafdomain=YOUR_AD_DOMAIN
-qafuser=YOUR_YY_USERNAME
-qafpassword=YOUR_PASSWORD
+qafauth=kerberos
 ```
 
-Setting `qafdomain` automatically selects NTLM; leaving it blank uses SQL
-authentication. An optional `qafauth=ntlm` or `qafauth=sql` explicitly chooses
-the mode. Set `qafuser` to the username without `DOMAIN\\`, since `qafdomain`
-is supplied separately.
+Run `npm run test:qaf --workspace server` to execute a read-only
+connection/authentication test. A success message reports SQL Server's
+`auth_scheme` (preferably `KERBEROS`) and the effective SQL login.
+Running VS Code under a different Windows identity means Kerberos will use
+**that** identity; this mode ignores `qafdomain`, `qafuser`, and
+`qafpassword`. If `auth_scheme` is NTLM, Windows connected with integrated
+authentication but did not negotiate Kerberos.
 
-Put values in `server/.env` only for local development and use an approved
-OpenShift Secret for the deployed application. Ensure the Deployment actually
-imports those Secret keys as container environment variables. Never commit
-`.env` files or credentials or put the password in client-side Vite variables.
+### OpenShift Linux service
 
-This uses explicit NTLM credentials, not integrated Windows/Kerberos sign-in.
-NTLM may be disabled by enterprise policy or require legacy cryptography under
-modern Node.js; **do not enable legacy crypto flags without security approval**.
-If NTLM is unavailable, ask the database/platform team about a supported
-Kerberos or managed service identity. Verify network connectivity and SELECT
-permissions on the QAF_RawData source tables. The API payload should say
-`source: "mssql"`; `source: "excel"` means the workbook fallback was used.
+Linux does not inherit the interactive Windows login, and a YY username and
+password in an OpenShift Secret **do not by themselves create a Kerberos ticket**.
+For QAF Kerberos mode the platform team must provision:
+
+1. A base/runtime image with Microsoft ODBC Driver 18, the requisite native
+   driver libraries, and Kerberos client libraries. The Node dependency
+   `msnodesqlv8` is locked in the repository, but the **system ODBC
+   driver must also be installed in the runtime image**. Do not assume the
+   existing OpenShift image includes it.
+2. Network reachability to the SQL Server FQDN and the Active Directory KDC;
+   appropriate DNS/SPN registration and clock synchronization.
+3. An approved account credential mechanism (preferably an AD-issued keytab
+   protected as an OpenShift Secret), a `krb5.conf` configuration, and a
+   Kerberos credential cache accessible by the Node process (via `KRB5CCNAME`).
+   Obtain the initial ticket using `kinit -k -t /path/to/keytab PRINCIPAL@REALM`
+   in a platform-managed init process, not from the web app.
+4. Ongoing ticket renewal/reacquisition, including across restarts, because
+   Kerberos tickets expire. Share only the ticket cache with the Node container,
+   using approved filesystem permissions.
+
+Set `qafserver`, `qafdatabase`, `qafauth=kerberos` on the **application
+container**, not only the OAuth proxy. Do not store keytabs, tickets,
+`krb5.conf` with sensitive mappings, or passwords in GitHub or the image.
+The app does not perform `kinit` or credential renewal. Coordinate the
+OpenShift setup with corporate platform/security administrators.
+
+For legacy authentication, `qafauth=ntlm` uses `qafdomain`, `qafuser`,
+and `qafpassword`; `qafauth=sql` uses `qafuser` and `qafpassword`.
+These secrets belong only in `server/.env` on local machines or approved
+runtime Secrets, never in Git.
+
+Finally verify that the Customer Escapes endpoint reads QAF with
+`source: "mssql"` rather than its Excel fallback, and that the YY
+identity has SELECT permission on the required `QAF_RawData` tables.
+A successful Kerberos handshake alone does not establish database access.
 
 ## Important runtime env vars
 

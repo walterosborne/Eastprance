@@ -79,26 +79,34 @@ When the full dashboard is deployed, verify that
 `/api/customer-escapes` reports `source: "mssql"`, not the Excel fallback.
 No production access is claimed until the real connection is tested.
 
-### Windows local testing (without running VS Code as YY)
+### Windows YY account access check (no VS Code account switch)
 
-Windows ODBC integrated authentication uses the **Node server process**
-network identity; it does **not** accept an alternate domain password just
-by setting `qafuser` and `qafpassword`. The Linux `kerberos-password`
-flow is therefore explicitly unsupported on Windows.
+Before investigating OpenShift, use the standalone read-only PowerShell test:
+[`scripts/Test-CustomerEscapesWindowsAuth.ps1`](scripts/Test-CustomerEscapesWindowsAuth.ps1).
+Detailed instructions are in
+[`scripts/README-CustomerEscapesWindowsAuth.md`](scripts/README-CustomerEscapesWindowsAuth.md).
 
-For a Windows-only check, leave VS Code under your normal user. Set
-`qafauth=kerberos` in `server/.env`, then in a terminal run:
+On a workstation using your normal Windows session, launch a **separate**
+PowerShell process with the YY account's network credentials:
 
 ```cmd
-runas /netonly /user:DOMAIN\YY_USERNAME cmd
+runas /netonly /user:DOMAIN\YY_USERNAME "powershell.exe -NoProfile"
 ```
 
-Type the YY password at the Windows prompt. In the new Command Prompt
-window, navigate to the project directory and run
-`npm run test:qaf --workspace server` or just the Node backend.
-Only that launched process uses the YY network credentials.
-You do **not** need to run VS Code under the YY account.
-This step is optional; it does not affect the OpenShift secret-based workflow.
+Enter the YY password only at Windows' password prompt. In the new
+PowerShell window, navigate to the root of the QMI repo and execute:
+
+```powershell
+.\scripts\Test-CustomerEscapesWindowsAuth.ps1 -Server "YOUR_SQL_SERVER_FQDN"
+```
+
+It uses Windows integrated authentication and prints the **SQL login**
+returned by `ORIGINAL_LOGIN()`, the negotiated `KERBEROS` or `NTLM`
+scheme, and PASS/FAIL for the three source tables. It does not run Node
+or the dashboard, and does not print customer data or store YY passwords.
+The rest of your computer, including VS Code, remains under your own
+account. If `runas` is blocked, ask IT to run an approved short-lived
+scheduled task as YY instead of bypassing corporate restrictions.
 
 ### Other authentication modes
 

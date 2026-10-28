@@ -78,6 +78,16 @@ export async function readCustomerEscapesData() {
   }
   try {
   const pool = await getPool(config, 'qaf');
+  if (['kerberos', 'kerberos-password'].includes(config.authMode)) {
+    const authentication = await pool.request().query(
+      "SELECT CONVERT(varchar(20), CONNECTIONPROPERTY('auth_scheme')) AS auth_scheme;"
+    );
+    const scheme = String(authentication.recordset[0]?.auth_scheme ?? '').toUpperCase();
+    if (scheme !== 'KERBEROS') {
+      throw new Error('Quality Data Mart did not negotiate Kerberos. Verify SQL FQDN and MSSQLSvc SPN.');
+    }
+    console.info('[customer-escapes] Verified Kerberos authentication with Quality Data Mart.');
+  }
   const result = await pool.request().query(`
     SELECT
       CONVERT(char(10), md.[MYDT_From_DT], 23) AS data_month,

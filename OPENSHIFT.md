@@ -28,6 +28,40 @@ The container setup is currently split across:
 
 Keep both files in sync with whatever build process you use in OpenShift.
 
+## Customer Escapes — Quality Data Mart domain account
+
+The Customer Escapes repository supports a dedicated QAF SQL login or an optional
+Active Directory domain login via NTLM (if permitted by the organization).
+
+For an approved read-only domain account, set these environment variables on the **app
+container** (not the OAuth2 Proxy container):
+
+```dotenv
+qafserver=YOUR_SQL_SERVER
+qafdatabase=Quality Data Mart
+qafdomain=YOUR_AD_DOMAIN
+qafuser=YOUR_YY_USERNAME
+qafpassword=YOUR_PASSWORD
+```
+
+Setting `qafdomain` automatically selects NTLM; leaving it blank uses SQL
+authentication. An optional `qafauth=ntlm` or `qafauth=sql` explicitly chooses
+the mode. Set `qafuser` to the username without `DOMAIN\\`, since `qafdomain`
+is supplied separately.
+
+Put values in `server/.env` only for local development and use an approved
+OpenShift Secret for the deployed application. Ensure the Deployment actually
+imports those Secret keys as container environment variables. Never commit
+`.env` files or credentials or put the password in client-side Vite variables.
+
+This uses explicit NTLM credentials, not integrated Windows/Kerberos sign-in.
+NTLM may be disabled by enterprise policy or require legacy cryptography under
+modern Node.js; **do not enable legacy crypto flags without security approval**.
+If NTLM is unavailable, ask the database/platform team about a supported
+Kerberos or managed service identity. Verify network connectivity and SELECT
+permissions on the QAF_RawData source tables. The API payload should say
+`source: "mssql"`; `source: "excel"` means the workbook fallback was used.
+
 ## Important runtime env vars
 
 The server currently reads these SQL settings:

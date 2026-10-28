@@ -78,11 +78,21 @@ function getDbmConnectionConfigFromEnv() {
 
 function getQafConnectionConfigFromEnv() {
   const configuredRequestTimeout = Number(getFirstDefinedEnvValue('qafrequesttimeout', 'QAFREQUESTTIMEOUT'));
+  const domain = getFirstDefinedEnvValue('qafdomain', 'QAFDOMAIN');
+  // Specifying a domain opts into NTLM; without one, preserve SQL authentication.
+  const authMode = (getFirstDefinedEnvValue('qafauth', 'QAFAUTH') || (domain ? 'ntlm' : 'sql'))
+    .trim().toLowerCase();
+  if (!['sql', 'ntlm'].includes(authMode)) {
+    throw new Error('Unsupported QAF authentication mode. Use sql or ntlm.');
+  }
+
   return {
     server: getFirstDefinedEnvValue('qafserver', 'QAFSERVER'),
     database: getFirstDefinedEnvValue('qafdatabase', 'QAFDATABASE') || 'Quality Data Mart',
     user: getFirstDefinedEnvValue('qafuser', 'QAFUSER'),
     password: getFirstDefinedEnvValue('qafpassword', 'QAFPASSWORD'),
+    domain: authMode === 'ntlm' ? domain : undefined,
+    authMode,
     requestTimeout: Number.isFinite(configuredRequestTimeout) && configuredRequestTimeout > 0
       ? configuredRequestTimeout : 120000
   };
@@ -118,7 +128,10 @@ export function getConnectionConfig(connectionName = 'default') {
     return {
       connectionName: 'qaf',
       config: qafConfig,
-      missing: getMissingConnectionFields(qafConfig, 'qaf'),
+      missing: [
+        ...getMissingConnectionFields(qafConfig, 'qaf'),
+        ...(qafConfig.authMode === 'ntlm' && !qafConfig.domain ? ['qafdomain'] : [])
+      ],
       source: 'qaf-env'
     };
   }
@@ -194,6 +207,8 @@ function getPoolKey(config, poolName = 'default') {
     config.server,
     config.database,
     config.user,
+    config.authMode ?? 'sql',
+    config.domain ?? '',
     config.requestTimeout ?? ''
   ].join('|');
 }
@@ -211,11 +226,23 @@ export async function getPool(config, poolName = 'default') {
       database: config.database
     });
 
+    const credentials = config.authMode === 'ntlm'
+      ? {
+          authentication: {
+            type: 'ntlm',
+            options: {
+              domain: config.domain,
+              userName: config.user,
+              password: config.password
+            }
+          }
+        }
+      : { user: config.user, password: config.password };
+
     const connectionPool = new sql.ConnectionPool({
       server: config.server,
       database: config.database,
-      user: config.user,
-      password: config.password,
+      ...credentials,
       requestTimeout: config.requestTimeout,
       options: {
         encrypt: true,

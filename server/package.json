@@ -7,7 +7,8 @@
     "generate:data": "node generateDummyWorkbooks.js",
     "test:databricks": "node databricksTest.js",
     "dev": "node --watch start.js",
-    "start": "NODE_ENV=production node start.js"
+    "start": "NODE_ENV=production node start.js",
+    "test:qaf": "node checkQafConnection.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

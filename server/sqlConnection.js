@@ -1,4 +1,5 @@
 import sql from 'mssql';
+import { ensureQafKerberosCredentials } from './qafKerberosCredentials.js';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -85,16 +86,21 @@ function getQafConnectionConfigFromEnv() {
   // Specifying a domain opts into NTLM; without one, preserve SQL authentication.
   const authMode = (getFirstDefinedEnvValue('qafauth', 'QAFAUTH') || (domain ? 'ntlm' : 'sql'))
     .trim().toLowerCase();
-  if (!['sql', 'ntlm', 'kerberos'].includes(authMode)) {
-    throw new Error('Unsupported QAF authentication mode. Use sql, ntlm, or kerberos.');
+  if (!['sql', 'ntlm', 'kerberos', 'kerberos-password'].includes(authMode)) {
+    throw new Error('Unsupported QAF authentication mode. Use sql, ntlm, kerberos, or kerberos-password.');
   }
+  const user = getFirstDefinedEnvValue('qafuser', 'QAFUSER');
+  const realm = getFirstDefinedEnvValue('qafrealm', 'QAFREALM');
+  const kerberosPrincipal = getFirstDefinedEnvValue('qafprincipal', 'QAFPRINCIPAL')
+    || (user && realm ? `${user}@${realm.toUpperCase()}` : undefined);
 
   return {
     server: getFirstDefinedEnvValue('qafserver', 'QAFSERVER'),
     database: getFirstDefinedEnvValue('qafdatabase', 'QAFDATABASE') || 'Quality Data Mart',
-    user: getFirstDefinedEnvValue('qafuser', 'QAFUSER'),
+    user,
     password: getFirstDefinedEnvValue('qafpassword', 'QAFPASSWORD'),
     domain: authMode === 'ntlm' ? domain : undefined,
+    kerberosPrincipal: authMode === 'kerberos-password' ? kerberosPrincipal : undefined,
     authMode,
     requestTimeout: Number.isFinite(configuredRequestTimeout) && configuredRequestTimeout > 0
       ? configuredRequestTimeout : 120000
@@ -132,10 +138,13 @@ export function getConnectionConfig(connectionName = 'default') {
       connectionName: 'qaf',
       config: qafConfig,
       missing: [
-        ...(qafConfig.authMode === 'kerberos'
+        ...(['kerberos', 'kerberos-password'].includes(qafConfig.authMode)
           ? ['server', 'database'].filter(field => !qafConfig[field]).map(field => `qaf${field}`)
           : getMissingConnectionFields(qafConfig, 'qaf')),
-        ...(qafConfig.authMode === 'ntlm' && !qafConfig.domain ? ['qafdomain'] : [])
+        ...(qafConfig.authMode === 'ntlm' && !qafConfig.domain ? ['qafdomain'] : []),
+        ...(qafConfig.authMode === 'kerberos-password' && !qafConfig.password ? ['qafpassword'] : []),
+        ...(qafConfig.authMode === 'kerberos-password' && !qafConfig.kerberosPrincipal
+          ? ['qafprincipal (or qafuser + qafrealm)'] : [])
       ],
       source: 'qaf-env'
     };
@@ -214,6 +223,7 @@ function getPoolKey(config, poolName = 'default') {
     config.user,
     config.authMode ?? 'sql',
     config.domain ?? '',
+    config.kerberosPrincipal ?? '',
     config.requestTimeout ?? ''
   ].join('|');
 }
@@ -224,9 +234,9 @@ function formatOdbcValue(value) {
 }
 
 function getKerberosOdbcConfig(config) {
-  // Windows: integrated SSPI credentials of the process account.
-  // Linux: the default Kerberos credential cache, provisioned outside this app.
-  // Neither platform authenticates using qafuser/qafpassword in this mode.
+  // Windows uses the process identity. On Linux, kerberos-password first obtains
+  // a ticket for the configured YY principal, while kerberos uses an existing
+  // runtime-managed ticket cache. ODBC itself never receives a raw password.
   const connectionString = [
     'Driver={ODBC Driver 18 for SQL Server}',
     `Server=${formatOdbcValue(config.server)}`,
@@ -248,6 +258,9 @@ function getKerberosOdbcConfig(config) {
 }
 
 export async function getPool(config, poolName = 'default') {
+  if (config.authMode === 'kerberos-password') {
+    await ensureQafKerberosCredentials(config);
+  }
   const poolKey = getPoolKey(config, poolName);
   const existingPoolPromise = poolPromises.get(poolKey);
 
@@ -275,11 +288,11 @@ export async function getPool(config, poolName = 'default') {
 
     // The native ODBC driver supports Kerberos/Windows integrated authentication.
     // All other SQL connections continue using the existing Tedious driver.
-    const driver = config.authMode === 'kerberos'
+    const driver = ['kerberos', 'kerberos-password'].includes(config.authMode)
       ? require('mssql/msnodesqlv8')
       : sql;
     const connectionPool = new driver.ConnectionPool(
-      config.authMode === 'kerberos'
+      ['kerberos', 'kerberos-password'].includes(config.authMode)
         ? getKerberosOdbcConfig(config)
         : {
             server: config.server,

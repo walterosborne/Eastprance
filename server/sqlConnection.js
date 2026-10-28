@@ -113,7 +113,7 @@ function isFullyQualifiedSqlServer(server) {
   // SQL Server supports host,port and host\\instance. Validate the hostname,
   // not the instance/port portion, so Kerberos cannot silently fall back to NTLM.
   const hostname = String(server ?? '').split(/[\\,]/, 1)[0];
-  return /^[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$/.test(hostname);
+  return /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(hostname);
 }
 
 function getMissingConnectionFields(config, prefix = '') {
@@ -155,7 +155,7 @@ export function getConnectionConfig(connectionName = 'default') {
         ...(qafConfig.authMode === 'kerberos-password' && !qafConfig.kerberosPrincipal
           ? ['qafprincipal (or qafuser@REALM, or qafuser + qafrealm)'] : []),
         ...(qafConfig.authMode === 'kerberos-password' && qafConfig.kerberosPrincipal
-          && !/^[^\\s@\\\\]+@[^\\s@\\\\]+$/.test(qafConfig.kerberosPrincipal)
+          && !/^[^\s@\\]+@[^\s@\\]+$/.test(qafConfig.kerberosPrincipal)
           ? ['qafprincipal must be user@KERBEROS.REALM'] : []),
         ...(['kerberos', 'kerberos-password'].includes(qafConfig.authMode)
           && qafConfig.server && !isFullyQualifiedSqlServer(qafConfig.server)

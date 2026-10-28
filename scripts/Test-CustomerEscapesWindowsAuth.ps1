@@ -37,21 +37,6 @@ function Get-SqlErrorSummary {
     return $Exception.Message
 }
 
-function Invoke-ScalarSql {
-    param(
-        [System.Data.SqlClient.SqlConnection] $Connection,
-        [string] $Query
-    )
-    $command = $Connection.CreateCommand()
-    try {
-        $command.CommandText = $Query
-        $command.CommandTimeout = 20
-        return $command.ExecuteScalar()
-    } finally {
-        $command.Dispose()
-    }
-}
-
 # Read-only, exact table-and-column checks derived from the existing
 # server/customerEscapesRepository.js SQL query.
 $checks = @(

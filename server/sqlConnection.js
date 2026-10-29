@@ -1,4 +1,5 @@
 import sql from 'mssql';
+import { bindSqlPoolRequestDriver } from './sqlPoolRequestDriver.js';
 import { ensureQafKerberosCredentials } from './qafKerberosCredentials.js';
 import { createRequire } from 'node:module';
 
@@ -321,15 +322,9 @@ export async function getPool(config, poolName = 'default') {
           }
     );
 
-    // node-mssql 12 stores the active driver in a module-global singleton.
-    // Loading mssql/msnodesqlv8 for QAF changes that singleton, even for
-    // existing Tedious pools. Pool.request() would then create an ODBC Request
-    // against a Tedious connection (connection.queryRaw is not a function).
-    // Bind each pool's request factory to the driver that created its own
-    // physical connections. Never allow the YY driver to affect other cards.
-    connectionPool.request = function request(conf) {
-      return new driver.Request(this, conf);
-    };
+    // Loading the QAF ODBC driver changes node-mssql's module-global request
+    // driver even for Tedious pools created earlier. Pin per-pool requests.
+    bindSqlPoolRequestDriver(connectionPool, driver);
 
     const poolPromise = connectionPool.connect().catch((error) => {
       logError('sql', 'SQL connection pool failed to connect.', error, {

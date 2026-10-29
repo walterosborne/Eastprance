@@ -76,9 +76,11 @@ add:
 INSTALL_QAF_KERBEROS_DEPS=true
 ~~~
 
-The opt-in step uses Microsoft's RHEL9 RPM repo. If external package access
-is blocked, request an approved internal mirror or ODBC/Kerberos base image
-from the container/platform team; do not weaken package security settings.
+The opt-in step uses `dnf` (not `microdnf`) because the UBI9 Node.js base
+image is a standard UBI image rather than UBI minimal. It uses Microsoft's
+RHEL9 RPM repo. If external package access is blocked, request an approved
+internal mirror or ODBC/Kerberos base image from the container/platform team;
+do not weaken package security settings.
 The native Node driver is already included and locked in package-lock.json.
 If the completed corporate Dockerfile uses a base OS other than UBI9,
 its package installation needs adapting.

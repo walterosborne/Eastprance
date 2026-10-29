@@ -133,8 +133,8 @@ application logs and the endpoint, not an interactive container shell.
 
 Common failure causes:
 - Missing kinit -> image lacks Kerberos client utilities
-- Missing ODBC driver -> INSTALL_QAF_KERBEROS_DEPS was not enabled,
-  or the approved package mirror isn't available
+- Missing ODBC driver -> image installation failed or an approved
+  package repository / driver configuration is unavailable
 - KDC error -> wrong principal/realm, AD connectivity or krb5.conf
 - Authentication scheme not KERBEROS -> check SQL FQDN and SPN with DBA/IAM
 - SELECT denied -> request read-only permissions from the SQL DBA

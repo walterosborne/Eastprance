@@ -61,30 +61,28 @@ A short host name or IP is rejected in the Kerberos configuration. Verify
 the SQL Server FQDN actually resolves and matches its registered SPN.
 Never put YY passwords in GitHub, Dockerfile, or frontend Vite variables.
 
-### 2. Opt in to the Linux Kerberos/ODBC image packages
+### 2. Linux Kerberos/ODBC image packages (required)
 
 The repository Dockerfile is a fragment that expects a corporate-provided
-UBI9 Node base stage to be placed before it on the work computer.
-The fragment now contains an optional installation step for ODBC Driver 18,
-unixODBC, unixODBC-devel (required for the native `msnodesqlv8` module's
-`sql.h` headers), and krb5-workstation. It is disabled by default so existing builds
-are not unexpectedly affected.
+UBI9 Node base stage above it on the work computer. The native
+`msnodesqlv8` dependency is installed by `npm ci` on every build, so the
+Dockerfile now always installs ODBC Driver 18, unixODBC,
+**unixODBC-devel** (provides the required `sql.h` header), and
+`krb5-workstation` **before** `npm ci`.
 
-In the work-side OpenShift BuildConfig, under Docker strategy build arguments,
-add:
+There is **no INSTALL_QAF_KERBEROS_DEPS build argument anymore**. If an
+old OpenShift BuildConfig still has that argument, you can remove it;
+the Dockerfile ignores it. Do not add the old conditional install
+block back, or the native module will fail to compile when disabled.
 
-~~~text
-INSTALL_QAF_KERBEROS_DEPS=true
-~~~
-
-The opt-in step uses `dnf` (not `microdnf`) because the UBI9 Node.js base
-image is a standard UBI image rather than UBI minimal. It uses Microsoft's
-RHEL9 RPM repo. If external package access is blocked, request an approved
-internal mirror or ODBC/Kerberos base image from the container/platform team;
-do not weaken package security settings.
-The native Node driver is already included and locked in package-lock.json.
-If the completed corporate Dockerfile uses a base OS other than UBI9,
-its package installation needs adapting.
+The installation uses `dnf` and Microsoft's RHEL9 RPM repository. It
+checks that `/usr/include/sql.h` is present and fails the build early
+if it is missing. If package repositories are blocked or not approved,
+request an approved internal mirror or prebuilt ODBC/Kerberos base image
+from the platform team, rather than weakening package verification.
+If the final corporate Dockerfile uses a base other than UBI9, adapt
+the package installation to that base. No changes to YY credentials
+are needed for this packaging fix.
 
 ### 3. Kerberos and SQL infrastructure
 

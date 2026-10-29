@@ -66,7 +66,8 @@ Never put YY passwords in GitHub, Dockerfile, or frontend Vite variables.
 The repository Dockerfile is a fragment that expects a corporate-provided
 UBI9 Node base stage to be placed before it on the work computer.
 The fragment now contains an optional installation step for ODBC Driver 18,
-unixODBC, and krb5-workstation. It is disabled by default so existing builds
+unixODBC, unixODBC-devel (required for the native `msnodesqlv8` module's
+`sql.h` headers), and krb5-workstation. It is disabled by default so existing builds
 are not unexpectedly affected.
 
 In the work-side OpenShift BuildConfig, under Docker strategy build arguments,

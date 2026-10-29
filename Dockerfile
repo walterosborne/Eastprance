@@ -1,18 +1,16 @@
 # Node can use the system trust bundle after update-ca-trust finishes.
 ENV NODE_EXTRA_CA_CERTS=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 
-# Optional Quality Data Mart Kerberos support. The work build supplies a
-# UBI9 Node base image before this Dockerfile fragment. Opt-in to avoid
-# affecting installations which do not use the QAF Kerberos data source.
-# Microsoft ODBC Driver 18 requires corporate approval and reachable RPM repos.
-ARG INSTALL_QAF_KERBEROS_DEPS=false
+# This UBI9 Node image compiles the required native msnodesqlv8 module
+# during npm ci. Install its unixODBC headers and the Quality Data Mart
+# Kerberos/ODBC runtime *before* npm ci; skipping these breaks every build.
+# The work build supplies the UBI9 Node base stage above this fragment.
 USER 0
-RUN if [ "$INSTALL_QAF_KERBEROS_DEPS" = "true" ]; then \
-      curl -fsSL https://packages.microsoft.com/config/rhel/9/prod.repo \
-        -o /etc/yum.repos.d/microsoft-prod.repo \
-      && ACCEPT_EULA=Y dnf install -y msodbcsql18 unixODBC unixODBC-devel krb5-workstation \
-      && dnf clean all; \
-    fi
+RUN curl -fsSL https://packages.microsoft.com/config/rhel/9/prod.repo \
+      -o /etc/yum.repos.d/microsoft-prod.repo \
+    && ACCEPT_EULA=Y dnf install -y msodbcsql18 unixODBC unixODBC-devel krb5-workstation \
+    && test -f /usr/include/sql.h \
+    && dnf clean all
 
 # Keep build-time root privileges through directory ownership/permission setup.
 # The application switches to the unprivileged UID after that step.
@@ -47,5 +45,5 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-# The default mssql driver needs no ODBC packages; QAF Kerberos does when enabled.
+# Quality Data Mart Kerberos uses the installed ODBC 18 driver; run as unprivileged UID.
 CMD ["node", "server/start.js"]

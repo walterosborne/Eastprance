@@ -13,8 +13,9 @@ RUN if [ "$INSTALL_QAF_KERBEROS_DEPS" = "true" ]; then \
       && ACCEPT_EULA=Y dnf install -y msodbcsql18 unixODBC krb5-workstation \
       && dnf clean all; \
     fi
-USER 1001
 
+# Keep build-time root privileges through directory ownership/permission setup.
+# The application switches to the unprivileged UID after that step.
 WORKDIR /opt/app-root/src
 
 # Install workspace dependencies before copying the full source tree.

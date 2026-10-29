@@ -10,7 +10,7 @@ USER 0
 RUN if [ "$INSTALL_QAF_KERBEROS_DEPS" = "true" ]; then \
       curl -fsSL https://packages.microsoft.com/config/rhel/9/prod.repo \
         -o /etc/yum.repos.d/microsoft-prod.repo \
-      && ACCEPT_EULA=Y dnf install -y msodbcsql18 unixODBC krb5-workstation \
+      && ACCEPT_EULA=Y dnf install -y msodbcsql18 unixODBC unixODBC-devel krb5-workstation \
       && dnf clean all; \
     fi
 

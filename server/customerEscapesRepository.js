@@ -10,6 +10,25 @@ const requiredColumns = [
   'software_escapes', 'hardware_escapes', 'documentation_escapes'
 ];
 
+// Match the division labels used by the dashboard hierarchy and other cards.
+function normalizeDivision(value) {
+  const division = String(value ?? '').trim().replace(/^DS\s+/i, '').trim();
+  switch (division.toUpperCase()) {
+    case 'CWI':
+    case 'GBMR':
+    case 'C2 & WEAPONS INTEGRATION':
+      return 'C2 & Weapons Integration';
+    case 'SDS':
+    case 'STRATEGIC DETERRENT SYSTEMS':
+      return 'Strategic Deterrent Systems';
+    case 'WS':
+    case 'WEAPON SYSTEMS':
+      return 'Weapon Systems';
+    default:
+      return division;
+  }
+}
+
 function normalizeMonth(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
@@ -61,7 +80,7 @@ async function readCustomerEscapesWorkbook(reason) {
     return {
       data_month: month,
       program_id: String(row.program_id),
-      division: String(row.division ?? '').trim(),
+      division: normalizeDivision(row.division),
       business_unit: String(row.business_unit ?? '').trim(),
       ...values
     };
@@ -120,6 +139,7 @@ export async function readCustomerEscapesData() {
     rowCount: result.recordset.length,
     rows: result.recordset.map(row => ({
       ...row,
+      division: normalizeDivision(row.division),
       software_escapes: Number(row.software_escapes),
       hardware_escapes: Number(row.hardware_escapes),
       documentation_escapes: Number(row.documentation_escapes)

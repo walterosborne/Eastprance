@@ -82,6 +82,8 @@ async function readCustomerEscapesWorkbook(reason) {
       program_id: String(row.program_id),
       division: normalizeDivision(row.division),
       business_unit: String(row.business_unit ?? '').trim(),
+      // Older workbook exports may not include facility; keep them readable.
+      facility: String(row.facility ?? '').trim(),
       ...values
     };
   });
@@ -113,6 +115,7 @@ export async function readCustomerEscapesData() {
       p.[PMDH_PROG_ID] AS program_id,
       pc.[PCMY_PROG_Division] AS division,
       pc.[PCMY_PROG_BusinessUnit] AS business_unit,
+      pc.[PCMY_PROG_Campus] AS facility,
       SUM(CASE WHEN p.[PMDH_DATV_ID] = 148
           THEN CONVERT(decimal(18, 2), p.[PMDH_Data_Value]) ELSE 0 END) AS software_escapes,
       SUM(CASE WHEN p.[PMDH_DATV_ID] = 151
@@ -131,8 +134,8 @@ export async function readCustomerEscapesData() {
       AND md.[MYDT_From_DT] >= '2025-01-01'
       AND md.[MYDT_From_DT] < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
     GROUP BY md.[MYDT_From_DT], p.[PMDH_PROG_ID],
-      pc.[PCMY_PROG_Division], pc.[PCMY_PROG_BusinessUnit]
-    ORDER BY data_month, division, business_unit, program_id;
+      pc.[PCMY_PROG_Division], pc.[PCMY_PROG_BusinessUnit], pc.[PCMY_PROG_Campus]
+    ORDER BY data_month, division, business_unit, facility, program_id;
   `);
   return {
     source: 'mssql',

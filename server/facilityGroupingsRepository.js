@@ -23,6 +23,7 @@ const FACILITY_FIELDS_BY_SCOPE = {
   'potential-sif': ['site'],
   nmfr: ['site'],
   otd: ['site'],
+  'customer-escapes': ['facility'],
   labor: ['forecasted_cc', 'site'],
   'labor-new': ['facility'],
   'labor-hana': ['forecasted_cc', 'site']

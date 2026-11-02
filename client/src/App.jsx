@@ -429,7 +429,7 @@ const GLOBAL_FILTER_FIELD_MAP = {
     businessUnit: 'business_unit',
     facility: 'site'
   },
-  customerEscapes: { division: 'division', businessUnit: 'business_unit' },
+  customerEscapes: { division: 'division', businessUnit: 'business_unit', facility: 'facility' },
   labor: {
     facility: 'forecasted_cc'
   },
@@ -7901,6 +7901,7 @@ export default function App() {
   const customerEscapesFilterFields = [
     { value: 'division', label: 'Division', allLabel: 'All divisions' },
     { value: 'business_unit', label: 'Business Unit', allLabel: 'All business units' },
+    { value: 'facility', label: 'Facility', allLabel: 'All facilities' },
     { value: 'defect_type', label: 'Defect Type', allLabel: 'All defect types' }
   ];
   const customerEscapesFilterOptions = useMemo(() => customerEscapesFilterField === 'defect_type'

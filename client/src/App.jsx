@@ -1,3 +1,6 @@
+import {
+  findLatestMonthOutlier, excludeProcessingMonth, getProcessedDateRange, getProcessingMonthNote
+} from './latestMonthProcessing.mjs';
 import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -1720,6 +1723,105 @@ function getLatestIncidentStamp(rows, selectedDateRange) {
   }
 
   return Math.max(...monthStamps);
+}
+
+function getCardMonthConfig(metricKey) {
+  if (metricKey.startsWith('controllableCosts')) {
+    return { getStamp: getControllableCostsRowStamp, valueField: 'cost', kind: 'sum', minAbsoluteChange: 1 };
+  }
+  if (metricKey === 'customerEscapes') {
+    return {
+      getStamp: (row) => getMonthStartStamp(String(row.data_month ?? '').slice(0, 10)),
+      kind: 'escapes', minAbsoluteChange: 3
+    };
+  }
+  if (metricKey === 'otd') {
+    return { monthColumns: OTD_MONTH_COLUMNS, getYear: getOtdRowYear, kind: 'otd', minAbsoluteChange: 0.05 };
+  }
+  if (metricKey === 'labor' || metricKey === 'laborHana') {
+    return { monthColumns: LABOR_MONTH_COLUMNS, getYear: getLaborRowYear, kind: 'labor', minAbsoluteChange: 0.05 };
+  }
+  if (metricKey === 'laborNew') {
+    return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'laborNew', minAbsoluteChange: 0.05 };
+  }
+  return {
+    getStamp: getIncidentRowStamp, valueField: 'actual_value',
+    kind: metricKey === 'nmfr' ? 'nmfr' : 'sum',
+    minAbsoluteChange: metricKey === 'nmfr' ? 0.05 : 3
+  };
+}
+
+function buildCardMonthlyPoints(rows, metricKey) {
+  const config = getCardMonthConfig(metricKey);
+  const months = new Map();
+  const add = (stamp, row, value) => {
+    if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, null)) return;
+    const entries = months.get(stamp) ?? [];
+    entries.push({ row, value });
+    months.set(stamp, entries);
+  };
+  for (const row of rows) {
+    if (config.monthColumns) {
+      config.monthColumns.forEach(({ key }, index) => {
+        // Missing cells are not observed zero months.
+        if (hasKpiValue(row[key])) add(getFixedMonthStamp(config.getYear(row), index), row, Number(row[key]));
+      });
+    } else if (config.kind === 'escapes') {
+      const fields = ['software_escapes', 'hardware_escapes', 'documentation_escapes'];
+      if (fields.some((field) => hasKpiValue(row[field]))) {
+        add(config.getStamp(row), row, fields.reduce((sum, field) => sum + (Number(row[field]) || 0), 0));
+      }
+    } else if (hasKpiValue(row[config.valueField]) || (config.kind === 'nmfr'
+      && hasKpiValue(row.near_miss_count) && Number(row.employee_count) > 0 && Number(row.working_days) > 0)) {
+      add(config.getStamp(row), row, Number(row[config.valueField]));
+    }
+  }
+  return [...months].map(([stamp, entries]) => {
+    let value;
+    if (config.kind === 'otd') {
+      const actual = entries.filter(({ row }) => ['Actual Delivered', 'Actuals Delivered'].includes(row.measure_type));
+      const contract = entries.filter(({ row }) => row.measure_type === 'Contract Commitment')
+        .reduce((sum, entry) => sum + entry.value, 0);
+      value = actual.length && contract > 0
+        ? actual.reduce((sum, entry) => sum + entry.value, 0) / contract : null;
+    } else if (config.kind === 'labor' || config.kind === 'laborNew') {
+      const classify = config.kind === 'laborNew' ? getLaborUtilizationNewCategoryGroup : getLaborCategoryGroup;
+      const total = entries.reduce((sum, entry) => sum + entry.value, 0);
+      const direct = entries.filter(({ row }) => classify(row.labor_category) === 'direct')
+        .reduce((sum, entry) => sum + entry.value, 0);
+      value = total > 0 ? direct / total : null;
+    } else if (config.kind === 'nmfr') {
+      value = calculateNmfrValueFromRows(entries.map(({ row }) => row));
+    } else {
+      value = entries.reduce((sum, entry) => sum + entry.value, 0);
+    }
+    return { stamp, value };
+  });
+}
+
+function useCardProcessingRows(baseRows, scopedRows, metricKey, isTrend, selectedDateRange, historicalRange = null) {
+  const result = useMemo(() => {
+    const config = getCardMonthConfig(metricKey);
+    // Check the same scope as the card's displayed KPI, before the date slider
+    // or monthly/quarterly/annual grouping can truncate its baseline.
+    const processingMonth = findLatestMonthOutlier(
+      buildCardMonthlyPoints(isTrend ? scopedRows : baseRows, metricKey),
+      { lastCompletedMonth: SCORECARD_END_STAMP, minAbsoluteChange: config.minAbsoluteChange }
+    );
+    const exclude = (rows) => excludeProcessingMonth(
+      rows, processingMonth, config.getStamp, config.monthColumns, config.getYear
+    );
+    return { baseRows: exclude(baseRows), filteredRows: exclude(scopedRows), processingMonth };
+  }, [baseRows, scopedRows, metricKey, isTrend]);
+  const dateRange = useMemo(
+    () => getProcessedDateRange(selectedDateRange, result.processingMonth),
+    [selectedDateRange, result.processingMonth]
+  );
+  const historicalDateRange = useMemo(
+    () => getProcessedDateRange(historicalRange, result.processingMonth),
+    [historicalRange, result.processingMonth]
+  );
+  return { ...result, dateRange, historicalDateRange };
 }
 
 function getNextTimelinePeriodLabelAfterStamp(stamp, viewMode) {
@@ -4210,7 +4312,7 @@ function PerformanceIndicatorTooltipSection({ performanceStatus }) {
   );
 }
 
-function CardHeader({ title, info, tooltipLegend = null, performanceStatus = null }) {
+function CardHeader({ title, info, tooltipLegend = null, performanceStatus = null, processingMonth = null }) {
   const metricInfo = info || DEFAULT_METRIC_INFO;
 
   return (
@@ -4227,6 +4329,9 @@ function CardHeader({ title, info, tooltipLegend = null, performanceStatus = nul
           ?
         </button>
         <div className="card-info-tooltip" role="tooltip">
+          {Number.isFinite(processingMonth) && (
+            <p className="metric-info-paragraph">{getProcessingMonthNote(processingMonth)}</p>
+          )}
           {SHOW_PERFORMANCE_INDICATORS && (
             <PerformanceIndicatorTooltipSection performanceStatus={performanceStatus} />
           )}
@@ -6190,13 +6295,13 @@ export default function App() {
     controllablePaletteColorFieldOptions.find(
       (option) => option.value === selectedControllablePaletteColorField
     ) ?? controllablePaletteColorFieldOptions[0] ?? CONTROLLABLE_PALETTE_FIELDS[1];
-  const baseFilteredControllableCostsRows = applyGlobalFilters(
+  const unprocessedControllableCostsBaseRows = applyGlobalFilters(
     controllableCostsState.rows,
     'controllableCosts',
     activeGlobalFilters
   );
   const controllableChartFilterValueOptions = getFilterOptions(
-    baseFilteredControllableCostsRows,
+    unprocessedControllableCostsBaseRows,
     activeControllableChartFilterField.value
   );
   const activeControllableChartFilterValue = normalizeFilterValues(
@@ -6204,7 +6309,7 @@ export default function App() {
     controllableChartFilterValueOptions
   );
   const controllableFilterApplies = ['line', 'bar'].includes(chartVariants.controllableCosts);
-  const filteredControllableCostsRows = baseFilteredControllableCostsRows.filter((row) => {
+  const unprocessedControllableCostsRows = unprocessedControllableCostsBaseRows.filter((row) => {
     if (!controllableFilterApplies) {
       return true;
     }
@@ -6216,18 +6321,32 @@ export default function App() {
       )
     );
   });
+  const {
+    baseRows: baseFilteredControllableCostsRows,
+    filteredRows: filteredControllableCostsRows,
+    processingMonth: controllableCostsProcessingMonth,
+    dateRange: controllableCostsDateRange,
+    historicalDateRange: controllableCostsHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedControllableCostsBaseRows,
+    unprocessedControllableCostsRows,
+    'controllableCosts',
+    controllableFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
+  );
   const globallyFilteredControllableCostsRows = filteredControllableCostsRows.filter((row) =>
-    isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getControllableCostsRowStamp(row), controllableCostsDateRange)
   );
   const controllableCostsChartData = buildControllableCostsChartData(
     filteredControllableCostsRows,
     controllableCostsViewMode,
-    selectedDateRange
+    controllableCostsDateRange
   );
   const controllableCostsMonthlyPerformanceData = buildControllableCostsChartData(
     filteredControllableCostsRows,
     'monthly',
-    historicalPerformanceDateRange
+    controllableCostsHistoricalDateRange
   );
   const controllableCostsGoalCalculation = useCalculatedMetricGoalLine({
     metricKey: 'controllable-costs',
@@ -6256,13 +6375,13 @@ export default function App() {
   const controllableCostsParetoChartData = buildControllableCostsParetoChartData(
     baseFilteredControllableCostsRows,
     activeControllableChartFilterField.value,
-    selectedDateRange
+    controllableCostsDateRange
   );
   const controllableCostsPaletteChartData = buildControllableCostsPaletteChartData(
     baseFilteredControllableCostsRows,
     activeControllablePaletteGroupField.value,
     activeControllablePaletteColorField.value,
-    selectedDateRange
+    controllableCostsDateRange
   );
   const isControllableCostsPareto = chartVariants.controllableCosts === 'pareto';
   const isControllableCostsPalette = chartVariants.controllableCosts === 'palette';
@@ -6292,7 +6411,7 @@ export default function App() {
     controllableNewPaletteColorFieldOptions.find(
       (option) => option.value === selectedControllableNewPaletteColorField
     ) ?? controllableNewPaletteColorFieldOptions[0] ?? CONTROLLABLE_NEW_PALETTE_FIELDS[1];
-  const baseFilteredControllableCostsNewRows = useMemo(
+  const unprocessedControllableCostsNewBaseRows = useMemo(
     () => applyGlobalFilters(
     controllableCostsNewState.rows,
     'controllableCostsNew',
@@ -6302,10 +6421,10 @@ export default function App() {
   );
   const controllableNewChartFilterValueOptions = useMemo(
     () => getFilterOptions(
-    baseFilteredControllableCostsNewRows,
+    unprocessedControllableCostsNewBaseRows,
     activeControllableNewChartFilterField.value
   ),
-    [baseFilteredControllableCostsNewRows, activeControllableNewChartFilterField.value]
+    [unprocessedControllableCostsNewBaseRows, activeControllableNewChartFilterField.value]
   );
   const activeControllableNewChartFilterValue = useMemo(
     () => normalizeFilterValues(
@@ -6317,8 +6436,8 @@ export default function App() {
   const controllableNewFilterApplies = ['line', 'bar'].includes(
     chartVariants.controllableCostsNew
   );
-  const filteredControllableCostsNewRows = useMemo(
-    () => baseFilteredControllableCostsNewRows.filter((row) => {
+  const unprocessedControllableCostsNewRows = useMemo(
+    () => unprocessedControllableCostsNewBaseRows.filter((row) => {
     if (!controllableNewFilterApplies) {
       return true;
     }
@@ -6328,26 +6447,40 @@ export default function App() {
       activeControllableNewChartFilterValue
     );
   }),
-    [baseFilteredControllableCostsNewRows, controllableNewFilterApplies, activeControllableNewChartFilterField.value, activeControllableNewChartFilterValue]
+    [unprocessedControllableCostsNewBaseRows, controllableNewFilterApplies, activeControllableNewChartFilterField.value, activeControllableNewChartFilterValue]
+  );
+  const {
+    baseRows: baseFilteredControllableCostsNewRows,
+    filteredRows: filteredControllableCostsNewRows,
+    processingMonth: controllableCostsNewProcessingMonth,
+    dateRange: controllableCostsNewDateRange,
+    historicalDateRange: controllableCostsNewHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedControllableCostsNewBaseRows,
+    unprocessedControllableCostsNewRows,
+    'controllableCostsNew',
+    controllableNewFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
   );
   const globallyFilteredControllableCostsNewRows = filteredControllableCostsNewRows.filter((row) =>
-    isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getControllableCostsRowStamp(row), controllableCostsNewDateRange)
   );
   const controllableCostsNewChartData = useMemo(
     () => buildControllableCostsChartData(
     filteredControllableCostsNewRows,
     controllableCostsNewViewMode,
-    selectedDateRange
+    controllableCostsNewDateRange
   ),
-    [filteredControllableCostsNewRows, controllableCostsNewViewMode, selectedDateRange]
+    [filteredControllableCostsNewRows, controllableCostsNewViewMode, controllableCostsNewDateRange]
   );
   const controllableCostsNewMonthlyPerformanceData = useMemo(
     () => buildControllableCostsChartData(
     filteredControllableCostsNewRows,
     'monthly',
-    historicalPerformanceDateRange
+    controllableCostsNewHistoricalDateRange
   ),
-    [filteredControllableCostsNewRows, historicalPerformanceDateRange]
+    [filteredControllableCostsNewRows, controllableCostsNewHistoricalDateRange]
   );
   const controllableCostsNewGoalCalculation = useCalculatedMetricGoalLine({
     metricKey: 'controllable-costs-new',
@@ -6377,18 +6510,18 @@ export default function App() {
     () => buildControllableCostsParetoChartData(
     baseFilteredControllableCostsNewRows,
     activeControllableNewChartFilterField.value,
-    selectedDateRange
+    controllableCostsNewDateRange
   ),
-    [baseFilteredControllableCostsNewRows, activeControllableNewChartFilterField.value, selectedDateRange]
+    [baseFilteredControllableCostsNewRows, activeControllableNewChartFilterField.value, controllableCostsNewDateRange]
   );
   const controllableCostsNewPaletteChartData = useMemo(
     () => buildControllableCostsPaletteChartData(
     baseFilteredControllableCostsNewRows,
     activeControllableNewPaletteGroupField.value,
     activeControllableNewPaletteColorField.value,
-    selectedDateRange
+    controllableCostsNewDateRange
   ),
-    [baseFilteredControllableCostsNewRows, activeControllableNewPaletteGroupField.value, activeControllableNewPaletteColorField.value, selectedDateRange]
+    [baseFilteredControllableCostsNewRows, activeControllableNewPaletteGroupField.value, activeControllableNewPaletteColorField.value, controllableCostsNewDateRange]
   );
   const isControllableCostsNewPareto = chartVariants.controllableCostsNew === 'pareto';
   const isControllableCostsNewPalette = chartVariants.controllableCostsNew === 'palette';
@@ -6422,7 +6555,7 @@ export default function App() {
     )
     ?? controllableHanaPaletteColorFieldOptions[0]
     ?? CONTROLLABLE_HANA_PALETTE_FIELDS[1];
-  const baseFilteredControllableCostsHanaRows = useMemo(
+  const unprocessedControllableCostsHanaBaseRows = useMemo(
     () => applyGlobalFilters(
     controllableCostsHanaState.rows,
     'controllableCostsHana',
@@ -6432,10 +6565,10 @@ export default function App() {
   );
   const controllableHanaChartFilterValueOptions = useMemo(
     () => getFilterOptions(
-    baseFilteredControllableCostsHanaRows,
+    unprocessedControllableCostsHanaBaseRows,
     activeControllableHanaChartFilterField.value
   ),
-    [baseFilteredControllableCostsHanaRows, activeControllableHanaChartFilterField.value]
+    [unprocessedControllableCostsHanaBaseRows, activeControllableHanaChartFilterField.value]
   );
   const activeControllableHanaChartFilterValue = useMemo(
     () => normalizeFilterValues(
@@ -6447,8 +6580,8 @@ export default function App() {
   const controllableHanaFilterApplies = ['line', 'bar'].includes(
     chartVariants.controllableCostsHana
   );
-  const filteredControllableCostsHanaRows = useMemo(
-    () => baseFilteredControllableCostsHanaRows.filter((row) => {
+  const unprocessedControllableCostsHanaRows = useMemo(
+    () => unprocessedControllableCostsHanaBaseRows.filter((row) => {
     if (!controllableHanaFilterApplies) {
       return true;
     }
@@ -6460,26 +6593,40 @@ export default function App() {
       )
     );
   }),
-    [baseFilteredControllableCostsHanaRows, controllableHanaFilterApplies, activeControllableHanaChartFilterField.value, activeControllableHanaChartFilterValue]
+    [unprocessedControllableCostsHanaBaseRows, controllableHanaFilterApplies, activeControllableHanaChartFilterField.value, activeControllableHanaChartFilterValue]
+  );
+  const {
+    baseRows: baseFilteredControllableCostsHanaRows,
+    filteredRows: filteredControllableCostsHanaRows,
+    processingMonth: controllableCostsHanaProcessingMonth,
+    dateRange: controllableCostsHanaDateRange,
+    historicalDateRange: controllableCostsHanaHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedControllableCostsHanaBaseRows,
+    unprocessedControllableCostsHanaRows,
+    'controllableCostsHana',
+    controllableHanaFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
   );
   const globallyFilteredControllableCostsHanaRows = filteredControllableCostsHanaRows.filter(
-    (row) => isStampWithinDateRange(getControllableCostsRowStamp(row), selectedDateRange)
+    (row) => isStampWithinDateRange(getControllableCostsRowStamp(row), controllableCostsHanaDateRange)
   );
   const controllableCostsHanaChartData = useMemo(
     () => buildControllableCostsChartData(
     filteredControllableCostsHanaRows,
     controllableCostsHanaViewMode,
-    selectedDateRange
+    controllableCostsHanaDateRange
   ),
-    [filteredControllableCostsHanaRows, controllableCostsHanaViewMode, selectedDateRange]
+    [filteredControllableCostsHanaRows, controllableCostsHanaViewMode, controllableCostsHanaDateRange]
   );
   const controllableCostsHanaMonthlyPerformanceData = useMemo(
     () => buildControllableCostsChartData(
     filteredControllableCostsHanaRows,
     'monthly',
-    historicalPerformanceDateRange
+    controllableCostsHanaHistoricalDateRange
   ),
-    [filteredControllableCostsHanaRows, historicalPerformanceDateRange]
+    [filteredControllableCostsHanaRows, controllableCostsHanaHistoricalDateRange]
   );
   const controllableCostsHanaGoalCalculation = useCalculatedMetricGoalLine({
     metricKey: 'controllable-costs-hana',
@@ -6509,18 +6656,18 @@ export default function App() {
     () => buildControllableCostsParetoChartData(
     baseFilteredControllableCostsHanaRows,
     activeControllableHanaChartFilterField.value,
-    selectedDateRange
+    controllableCostsHanaDateRange
   ),
-    [baseFilteredControllableCostsHanaRows, activeControllableHanaChartFilterField.value, selectedDateRange]
+    [baseFilteredControllableCostsHanaRows, activeControllableHanaChartFilterField.value, controllableCostsHanaDateRange]
   );
   const controllableCostsHanaPaletteChartData = useMemo(
     () => buildControllableCostsPaletteChartData(
     baseFilteredControllableCostsHanaRows,
     activeControllableHanaPaletteGroupField.value,
     activeControllableHanaPaletteColorField.value,
-    selectedDateRange
+    controllableCostsHanaDateRange
   ),
-    [baseFilteredControllableCostsHanaRows, activeControllableHanaPaletteGroupField.value, activeControllableHanaPaletteColorField.value, selectedDateRange]
+    [baseFilteredControllableCostsHanaRows, activeControllableHanaPaletteGroupField.value, activeControllableHanaPaletteColorField.value, controllableCostsHanaDateRange]
   );
   const isControllableCostsHanaPareto = chartVariants.controllableCostsHana === 'pareto';
   const isControllableCostsHanaPalette = chartVariants.controllableCostsHana === 'palette';
@@ -6553,7 +6700,7 @@ export default function App() {
     sifPaletteColorFieldOptions.find((option) => option.value === selectedSifPaletteColorField)
     ?? sifPaletteColorFieldOptions[0]
     ?? SAFETY_PALETTE_FIELDS[1];
-  const baseFilteredSifRows = useMemo(
+  const unprocessedSifBaseRows = useMemo(
     () => applyGlobalFilters(
     sifState.rows.filter(
       (row) => Number(row.kpi_id) === SIF_KPI_ID
@@ -6566,10 +6713,10 @@ export default function App() {
   );
   const sifChartFilterValueOptions = useMemo(
     () => getFilterOptions(
-    baseFilteredSifRows,
+    unprocessedSifBaseRows,
     activeSifChartFilterField.value
   ),
-    [baseFilteredSifRows, activeSifChartFilterField.value]
+    [unprocessedSifBaseRows, activeSifChartFilterField.value]
   );
   const activeSifChartFilterValue = useMemo(
     () => normalizeFilterValues(
@@ -6579,15 +6726,29 @@ export default function App() {
     [selectedSifChartFilterValue, sifChartFilterValueOptions]
   );
   const sifFilterApplies = ['line', 'bar'].includes(chartVariants.sif);
-  const filteredSifRows = useMemo(
-    () => baseFilteredSifRows.filter((row) => (
+  const unprocessedSifRows = useMemo(
+    () => unprocessedSifBaseRows.filter((row) => (
     !sifFilterApplies
     || rowMatchesFilterValues(row[activeSifChartFilterField.value], activeSifChartFilterValue)
   )),
-    [baseFilteredSifRows, sifFilterApplies, activeSifChartFilterField.value, activeSifChartFilterValue]
+    [unprocessedSifBaseRows, sifFilterApplies, activeSifChartFilterField.value, activeSifChartFilterValue]
+  );
+  const {
+    baseRows: baseFilteredSifRows,
+    filteredRows: filteredSifRows,
+    processingMonth: sifProcessingMonth,
+    dateRange: sifDateRange,
+    historicalDateRange: sifHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedSifBaseRows,
+    unprocessedSifRows,
+    'sif',
+    sifFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
   );
   const globallyFilteredSifRows = filteredSifRows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), sifDateRange)
   );
   const sifChartData = useMemo(
     () => buildIncidentChartData(
@@ -6595,9 +6756,9 @@ export default function App() {
     SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     sifViewMode,
-    selectedDateRange
+    sifDateRange
   ),
-    [filteredSifRows, sifViewMode, selectedDateRange]
+    [filteredSifRows, sifViewMode, sifDateRange]
   );
   const sifMonthlyPerformanceData = useMemo(
     () => buildIncidentChartData(
@@ -6605,9 +6766,9 @@ export default function App() {
     SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     'monthly',
-    historicalPerformanceDateRange
+    sifHistoricalDateRange
   ),
-    [filteredSifRows, historicalPerformanceDateRange]
+    [filteredSifRows, sifHistoricalDateRange]
   );
   const sifHasIncidents = sifChartData.some((bucket) => Number(bucket.total) > 0);
   const sifForecastCalculation = useCalculatedMetricGoalLine({
@@ -6622,20 +6783,20 @@ export default function App() {
     () => buildSafetyParetoChartData(
     baseFilteredSifRows,
     activeSifChartFilterField.value,
-    selectedDateRange,
+    sifDateRange,
     'sif'
   ),
-    [baseFilteredSifRows, activeSifChartFilterField.value, selectedDateRange]
+    [baseFilteredSifRows, activeSifChartFilterField.value, sifDateRange]
   );
   const sifPaletteChartData = useMemo(
     () => buildSafetyPaletteChartData(
     baseFilteredSifRows,
     activeSifPaletteGroupField.value,
     activeSifPaletteColorField.value,
-    selectedDateRange,
+    sifDateRange,
     'sif'
   ),
-    [baseFilteredSifRows, activeSifPaletteGroupField.value, activeSifPaletteColorField.value, selectedDateRange]
+    [baseFilteredSifRows, activeSifPaletteGroupField.value, activeSifPaletteColorField.value, sifDateRange]
   );
   const isSifPareto = chartVariants.sif === 'pareto';
   const isSifPalette = chartVariants.sif === 'palette';
@@ -6668,7 +6829,7 @@ export default function App() {
     potentialSifPaletteColorFieldOptions.find(
       (option) => option.value === selectedPotentialSifPaletteColorField
     ) ?? potentialSifPaletteColorFieldOptions[0] ?? SAFETY_PALETTE_FIELDS[1];
-  const baseFilteredPotentialSifRows = useMemo(
+  const unprocessedPotentialSifBaseRows = useMemo(
     () => applyGlobalFilters(
     potentialSifState.rows.filter(
       (row) => Number(row.kpi_id) === POTENTIAL_SIF_KPI_ID
@@ -6681,10 +6842,10 @@ export default function App() {
   );
   const potentialSifChartFilterValueOptions = useMemo(
     () => getFilterOptions(
-    baseFilteredPotentialSifRows,
+    unprocessedPotentialSifBaseRows,
     activePotentialSifChartFilterField.value
   ),
-    [baseFilteredPotentialSifRows, activePotentialSifChartFilterField.value]
+    [unprocessedPotentialSifBaseRows, activePotentialSifChartFilterField.value]
   );
   const activePotentialSifChartFilterValue = useMemo(
     () => normalizeFilterValues(
@@ -6694,18 +6855,32 @@ export default function App() {
     [selectedPotentialSifChartFilterValue, potentialSifChartFilterValueOptions]
   );
   const potentialSifFilterApplies = ['line', 'bar'].includes(chartVariants.potentialSif);
-  const filteredPotentialSifRows = useMemo(
-    () => baseFilteredPotentialSifRows.filter((row) => (
+  const unprocessedPotentialSifRows = useMemo(
+    () => unprocessedPotentialSifBaseRows.filter((row) => (
     !potentialSifFilterApplies
     || rowMatchesFilterValues(
       row[activePotentialSifChartFilterField.value],
       activePotentialSifChartFilterValue
     )
   )),
-    [baseFilteredPotentialSifRows, potentialSifFilterApplies, activePotentialSifChartFilterField.value, activePotentialSifChartFilterValue]
+    [unprocessedPotentialSifBaseRows, potentialSifFilterApplies, activePotentialSifChartFilterField.value, activePotentialSifChartFilterValue]
+  );
+  const {
+    baseRows: baseFilteredPotentialSifRows,
+    filteredRows: filteredPotentialSifRows,
+    processingMonth: potentialSifProcessingMonth,
+    dateRange: potentialSifDateRange,
+    historicalDateRange: potentialSifHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedPotentialSifBaseRows,
+    unprocessedPotentialSifRows,
+    'potentialSif',
+    potentialSifFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
   );
   const globallyFilteredPotentialSifRows = filteredPotentialSifRows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), potentialSifDateRange)
   );
   const potentialSifChartData = useMemo(
     () => buildIncidentChartData(
@@ -6713,9 +6888,9 @@ export default function App() {
     POTENTIAL_SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     potentialSifViewMode,
-    selectedDateRange
+    potentialSifDateRange
   ),
-    [filteredPotentialSifRows, potentialSifViewMode, selectedDateRange]
+    [filteredPotentialSifRows, potentialSifViewMode, potentialSifDateRange]
   );
   const potentialSifMonthlyPerformanceData = useMemo(
     () => buildIncidentChartData(
@@ -6723,9 +6898,9 @@ export default function App() {
     POTENTIAL_SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     'monthly',
-    historicalPerformanceDateRange
+    potentialSifHistoricalDateRange
   ),
-    [filteredPotentialSifRows, historicalPerformanceDateRange]
+    [filteredPotentialSifRows, potentialSifHistoricalDateRange]
   );
   const potentialSifHasIncidents = potentialSifChartData.some((bucket) => Number(bucket.total) > 0);
   const potentialSifForecastCalculation = useCalculatedMetricGoalLine({
@@ -6740,20 +6915,20 @@ export default function App() {
     () => buildSafetyParetoChartData(
     baseFilteredPotentialSifRows,
     activePotentialSifChartFilterField.value,
-    selectedDateRange,
+    potentialSifDateRange,
     'potentialSif'
   ),
-    [baseFilteredPotentialSifRows, activePotentialSifChartFilterField.value, selectedDateRange]
+    [baseFilteredPotentialSifRows, activePotentialSifChartFilterField.value, potentialSifDateRange]
   );
   const potentialSifPaletteChartData = useMemo(
     () => buildSafetyPaletteChartData(
     baseFilteredPotentialSifRows,
     activePotentialSifPaletteGroupField.value,
     activePotentialSifPaletteColorField.value,
-    selectedDateRange,
+    potentialSifDateRange,
     'potentialSif'
   ),
-    [baseFilteredPotentialSifRows, activePotentialSifPaletteGroupField.value, activePotentialSifPaletteColorField.value, selectedDateRange]
+    [baseFilteredPotentialSifRows, activePotentialSifPaletteGroupField.value, activePotentialSifPaletteColorField.value, potentialSifDateRange]
   );
   const isPotentialSifPareto = chartVariants.potentialSif === 'pareto';
   const isPotentialSifPalette = chartVariants.potentialSif === 'palette';
@@ -6786,7 +6961,7 @@ export default function App() {
     nmfrPaletteColorFieldOptions.find((option) => option.value === selectedNmfrPaletteColorField)
     ?? nmfrPaletteColorFieldOptions[0]
     ?? SAFETY_PALETTE_FIELDS[1];
-  const baseFilteredNmfrRows = useMemo(
+  const unprocessedNmfrBaseRows = useMemo(
     () => applyGlobalFilters(
     nmfrState.rows.filter(
       (row) => Number(row.kpi_id) === NMFR_KPI_ID
@@ -6799,10 +6974,10 @@ export default function App() {
   );
   const nmfrChartFilterValueOptions = useMemo(
     () => getFilterOptions(
-    baseFilteredNmfrRows,
+    unprocessedNmfrBaseRows,
     activeNmfrChartFilterField.value
   ),
-    [baseFilteredNmfrRows, activeNmfrChartFilterField.value]
+    [unprocessedNmfrBaseRows, activeNmfrChartFilterField.value]
   );
   const activeNmfrChartFilterValue = useMemo(
     () => normalizeFilterValues(
@@ -6812,15 +6987,29 @@ export default function App() {
     [selectedNmfrChartFilterValue, nmfrChartFilterValueOptions]
   );
   const nmfrFilterApplies = ['line', 'bar'].includes(chartVariants.nmfr);
-  const filteredNmfrRows = useMemo(
-    () => baseFilteredNmfrRows.filter((row) => (
+  const unprocessedNmfrRows = useMemo(
+    () => unprocessedNmfrBaseRows.filter((row) => (
     !nmfrFilterApplies
     || rowMatchesFilterValues(row[activeNmfrChartFilterField.value], activeNmfrChartFilterValue)
   )),
-    [baseFilteredNmfrRows, nmfrFilterApplies, activeNmfrChartFilterField.value, activeNmfrChartFilterValue]
+    [unprocessedNmfrBaseRows, nmfrFilterApplies, activeNmfrChartFilterField.value, activeNmfrChartFilterValue]
+  );
+  const {
+    baseRows: baseFilteredNmfrRows,
+    filteredRows: filteredNmfrRows,
+    processingMonth: nmfrProcessingMonth,
+    dateRange: nmfrDateRange,
+    historicalDateRange: nmfrHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedNmfrBaseRows,
+    unprocessedNmfrRows,
+    'nmfr',
+    nmfrFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
   );
   const globallyFilteredNmfrRows = filteredNmfrRows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), nmfrDateRange)
   );
   const nmfrChartData = useMemo(
     () => buildNmfrChartData(
@@ -6828,9 +7017,9 @@ export default function App() {
     NMFR_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     nmfrViewMode,
-    selectedDateRange
+    nmfrDateRange
   ),
-    [filteredNmfrRows, nmfrViewMode, selectedDateRange]
+    [filteredNmfrRows, nmfrViewMode, nmfrDateRange]
   );
   const nmfrMonthlyPerformanceData = useMemo(
     () => buildNmfrChartData(
@@ -6838,9 +7027,9 @@ export default function App() {
     NMFR_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     'monthly',
-    historicalPerformanceDateRange
+    nmfrHistoricalDateRange
   ),
-    [filteredNmfrRows, historicalPerformanceDateRange]
+    [filteredNmfrRows, nmfrHistoricalDateRange]
   );
   const nmfrGoalForecastSeries = nmfrChartData;
   const nmfrGoalForecastSeriesValues = nmfrGoalForecastSeries.map((bucket) => bucket.total);
@@ -6853,27 +7042,27 @@ export default function App() {
     calculateGoalLine: forecastNmfrGoalLineFromSeries
   });
   const nmfrForecastPeriodLabel = getNextTimelinePeriodLabelAfterStamp(
-    getLatestIncidentStamp(filteredNmfrRows, selectedDateRange),
+    getLatestIncidentStamp(filteredNmfrRows, nmfrDateRange),
     nmfrViewMode
   );
   const nmfrParetoChartData = useMemo(
     () => buildSafetyParetoChartData(
     baseFilteredNmfrRows,
     activeNmfrChartFilterField.value,
-    selectedDateRange,
+    nmfrDateRange,
     'nmfr'
   ),
-    [baseFilteredNmfrRows, activeNmfrChartFilterField.value, selectedDateRange]
+    [baseFilteredNmfrRows, activeNmfrChartFilterField.value, nmfrDateRange]
   );
   const nmfrPaletteChartData = useMemo(
     () => buildSafetyPaletteChartData(
     baseFilteredNmfrRows,
     activeNmfrPaletteGroupField.value,
     activeNmfrPaletteColorField.value,
-    selectedDateRange,
+    nmfrDateRange,
     'nmfr'
   ),
-    [baseFilteredNmfrRows, activeNmfrPaletteGroupField.value, activeNmfrPaletteColorField.value, selectedDateRange]
+    [baseFilteredNmfrRows, activeNmfrPaletteGroupField.value, activeNmfrPaletteColorField.value, nmfrDateRange]
   );
   const isNmfrPareto = chartVariants.nmfr === 'pareto';
   const isNmfrPalette = chartVariants.nmfr === 'palette';
@@ -6909,7 +7098,7 @@ export default function App() {
     otdPaletteColorFieldOptions.find((option) => option.value === selectedOtdPaletteColorField)
     ?? otdPaletteColorFieldOptions[0]
     ?? OTD_PALETTE_FIELDS[1];
-  const baseFilteredOtdRows = useMemo(
+  const unprocessedOtdBaseRows = useMemo(
     () => applyGlobalFilters(
     otdState.rows,
     'otd',
@@ -6919,10 +7108,10 @@ export default function App() {
   );
   const otdChartFilterValueOptions = useMemo(
     () => getFilterOptions(
-    baseFilteredOtdRows,
+    unprocessedOtdBaseRows,
     activeOtdChartFilterField.value
   ),
-    [baseFilteredOtdRows, activeOtdChartFilterField.value]
+    [unprocessedOtdBaseRows, activeOtdChartFilterField.value]
   );
   const activeOtdChartFilterValue = useMemo(
     () => normalizeFilterValues(
@@ -6932,8 +7121,8 @@ export default function App() {
     [selectedOtdChartFilterValue, otdChartFilterValueOptions]
   );
   const otdFilterApplies = ['line', 'bar'].includes(chartVariants.otd);
-  const filteredOtdRows = useMemo(
-    () => baseFilteredOtdRows.filter((row) => {
+  const unprocessedOtdRows = useMemo(
+    () => unprocessedOtdBaseRows.filter((row) => {
     if (!otdFilterApplies) {
       return true;
     }
@@ -6942,11 +7131,25 @@ export default function App() {
       rowMatchesFilterValues(row[activeOtdChartFilterField.value], activeOtdChartFilterValue)
     );
   }),
-    [baseFilteredOtdRows, otdFilterApplies, activeOtdChartFilterField.value, activeOtdChartFilterValue]
+    [unprocessedOtdBaseRows, otdFilterApplies, activeOtdChartFilterField.value, activeOtdChartFilterValue]
+  );
+  const {
+    baseRows: baseFilteredOtdRows,
+    filteredRows: filteredOtdRows,
+    processingMonth: otdProcessingMonth,
+    dateRange: otdDateRange,
+    historicalDateRange: otdHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedOtdBaseRows,
+    unprocessedOtdRows,
+    'otd',
+    otdFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
   );
   const otdChartData = useMemo(
-    () => buildOtdChartData(filteredOtdRows, otdViewMode, selectedDateRange),
-    [filteredOtdRows, otdViewMode, selectedDateRange]
+    () => buildOtdChartData(filteredOtdRows, otdViewMode, otdDateRange),
+    [filteredOtdRows, otdViewMode, otdDateRange]
   );
   const otdSummaryMonth = getLatestDataMonth(filteredOtdRows,
     (row) => OTD_MONTH_COLUMNS.map(({ key }, monthIndex) =>
@@ -6963,9 +7166,9 @@ export default function App() {
     () => buildOtdChartData(
     filteredOtdRows,
     'monthly',
-    historicalPerformanceDateRange
+    otdHistoricalDateRange
   ),
-    [filteredOtdRows, historicalPerformanceDateRange]
+    [filteredOtdRows, otdHistoricalDateRange]
   );
   const otdGoalForecastData = otdChartData;
   const currentOtdMonthStamp = lastCompletedPerformanceMonthStamp;
@@ -7006,17 +7209,17 @@ export default function App() {
     baseFilteredOtdRows,
     activeOtdPaletteGroupField.value,
     activeOtdPaletteColorField.value,
-    selectedDateRange
+    otdDateRange
   ),
-    [baseFilteredOtdRows, activeOtdPaletteGroupField.value, activeOtdPaletteColorField.value, selectedDateRange]
+    [baseFilteredOtdRows, activeOtdPaletteGroupField.value, activeOtdPaletteColorField.value, otdDateRange]
   );
   const otdParetoChartData = useMemo(
     () => buildOtdParetoChartData(
     baseFilteredOtdRows,
     activeOtdChartFilterField.value,
-    selectedDateRange
+    otdDateRange
   ),
-    [baseFilteredOtdRows, activeOtdChartFilterField.value, selectedDateRange]
+    [baseFilteredOtdRows, activeOtdChartFilterField.value, otdDateRange]
   );
   const isOtdPalette = chartVariants.otd === 'palette';
   const isOtdPareto = chartVariants.otd === 'pareto';
@@ -7081,13 +7284,13 @@ export default function App() {
     laborPaletteColorFieldOptions.find((option) => option.value === selectedLaborPaletteColorField)
     ?? laborPaletteColorFieldOptions[0]
     ?? LABOR_PALETTE_FIELDS[1];
-  const baseFilteredLaborRows = applyGlobalFilters(
+  const unprocessedLaborBaseRows = applyGlobalFilters(
     laborState.rows,
     'labor',
     activeGlobalFilters
   );
   const laborChartFilterValueOptions = getFilterOptions(
-    baseFilteredLaborRows,
+    unprocessedLaborBaseRows,
     activeLaborChartFilterField.value
   );
   const activeLaborChartFilterValue = normalizeFilterValues(
@@ -7095,7 +7298,7 @@ export default function App() {
     laborChartFilterValueOptions
   );
   const laborFilterApplies = ['line', 'bar'].includes(chartVariants.labor);
-  const filteredLaborRows = baseFilteredLaborRows.filter((row) => {
+  const unprocessedLaborRows = unprocessedLaborBaseRows.filter((row) => {
     if (!laborFilterApplies) {
       return true;
     }
@@ -7104,15 +7307,29 @@ export default function App() {
       rowMatchesFilterValues(row[activeLaborChartFilterField.value], activeLaborChartFilterValue)
     );
   });
+  const {
+    baseRows: baseFilteredLaborRows,
+    filteredRows: filteredLaborRows,
+    processingMonth: laborProcessingMonth,
+    dateRange: laborDateRange,
+    historicalDateRange: laborHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedLaborBaseRows,
+    unprocessedLaborRows,
+    'labor',
+    laborFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
+  );
   const laborChartData = buildLaborUtilizationChartData(
     filteredLaborRows,
     laborViewMode,
-    selectedDateRange
+    laborDateRange
   );
   const laborMonthlyPerformanceData = buildLaborUtilizationChartData(
     filteredLaborRows,
     'monthly',
-    historicalPerformanceDateRange
+    laborHistoricalDateRange
   );
   const laborSummaryMonth = getLatestDataMonth(filteredLaborRows,
     (row) => LABOR_MONTH_COLUMNS.map(({ key }, monthIndex) =>
@@ -7145,12 +7362,12 @@ export default function App() {
     baseFilteredLaborRows,
     activeLaborPaletteGroupField.value,
     activeLaborPaletteColorField.value,
-    selectedDateRange
+    laborDateRange
   );
   const laborParetoChartData = buildLaborParetoChartData(
     baseFilteredLaborRows,
     activeLaborChartFilterField.value,
-    selectedDateRange
+    laborDateRange
   );
   const isLaborPalette = chartVariants.labor === 'palette';
   const isLaborPareto = chartVariants.labor === 'pareto';
@@ -7190,7 +7407,7 @@ export default function App() {
     laborNewPaletteColorFieldOptions.find(
       (option) => option.value === selectedLaborNewPaletteColorField
     ) ?? laborNewPaletteColorFieldOptions[0] ?? LABOR_NEW_PALETTE_FIELDS[1];
-  const baseFilteredLaborNewRows = useMemo(
+  const unprocessedLaborNewBaseRows = useMemo(
     () => applyGlobalFilters(
     laborNewState.rows,
     'laborNew',
@@ -7200,10 +7417,10 @@ export default function App() {
   );
   const laborNewChartFilterValueOptions = useMemo(
     () => getFilterOptions(
-    baseFilteredLaborNewRows,
+    unprocessedLaborNewBaseRows,
     activeLaborNewChartFilterField.value
   ),
-    [baseFilteredLaborNewRows, activeLaborNewChartFilterField.value]
+    [unprocessedLaborNewBaseRows, activeLaborNewChartFilterField.value]
   );
   const activeLaborNewChartFilterValue = useMemo(
     () => normalizeFilterValues(
@@ -7213,8 +7430,8 @@ export default function App() {
     [selectedLaborNewChartFilterValue, laborNewChartFilterValueOptions]
   );
   const laborNewFilterApplies = ['line', 'bar'].includes(chartVariants.laborNew);
-  const filteredLaborNewRows = useMemo(
-    () => baseFilteredLaborNewRows.filter((row) => {
+  const unprocessedLaborNewRows = useMemo(
+    () => unprocessedLaborNewBaseRows.filter((row) => {
     if (!laborNewFilterApplies) {
       return true;
     }
@@ -7224,26 +7441,40 @@ export default function App() {
       activeLaborNewChartFilterValue
     );
   }),
-    [baseFilteredLaborNewRows, laborNewFilterApplies, activeLaborNewChartFilterField.value, activeLaborNewChartFilterValue]
+    [unprocessedLaborNewBaseRows, laborNewFilterApplies, activeLaborNewChartFilterField.value, activeLaborNewChartFilterValue]
+  );
+  const {
+    baseRows: baseFilteredLaborNewRows,
+    filteredRows: filteredLaborNewRows,
+    processingMonth: laborNewProcessingMonth,
+    dateRange: laborNewDateRange,
+    historicalDateRange: laborNewHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedLaborNewBaseRows,
+    unprocessedLaborNewRows,
+    'laborNew',
+    laborNewFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
   );
   const visibleLaborNewRows = filteredLaborNewRows.filter((row) =>
-    isStampWithinDateRange(getLaborNewRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getLaborNewRowStamp(row), laborNewDateRange)
   );
   const laborNewChartData = useMemo(
     () => buildLaborUtilizationNewChartData(
     filteredLaborNewRows,
     laborNewViewMode,
-    selectedDateRange
+    laborNewDateRange
   ),
-    [filteredLaborNewRows, laborNewViewMode, selectedDateRange]
+    [filteredLaborNewRows, laborNewViewMode, laborNewDateRange]
   );
   const laborNewMonthlyPerformanceData = useMemo(
     () => buildLaborUtilizationNewChartData(
     filteredLaborNewRows,
     'monthly',
-    historicalPerformanceDateRange
+    laborNewHistoricalDateRange
   ),
-    [filteredLaborNewRows, historicalPerformanceDateRange]
+    [filteredLaborNewRows, laborNewHistoricalDateRange]
   );
   const laborNewSummaryMonth = getLatestDataMonth(filteredLaborNewRows,
     (row) => hasKpiValue(row.entered_hours) ? getLaborNewRowStamp(row) : null
@@ -7274,17 +7505,17 @@ export default function App() {
     baseFilteredLaborNewRows,
     activeLaborNewPaletteGroupField.value,
     activeLaborNewPaletteColorField.value,
-    selectedDateRange
+    laborNewDateRange
   ),
-    [baseFilteredLaborNewRows, activeLaborNewPaletteGroupField.value, activeLaborNewPaletteColorField.value, selectedDateRange]
+    [baseFilteredLaborNewRows, activeLaborNewPaletteGroupField.value, activeLaborNewPaletteColorField.value, laborNewDateRange]
   );
   const laborNewParetoChartData = useMemo(
     () => buildLaborUtilizationNewParetoChartData(
     baseFilteredLaborNewRows,
     activeLaborNewChartFilterField.value,
-    selectedDateRange
+    laborNewDateRange
   ),
-    [baseFilteredLaborNewRows, activeLaborNewChartFilterField.value, selectedDateRange]
+    [baseFilteredLaborNewRows, activeLaborNewChartFilterField.value, laborNewDateRange]
   );
   const isLaborNewPalette = chartVariants.laborNew === 'palette';
   const isLaborNewPareto = chartVariants.laborNew === 'pareto';
@@ -7324,13 +7555,13 @@ export default function App() {
     laborHanaPaletteColorFieldOptions.find(
       (option) => option.value === selectedLaborHanaPaletteColorField
     ) ?? laborHanaPaletteColorFieldOptions[0] ?? LABOR_HANA_PALETTE_FIELDS[1];
-  const baseFilteredLaborHanaRows = applyGlobalFilters(
+  const unprocessedLaborHanaBaseRows = applyGlobalFilters(
     laborHanaState.rows,
     'laborHana',
     activeGlobalFilters
   );
   const laborHanaChartFilterValueOptions = getFilterOptions(
-    baseFilteredLaborHanaRows,
+    unprocessedLaborHanaBaseRows,
     activeLaborHanaChartFilterField.value
   );
   const activeLaborHanaChartFilterValue = normalizeFilterValues(
@@ -7338,7 +7569,7 @@ export default function App() {
     laborHanaChartFilterValueOptions
   );
   const laborHanaFilterApplies = ['line', 'bar'].includes(chartVariants.laborHana);
-  const filteredLaborHanaRows = baseFilteredLaborHanaRows.filter((row) => {
+  const unprocessedLaborHanaRows = unprocessedLaborHanaBaseRows.filter((row) => {
     if (!laborHanaFilterApplies) {
       return true;
     }
@@ -7350,15 +7581,29 @@ export default function App() {
       )
     );
   });
+  const {
+    baseRows: baseFilteredLaborHanaRows,
+    filteredRows: filteredLaborHanaRows,
+    processingMonth: laborHanaProcessingMonth,
+    dateRange: laborHanaDateRange,
+    historicalDateRange: laborHanaHistoricalDateRange
+  } = useCardProcessingRows(
+    unprocessedLaborHanaBaseRows,
+    unprocessedLaborHanaRows,
+    'laborHana',
+    laborHanaFilterApplies,
+    selectedDateRange,
+    historicalPerformanceDateRange
+  );
   const laborHanaChartData = buildLaborUtilizationChartData(
     filteredLaborHanaRows,
     laborHanaViewMode,
-    selectedDateRange
+    laborHanaDateRange
   );
   const laborHanaMonthlyPerformanceData = buildLaborUtilizationChartData(
     filteredLaborHanaRows,
     'monthly',
-    historicalPerformanceDateRange
+    laborHanaHistoricalDateRange
   );
   const laborHanaSummaryMonth = getLatestDataMonth(filteredLaborHanaRows,
     (row) => LABOR_MONTH_COLUMNS.map(({ key }, monthIndex) =>
@@ -7392,12 +7637,12 @@ export default function App() {
     baseFilteredLaborHanaRows,
     activeLaborHanaPaletteGroupField.value,
     activeLaborHanaPaletteColorField.value,
-    selectedDateRange
+    laborHanaDateRange
   );
   const laborHanaParetoChartData = buildLaborParetoChartData(
     baseFilteredLaborHanaRows,
     activeLaborHanaChartFilterField.value,
-    selectedDateRange
+    laborHanaDateRange
   );
   const isLaborHanaPalette = chartVariants.laborHana === 'palette';
   const isLaborHanaPareto = chartVariants.laborHana === 'pareto';
@@ -7864,7 +8109,7 @@ export default function App() {
     requiredObservations: CALCULATED_GOAL_MIN_OBSERVATIONS,
     timelineLabel: LABOR_VIEW_CONFIG[laborHanaViewMode]?.label
   });
-  const filteredCustomerEscapesRows = useMemo(
+  const unprocessedCustomerEscapesBaseRows = useMemo(
     () => applyGlobalFilters(
     customerEscapesState.rows, 'customerEscapes', activeGlobalFilters
   ),
@@ -7878,27 +8123,39 @@ export default function App() {
   ];
   const customerEscapesFilterOptions = useMemo(() => customerEscapesFilterField === 'defect_type'
     ? ['Software', 'Hardware', 'Documentation']
-    : [...new Set(filteredCustomerEscapesRows
+    : [...new Set(unprocessedCustomerEscapesBaseRows
       .map((row) => String(row[customerEscapesFilterField] ?? '').trim())
       .filter(Boolean))].sort((left, right) => left.localeCompare(right)),
-  [filteredCustomerEscapesRows, customerEscapesFilterField]);
+  [unprocessedCustomerEscapesBaseRows, customerEscapesFilterField]);
   const activeCustomerEscapesFilterValues = useMemo(() => customerEscapesFilterValues.filter(
     (value) => customerEscapesFilterOptions.includes(value)
   ), [customerEscapesFilterValues, customerEscapesFilterOptions]);
-  const customerEscapesChartSourceRows = useMemo(() =>
+  const unprocessedCustomerEscapesRows = useMemo(() =>
     customerEscapesFilterField === 'defect_type'
       || activeCustomerEscapesFilterValues.length === 0
-      ? filteredCustomerEscapesRows
-      : filteredCustomerEscapesRows.filter((row) =>
+      ? unprocessedCustomerEscapesBaseRows
+      : unprocessedCustomerEscapesBaseRows.filter((row) =>
         activeCustomerEscapesFilterValues.includes(String(row[customerEscapesFilterField] ?? '').trim())
       ),
-  [filteredCustomerEscapesRows, customerEscapesFilterField, activeCustomerEscapesFilterValues]);
+  [unprocessedCustomerEscapesBaseRows, customerEscapesFilterField, activeCustomerEscapesFilterValues]);
+  const {
+    baseRows: filteredCustomerEscapesRows,
+    filteredRows: customerEscapesChartSourceRows,
+    processingMonth: customerEscapesProcessingMonth,
+    dateRange: customerEscapesDateRange
+  } = useCardProcessingRows(
+    unprocessedCustomerEscapesBaseRows,
+    unprocessedCustomerEscapesRows,
+    'customerEscapes',
+    false,
+    selectedDateRange
+  );
   function summarizeCustomerEscapes(rows) {
     const months = new Map();
     rows.forEach((row) => {
       const month = String(row.data_month ?? '').slice(0, 10);
       const stamp = Date.parse(`${month}T00:00:00Z`);
-      if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange)) return;
+      if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, customerEscapesDateRange)) return;
       const bucket = months.get(month) ?? {
         month, stamp, software: 0, hardware: 0, documentation: 0, programs: new Set()
       };
@@ -7912,7 +8169,7 @@ export default function App() {
   }
   const customerEscapesMonthly = useMemo(
     () => summarizeCustomerEscapes(filteredCustomerEscapesRows),
-    [filteredCustomerEscapesRows, selectedDateRange]
+    [filteredCustomerEscapesRows, customerEscapesDateRange]
   );
   const customerEscapesLatest = customerEscapesMonthly.at(-1);
   const customerEscapesKpi = customerEscapesLatest
@@ -7940,7 +8197,7 @@ export default function App() {
     });
     return [...buckets.values()];
   }, [customerEscapesChartSourceRows, customerEscapesViewMode,
-    customerEscapesFilterField, activeCustomerEscapesFilterValues, selectedDateRange]);
+    customerEscapesFilterField, activeCustomerEscapesFilterValues, customerEscapesDateRange]);
   const isCustomerEscapesPalette = chartVariants.customerEscapes === 'palette';
   const isCustomerEscapesPareto = chartVariants.customerEscapes === 'pareto';
   const customerEscapesPaletteFields = customerEscapesFilterFields;
@@ -7953,18 +8210,18 @@ export default function App() {
   const customerEscapesPalette = useMemo(
     () => buildCustomerEscapesPalette(
     filteredCustomerEscapesRows, customerEscapesPaletteGroupField,
-    customerEscapesPaletteColorField, selectedDateRange
+    customerEscapesPaletteColorField, customerEscapesDateRange
   ),
-    [filteredCustomerEscapesRows, customerEscapesPaletteGroupField, customerEscapesPaletteColorField, selectedDateRange]
+    [filteredCustomerEscapesRows, customerEscapesPaletteGroupField, customerEscapesPaletteColorField, customerEscapesDateRange]
   );
   const customerEscapesPareto = useMemo(
     () => buildParetoChartData(
-    getCustomerEscapesEntries(filteredCustomerEscapesRows, selectedDateRange).map((entry) => ({
+    getCustomerEscapesEntries(filteredCustomerEscapesRows, customerEscapesDateRange).map((entry) => ({
       category: entry[customerEscapesFilterField], value: entry.value
     })),
     PALETTE_MAX_GROUPS
   ),
-    [filteredCustomerEscapesRows, customerEscapesFilterField, selectedDateRange]
+    [filteredCustomerEscapesRows, customerEscapesFilterField, customerEscapesDateRange]
   );
   const customerEscapesForecastValues = isCustomerEscapesPalette || isCustomerEscapesPareto
     ? customerEscapesMonthly.map((month) =>
@@ -9044,6 +9301,7 @@ export default function App() {
             {visibleCards.controllableCosts && (
               <article className="analytics-card" style={{ order: 1 }}>
                 <CardHeader
+                  processingMonth={controllableCostsProcessingMonth}
                   title="Controllable Costs"
                   info={controllableCostsMetricInfo}
                   tooltipLegend={controllableCostsCardTooltipLegend}
@@ -9129,7 +9387,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={controllableCostsDateRange}
                               variant={chartVariants.controllableCosts === 'bar' ? 'bar' : 'line'}
                               width={controllableCostsChartWidth}
                               height={CHART_HEIGHT}
@@ -9245,6 +9503,7 @@ export default function App() {
             {visibleCards.controllableCostsNew && (
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
+                  processingMonth={controllableCostsNewProcessingMonth}
                   title="Controllable Costs"
                   info={controllableCostsNewMetricInfo}
                   tooltipLegend={controllableCostsNewCardTooltipLegend}
@@ -9460,6 +9719,7 @@ export default function App() {
             {visibleCards.controllableCostsHana && (
               <article className="analytics-card" style={{ order: 2 }}>
                 <CardHeader
+                  processingMonth={controllableCostsHanaProcessingMonth}
                   title="Controllable Costs — Databricks Processed"
                   info={controllableCostsHanaMetricInfo}
                   tooltipLegend={controllableCostsHanaCardTooltipLegend}
@@ -9548,7 +9808,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={controllableCostsHanaDateRange}
                               variant={chartVariants.controllableCostsHana === 'bar' ? 'bar' : 'line'}
                               width={controllableCostsHanaChartWidth}
                               height={CHART_HEIGHT}
@@ -9680,6 +9940,7 @@ export default function App() {
             {visibleCards.sif && (
               <article className="analytics-card" style={{ order: 8 }}>
                 <CardHeader
+                  processingMonth={sifProcessingMonth}
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
                   tooltipLegend={sifCardTooltipLegend}
@@ -9759,7 +10020,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={sifDateRange}
                               variant={chartVariants.sif === 'bar' ? 'bar' : 'line'}
                               width={sifChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -9868,6 +10129,7 @@ export default function App() {
             {visibleCards.potentialSif && (
               <article className="analytics-card" style={{ order: 7 }}>
                 <CardHeader
+                  processingMonth={potentialSifProcessingMonth}
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
                   tooltipLegend={potentialSifCardTooltipLegend}
@@ -9955,7 +10217,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={potentialSifDateRange}
                               variant={chartVariants.potentialSif === 'bar' ? 'bar' : 'line'}
                               width={potentialSifChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -10064,6 +10326,7 @@ export default function App() {
             {visibleCards.nmfr && (
               <article className="analytics-card" style={{ order: 5 }}>
                 <CardHeader
+                  processingMonth={nmfrProcessingMonth}
                   title="Near Miss Frequency Rate"
                   info={nmfrMetricInfo}
                   tooltipLegend={nmfrCardTooltipLegend}
@@ -10141,7 +10404,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={nmfrDateRange}
                               variant={chartVariants.nmfr === 'bar' ? 'bar' : 'line'}
                               width={nmfrChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -10250,6 +10513,7 @@ export default function App() {
             {visibleCards.customerEscapes && (
               <article className="analytics-card" style={{ order: 7 }}>
                 <CardHeader
+                  processingMonth={customerEscapesProcessingMonth}
                   title="Customer Escapes"
                   info={customerEscapesMetricInfo}
                   tooltipLegend={isCustomerEscapesPalette
@@ -10322,7 +10586,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={customerEscapesDateRange}
                               variant={chartVariants.customerEscapes === 'bar' ? 'bar' : 'line'}
                               width={customerEscapesChartWidth}
                               height={CHART_HEIGHT}
@@ -10422,6 +10686,7 @@ export default function App() {
             {visibleCards.otd && (
               <article className="analytics-card" style={{ order: 6 }}>
                 <CardHeader
+                  processingMonth={otdProcessingMonth}
                   title="On Time Delivery (OTD)"
                   info={otdMetricInfo}
                   tooltipLegend={otdCardTooltipLegend}
@@ -10499,7 +10764,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={otdDateRange}
                               variant={chartVariants.otd === 'bar' ? 'bar' : 'line'}
                               width={otdChartWidth}
                               height={CHART_HEIGHT}
@@ -10625,6 +10890,7 @@ export default function App() {
             {visibleCards.labor && (
               <article className="analytics-card" style={{ order: 3 }}>
                 <CardHeader
+                  processingMonth={laborProcessingMonth}
                   title="Labor Utilization"
                   info={laborMetricInfo}
                   tooltipLegend={laborCardTooltipLegend}
@@ -10708,7 +10974,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={laborDateRange}
                               variant={chartVariants.labor === 'bar' ? 'bar' : 'line'}
                               width={laborChartWidth}
                               height={CHART_HEIGHT}
@@ -10814,6 +11080,7 @@ export default function App() {
             {visibleCards.laborNew && (
               <article className="analytics-card" style={{ order: 4 }}>
                 <CardHeader
+                  processingMonth={laborNewProcessingMonth}
                   title="Labor Utilization"
                   info={laborNewMetricInfo}
                   tooltipLegend={laborNewCardTooltipLegend}
@@ -10906,7 +11173,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={laborNewDateRange}
                               variant={chartVariants.laborNew === 'bar' ? 'bar' : 'line'}
                               width={laborNewChartWidth}
                               height={CHART_HEIGHT}
@@ -11014,6 +11281,7 @@ export default function App() {
             {visibleCards.laborHana && (
               <article className="analytics-card" style={{ order: 4 }}>
                 <CardHeader
+                  processingMonth={laborHanaProcessingMonth}
                   title="Labor Utilization HANA"
                   info={laborHanaMetricInfo}
                   tooltipLegend={laborHanaCardTooltipLegend}
@@ -11107,7 +11375,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={selectedDateRange}
+                              selectedDateRange={laborHanaDateRange}
                               variant={chartVariants.laborHana === 'bar' ? 'bar' : 'line'}
                               width={laborHanaChartWidth}
                               height={CHART_HEIGHT}

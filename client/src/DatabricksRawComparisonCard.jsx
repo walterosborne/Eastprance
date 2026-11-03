@@ -1,3 +1,4 @@
+import { findLatestMonthOutlier, excludeProcessingMonth, getProcessingMonthNote } from './latestMonthProcessing.mjs';
 import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -942,7 +943,24 @@ export default memo(function DatabricksRawComparisonCard({
     || activeFilterValues.includes(normalizeText(row?.[filterField]))
   )), [globallyFilteredRows, activeFilterValues, filterField]);
   const isTrend = chartVariant === 'line' || chartVariant === 'bar';
-  const selectedRows = isTrend ? filteredRows : globallyFilteredRows;
+  const unprocessedRows = isTrend ? filteredRows : globallyFilteredRows;
+  const processingMonth = useMemo(() => {
+    const monthlyTotals = new Map();
+    for (const row of unprocessedRows) {
+      const stamp = getMonthStamp(row);
+      if (Number.isFinite(stamp) && hasKpiValue(row.cost)) {
+        monthlyTotals.set(stamp, (monthlyTotals.get(stamp) ?? 0) + Number(row.cost));
+      }
+    }
+    return findLatestMonthOutlier(
+      [...monthlyTotals].map(([stamp, value]) => ({ stamp, value })),
+      { lastCompletedMonth: getLastCompletedMonthStamp() }
+    );
+  }, [unprocessedRows]);
+  const selectedRows = useMemo(
+    () => excludeProcessingMonth(unprocessedRows, processingMonth, getMonthStamp),
+    [unprocessedRows, processingMonth]
+  );
   const startStamp = selectedDateRange?.startStamp;
   const endStamp = selectedDateRange?.endStamp;
   const chartRows = useMemo(() => selectedRows.filter((row) => {
@@ -1006,6 +1024,9 @@ export default memo(function DatabricksRawComparisonCard({
         <div className="card-info">
           <button type="button" className="card-info-trigger" aria-label="Databricks Raw metric info">?</button>
           <div className="card-info-tooltip" role="tooltip">
+            {Number.isFinite(processingMonth) && (
+              <p className="metric-info-paragraph">{getProcessingMonthNote(processingMonth)}</p>
+            )}
             <div className="metric-info-legend">
               <p className="metric-info-legend-title">Chart legend</p>
               <div className="metric-info-legend-list">

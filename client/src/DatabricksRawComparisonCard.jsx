@@ -899,17 +899,30 @@ function ParetoChart({ width, data }) {
 
 export default memo(function DatabricksRawComparisonCard({
   state,
+  chartVariant,
+  onVariantChange,
   globalFilters,
   selectedDateRange,
   applyGlobalFilters
 }) {
   const [viewMode, setViewMode] = useState('monthly');
-  const [chartVariant, setChartVariant] = useState('line');
-  const [filterField, setFilterField] = useState(FILTER_FIELDS[0].value);
+  const [filterField, setFilterField] = useState('facility');
   const [filterValues, setFilterValues] = useState([]);
-  const [paletteGroupField, setPaletteGroupField] = useState(FILTER_FIELDS[0].value);
+  const [paletteGroupField, setPaletteGroupField] = useState('facility');
   const [paletteColorField, setPaletteColorField] = useState(FILTER_FIELDS[1].value);
   const { chartHostRef, chartWidth } = useChartWidth();
+
+  const resetFilters = () => {
+    setFilterField('facility');
+    setFilterValues([]);
+    setPaletteGroupField('facility');
+    setPaletteColorField((current) => current === 'facility' ? 'business_unit' : current);
+  };
+
+  // Also handle changes made by the dashboard-wide chart controls.
+  useEffect(() => {
+    resetFilters();
+  }, [chartVariant]);
 
   const visibleRows = useMemo(() => getVisibleRows(state.rows), [state.rows]);
   const globallyFilteredRows = useMemo(
@@ -1081,7 +1094,7 @@ export default memo(function DatabricksRawComparisonCard({
             <div className="chart-control-row-toggle">
               <ChartControls
                 variant={chartVariant}
-                onVariantChange={setChartVariant}
+                onVariantChange={onVariantChange}
                 filterField={filterField}
                 onFilterFieldChange={(nextField) => {
                   setFilterField(nextField);
@@ -1114,7 +1127,10 @@ export default memo(function DatabricksRawComparisonCard({
               exclusive
               fullWidth
               onChange={(_event, nextMode) => {
-                if (nextMode) setViewMode(nextMode);
+                if (nextMode) {
+                  resetFilters();
+                  setViewMode(nextMode);
+                }
               }}
               sx={timelineToggleGroupSx}
               aria-label="Databricks Raw timeline"
@@ -1131,4 +1147,5 @@ export default memo(function DatabricksRawComparisonCard({
     </article>
   );
 });
+
 

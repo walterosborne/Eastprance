@@ -289,8 +289,8 @@ const OTD_CHART_FILTER_FIELDS = [
 ];
 
 const OTD_PARETO_FILTER_FIELDS = [
-  OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'business_unit')
-].filter(Boolean);
+  ...OTD_CHART_FILTER_FIELDS.filter((option) => ['site', 'business_unit'].includes(option.value))
+];
 const OTD_PALETTE_FIELDS = OTD_CHART_FILTER_FIELDS.map((option) => ({
   value: option.value,
   label: option.label
@@ -509,6 +509,7 @@ const CARD_CHIP_OPTIONS = [
 ];
 
 const DEFAULT_CHART_VARIANTS = {
+  controllableCostsDatabricksRaw: 'line',
   controllableCosts: 'line',
   controllableCostsNew: 'line',
   controllableCostsHana: 'line',
@@ -522,6 +523,7 @@ const DEFAULT_CHART_VARIANTS = {
   laborHana: 'line'
 };
 const CARD_VARIANT_OPTIONS_BY_METRIC = {
+  controllableCostsDatabricksRaw: ['line', 'bar', 'palette', 'pareto'],
   controllableCosts: ['line', 'bar', 'palette', 'pareto'],
   controllableCostsNew: ['line', 'bar', 'palette', 'pareto'],
   controllableCostsHana: ['line', 'bar', 'palette', 'pareto'],
@@ -5196,9 +5198,9 @@ export default function App() {
   });
   const [customerEscapesState, setCustomerEscapesState] = useState({ rows: [], loading: true, error: '' });
   const [customerEscapesViewMode, setCustomerEscapesViewMode] = useState('monthly');
-  const [customerEscapesFilterField, setCustomerEscapesFilterField] = useState('division');
+  const [customerEscapesFilterField, setCustomerEscapesFilterField] = useState('facility');
   const [customerEscapesFilterValues, setCustomerEscapesFilterValues] = useState([]);
-  const [customerEscapesPaletteGroupField, setCustomerEscapesPaletteGroupField] = useState('business_unit');
+  const [customerEscapesPaletteGroupField, setCustomerEscapesPaletteGroupField] = useState('facility');
   const [customerEscapesPaletteColorField, setCustomerEscapesPaletteColorField] = useState('defect_type');
   const [otdState, setOtdState] = useState({
     rows: [],
@@ -5224,107 +5226,77 @@ export default function App() {
     error: '',
     source: ''
   });
-  const [selectedControllableChartFilterField, setSelectedControllableChartFilterField] = useState(
-    CONTROLLABLE_CHART_FILTER_FIELDS[0].value
-  );
+  const [selectedControllableChartFilterField, setSelectedControllableChartFilterField] = useState('address');
   const [selectedControllableChartFilterValue, setSelectedControllableChartFilterValue] =
     useState([]);
   const [selectedControllablePaletteGroupField, setSelectedControllablePaletteGroupField] =
-    useState(CONTROLLABLE_PALETTE_FIELDS[0].value);
+    useState('address');
   const [selectedControllablePaletteColorField, setSelectedControllablePaletteColorField] =
     useState(CONTROLLABLE_PALETTE_FIELDS[1].value);
   const [controllableCostsViewMode, setControllableCostsViewMode] = useState('quarterly');
   const [selectedControllableNewChartFilterField, setSelectedControllableNewChartFilterField] =
-    useState(CONTROLLABLE_NEW_CHART_FILTER_FIELDS[0].value);
+    useState('facility');
   const [selectedControllableNewChartFilterValue, setSelectedControllableNewChartFilterValue] =
     useState([]);
   const [selectedControllableNewPaletteGroupField, setSelectedControllableNewPaletteGroupField] =
-    useState(CONTROLLABLE_NEW_PALETTE_FIELDS[0].value);
+    useState('facility');
   const [selectedControllableNewPaletteColorField, setSelectedControllableNewPaletteColorField] =
     useState(CONTROLLABLE_NEW_PALETTE_FIELDS[1].value);
   const [controllableCostsNewViewMode, setControllableCostsNewViewMode] = useState('monthly');
   const [selectedControllableHanaChartFilterField, setSelectedControllableHanaChartFilterField] =
-    useState(CONTROLLABLE_HANA_CHART_FILTER_FIELDS[0].value);
+    useState('facility');
   const [selectedControllableHanaChartFilterValue, setSelectedControllableHanaChartFilterValue] =
     useState([]);
   const [selectedControllableHanaPaletteGroupField, setSelectedControllableHanaPaletteGroupField] =
-    useState(CONTROLLABLE_HANA_PALETTE_FIELDS[0].value);
+    useState('facility');
   const [selectedControllableHanaPaletteColorField, setSelectedControllableHanaPaletteColorField] =
     useState(CONTROLLABLE_HANA_PALETTE_FIELDS[1].value);
   const [controllableCostsHanaViewMode, setControllableCostsHanaViewMode] = useState('monthly');
   const [sifViewMode, setSifViewMode] = useState('monthly');
   const [potentialSifViewMode, setPotentialSifViewMode] = useState('monthly');
   const [nmfrViewMode, setNmfrViewMode] = useState('monthly');
-  const [selectedSifChartFilterField, setSelectedSifChartFilterField] = useState(
-    SAFETY_CHART_FILTER_FIELDS[0].value
-  );
+  const [selectedSifChartFilterField, setSelectedSifChartFilterField] = useState('site');
   const [selectedSifChartFilterValue, setSelectedSifChartFilterValue] = useState([]);
-  const [selectedSifPaletteGroupField, setSelectedSifPaletteGroupField] = useState(
-    SAFETY_PALETTE_FIELDS[0].value
-  );
-  const [selectedSifPaletteColorField, setSelectedSifPaletteColorField] = useState(
-    SAFETY_PALETTE_FIELDS[1].value
-  );
+  const [selectedSifPaletteGroupField, setSelectedSifPaletteGroupField] = useState('site');
+  const [selectedSifPaletteColorField, setSelectedSifPaletteColorField] = useState('division');
   const [selectedPotentialSifChartFilterField, setSelectedPotentialSifChartFilterField] =
-    useState(SAFETY_CHART_FILTER_FIELDS[0].value);
+    useState('site');
   const [selectedPotentialSifChartFilterValue, setSelectedPotentialSifChartFilterValue] =
     useState([]);
   const [selectedPotentialSifPaletteGroupField, setSelectedPotentialSifPaletteGroupField] =
-    useState(SAFETY_PALETTE_FIELDS[0].value);
+    useState('site');
   const [selectedPotentialSifPaletteColorField, setSelectedPotentialSifPaletteColorField] =
-    useState(SAFETY_PALETTE_FIELDS[1].value);
-  const [selectedNmfrChartFilterField, setSelectedNmfrChartFilterField] = useState(
-    SAFETY_CHART_FILTER_FIELDS[0].value
-  );
+    useState('division');
+  const [selectedNmfrChartFilterField, setSelectedNmfrChartFilterField] = useState('site');
   const [selectedNmfrChartFilterValue, setSelectedNmfrChartFilterValue] = useState([]);
-  const [selectedNmfrPaletteGroupField, setSelectedNmfrPaletteGroupField] = useState(
-    SAFETY_PALETTE_FIELDS[0].value
-  );
-  const [selectedNmfrPaletteColorField, setSelectedNmfrPaletteColorField] = useState(
-    SAFETY_PALETTE_FIELDS[1].value
-  );
-  const [selectedOtdChartFilterField, setSelectedOtdChartFilterField] = useState(
-    OTD_CHART_FILTER_FIELDS.find((option) => option.value === 'business_unit')?.value ?? OTD_CHART_FILTER_FIELDS[0].value
-  );
+  const [selectedNmfrPaletteGroupField, setSelectedNmfrPaletteGroupField] = useState('site');
+  const [selectedNmfrPaletteColorField, setSelectedNmfrPaletteColorField] = useState('division');
+  const [selectedOtdChartFilterField, setSelectedOtdChartFilterField] = useState('site');
   const [selectedOtdChartFilterValue, setSelectedOtdChartFilterValue] = useState([]);
-  const [selectedOtdPaletteGroupField, setSelectedOtdPaletteGroupField] = useState(
-    OTD_PALETTE_FIELDS[0].value
-  );
+  const [selectedOtdPaletteGroupField, setSelectedOtdPaletteGroupField] = useState('site');
   const [selectedOtdPaletteColorField, setSelectedOtdPaletteColorField] = useState(
     OTD_PALETTE_FIELDS[1].value
   );
   const [otdViewMode, setOtdViewMode] = useState('monthly');
-  const [selectedLaborChartFilterField, setSelectedLaborChartFilterField] = useState(
-    LABOR_CHART_FILTER_FIELDS[0].value
-  );
+  const [selectedLaborChartFilterField, setSelectedLaborChartFilterField] = useState('forecasted_cc');
   const [selectedLaborChartFilterValue, setSelectedLaborChartFilterValue] =
     useState([]);
-  const [selectedLaborPaletteGroupField, setSelectedLaborPaletteGroupField] = useState(
-    LABOR_PALETTE_FIELDS[0].value
-  );
+  const [selectedLaborPaletteGroupField, setSelectedLaborPaletteGroupField] = useState('forecasted_cc');
   const [selectedLaborPaletteColorField, setSelectedLaborPaletteColorField] = useState(
     LABOR_PALETTE_FIELDS[1].value
   );
   const [laborViewMode, setLaborViewMode] = useState('monthly');
-  const [selectedLaborNewChartFilterField, setSelectedLaborNewChartFilterField] = useState(
-    LABOR_NEW_CHART_FILTER_FIELDS[0].value
-  );
+  const [selectedLaborNewChartFilterField, setSelectedLaborNewChartFilterField] = useState('facility');
   const [selectedLaborNewChartFilterValue, setSelectedLaborNewChartFilterValue] = useState([]);
-  const [selectedLaborNewPaletteGroupField, setSelectedLaborNewPaletteGroupField] = useState(
-    LABOR_NEW_PALETTE_FIELDS[0].value
-  );
+  const [selectedLaborNewPaletteGroupField, setSelectedLaborNewPaletteGroupField] = useState('facility');
   const [selectedLaborNewPaletteColorField, setSelectedLaborNewPaletteColorField] = useState(
     LABOR_NEW_PALETTE_FIELDS[1].value
   );
   const [laborNewViewMode, setLaborNewViewMode] = useState('monthly');
-  const [selectedLaborHanaChartFilterField, setSelectedLaborHanaChartFilterField] = useState(
-    LABOR_HANA_CHART_FILTER_FIELDS[0].value
-  );
+  const [selectedLaborHanaChartFilterField, setSelectedLaborHanaChartFilterField] = useState('forecasted_cc');
   const [selectedLaborHanaChartFilterValue, setSelectedLaborHanaChartFilterValue] =
     useState([]);
-  const [selectedLaborHanaPaletteGroupField, setSelectedLaborHanaPaletteGroupField] = useState(
-    LABOR_HANA_PALETTE_FIELDS[0].value
-  );
+  const [selectedLaborHanaPaletteGroupField, setSelectedLaborHanaPaletteGroupField] = useState('forecasted_cc');
   const [selectedLaborHanaPaletteColorField, setSelectedLaborHanaPaletteColorField] = useState(
     LABOR_HANA_PALETTE_FIELDS[1].value
   );
@@ -8110,19 +8082,63 @@ export default function App() {
         : '';
   const BrandingBannerWrapper = SITE_BRANDING.href ? 'a' : 'div';
 
+  // Each dataset has its own facility column; reset local filters together so
+  // stale values cannot survive a switch to another chart or timeline view.
+  const resetCardFilters = (metricKey) => {
+    const controls = {
+      controllableCosts: ['address', 'cost_category',
+        setSelectedControllableChartFilterField, setSelectedControllableChartFilterValue,
+        setSelectedControllablePaletteGroupField, setSelectedControllablePaletteColorField],
+      controllableCostsNew: ['facility', 'business_unit',
+        setSelectedControllableNewChartFilterField, setSelectedControllableNewChartFilterValue,
+        setSelectedControllableNewPaletteGroupField, setSelectedControllableNewPaletteColorField],
+      controllableCostsHana: ['facility', 'business_unit',
+        setSelectedControllableHanaChartFilterField, setSelectedControllableHanaChartFilterValue,
+        setSelectedControllableHanaPaletteGroupField, setSelectedControllableHanaPaletteColorField],
+      sif: ['site', 'division',
+        setSelectedSifChartFilterField, setSelectedSifChartFilterValue,
+        setSelectedSifPaletteGroupField, setSelectedSifPaletteColorField],
+      potentialSif: ['site', 'division',
+        setSelectedPotentialSifChartFilterField, setSelectedPotentialSifChartFilterValue,
+        setSelectedPotentialSifPaletteGroupField, setSelectedPotentialSifPaletteColorField],
+      nmfr: ['site', 'division',
+        setSelectedNmfrChartFilterField, setSelectedNmfrChartFilterValue,
+        setSelectedNmfrPaletteGroupField, setSelectedNmfrPaletteColorField],
+      otd: ['site', 'division',
+        setSelectedOtdChartFilterField, setSelectedOtdChartFilterValue,
+        setSelectedOtdPaletteGroupField, setSelectedOtdPaletteColorField],
+      labor: ['forecasted_cc', 'pool',
+        setSelectedLaborChartFilterField, setSelectedLaborChartFilterValue,
+        setSelectedLaborPaletteGroupField, setSelectedLaborPaletteColorField],
+      laborNew: ['facility', 'business_unit',
+        setSelectedLaborNewChartFilterField, setSelectedLaborNewChartFilterValue,
+        setSelectedLaborNewPaletteGroupField, setSelectedLaborNewPaletteColorField],
+      laborHana: ['forecasted_cc', 'business_unit',
+        setSelectedLaborHanaChartFilterField, setSelectedLaborHanaChartFilterValue,
+        setSelectedLaborHanaPaletteGroupField, setSelectedLaborHanaPaletteColorField],
+      customerEscapes: ['facility', 'defect_type',
+        setCustomerEscapesFilterField, setCustomerEscapesFilterValues,
+        setCustomerEscapesPaletteGroupField, setCustomerEscapesPaletteColorField]
+    }[metricKey];
+    if (!controls) return;
+    const [facilityField, fallbackColorField, setField, setValues, setGroup, setColor] = controls;
+    setField(facilityField);
+    setValues([]);
+    setGroup(facilityField);
+    setColor((current) => current === facilityField ? fallbackColorField : current);
+  };
+
+  const changeChartVariant = (metricKey, nextVariant) => {
+    if (!nextVariant || nextVariant === chartVariants[metricKey]) return;
+    resetCardFilters(metricKey);
+    setChartVariants((current) => ({ ...current, [metricKey]: nextVariant }));
+  };
+
   const setAllChartVariants = (nextVariant) => {
-    setChartVariants({
-      controllableCosts: nextVariant,
-      controllableCostsNew: nextVariant,
-      controllableCostsHana: nextVariant,
-      sif: nextVariant,
-      potentialSif: nextVariant,
-      nmfr: nextVariant,
-      otd: nextVariant,
-      labor: nextVariant,
-      laborNew: nextVariant,
-      laborHana: nextVariant
-    });
+    Object.keys(DEFAULT_CHART_VARIANTS).forEach(resetCardFilters);
+    setChartVariants(Object.fromEntries(
+      Object.keys(DEFAULT_CHART_VARIANTS).map((metricKey) => [metricKey, nextVariant])
+    ));
   };
 
   const applyDashboardPresetState = (presetState, presetName) => {
@@ -9147,18 +9163,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.controllableCosts}
-                          onChange={(nextVariant) => {
-                            if (nextVariant === 'pareto') {
-                              setSelectedControllableChartFilterField(
-                                CONTROLLABLE_PARETO_FILTER_FIELDS[0].value
-                              );
-                            }
-
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              controllableCosts: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('controllableCosts', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -9219,6 +9224,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('controllableCosts');
                             setControllableCostsViewMode(nextMode);
                           }
                         }}
@@ -9370,18 +9376,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.controllableCostsNew}
-                          onChange={(nextVariant) => {
-                            if (nextVariant === 'pareto') {
-                              setSelectedControllableNewChartFilterField(
-                                CONTROLLABLE_NEW_PARETO_FILTER_FIELDS[0].value
-                              );
-                            }
-
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              controllableCostsNew: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('controllableCostsNew', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -9442,6 +9437,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('controllableCostsNew');
                             setControllableCostsNewViewMode(nextMode);
                           }
                         }}
@@ -9593,18 +9589,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.controllableCostsHana}
-                          onChange={(nextVariant) => {
-                            if (nextVariant === 'pareto') {
-                              setSelectedControllableHanaChartFilterField(
-                                CONTROLLABLE_HANA_PARETO_FILTER_FIELDS[0].value
-                              );
-                            }
-
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              controllableCostsHana: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('controllableCostsHana', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -9663,6 +9648,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('controllableCostsHana');
                             setControllableCostsHanaViewMode(nextMode);
                           }
                         }}
@@ -9682,6 +9668,8 @@ export default function App() {
 
             {visibleCards.controllableCostsDatabricksRaw && (
               <DatabricksRawComparisonCard
+                chartVariant={chartVariants.controllableCostsDatabricksRaw}
+                onVariantChange={(nextVariant) => changeChartVariant('controllableCostsDatabricksRaw', nextVariant)}
                 state={controllableCostsDatabricksRawState}
                 globalFilters={activeGlobalFilters}
                 selectedDateRange={selectedDateRange}
@@ -9800,12 +9788,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.sif}
-                          onChange={(nextVariant) => {
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              sif: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('sif', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -9864,6 +9847,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('sif');
                             setSifViewMode(nextMode);
                           }
                         }}
@@ -10000,12 +9984,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.potentialSif}
-                          onChange={(nextVariant) => {
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              potentialSif: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('potentialSif', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -10064,6 +10043,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('potentialSif');
                             setPotentialSifViewMode(nextMode);
                           }
                         }}
@@ -10190,12 +10170,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.nmfr}
-                          onChange={(nextVariant) => {
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              nmfr: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('nmfr', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -10254,6 +10229,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('nmfr');
                             setNmfrViewMode(nextMode);
                           }
                         }}
@@ -10368,9 +10344,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.customerEscapes}
-                          onChange={(variant) => setChartVariants((current) => ({
-                            ...current, customerEscapes: variant
-                          }))}
+                          onChange={(nextVariant) => changeChartVariant('customerEscapes', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -10426,7 +10400,12 @@ export default function App() {
                         value={customerEscapesViewMode}
                         exclusive
                         fullWidth
-                        onChange={(_event, mode) => { if (mode) setCustomerEscapesViewMode(mode); }}
+                        onChange={(_event, mode) => {
+                          if (mode) {
+                            resetCardFilters('customerEscapes');
+                            setCustomerEscapesViewMode(mode);
+                          }
+                        }}
                         sx={timelineToggleGroupSx}
                       >
                         {Object.entries(INCIDENT_VIEW_CONFIG).map(([mode, config]) => (
@@ -10566,16 +10545,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.otd}
-                          onChange={(nextVariant) => {
-                            if (nextVariant === 'pareto') {
-                              setSelectedOtdChartFilterField(OTD_PARETO_FILTER_FIELDS[0].value);
-                            }
-
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              otd: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('otd', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -10634,6 +10604,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('otd');
                             setOtdViewMode(nextMode);
                           }
                         }}
@@ -10763,16 +10734,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.labor}
-                          onChange={(nextVariant) => {
-                            if (nextVariant === 'pareto') {
-                              setSelectedLaborChartFilterField(LABOR_PARETO_FILTER_FIELDS[0].value);
-                            }
-
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              labor: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('labor', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -10831,6 +10793,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('labor');
                             setLaborViewMode(nextMode);
                           }
                         }}
@@ -10969,18 +10932,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.laborNew}
-                          onChange={(nextVariant) => {
-                            if (nextVariant === 'pareto') {
-                              setSelectedLaborNewChartFilterField(
-                                LABOR_NEW_PARETO_FILTER_FIELDS[0].value
-                              );
-                            }
-
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              laborNew: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('laborNew', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -11041,6 +10993,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('laborNew');
                             setLaborNewViewMode(nextMode);
                           }
                         }}
@@ -11180,18 +11133,7 @@ export default function App() {
                       <div className="chart-control-row-toggle">
                         <ChartTypeToggle
                           value={chartVariants.laborHana}
-                          onChange={(nextVariant) => {
-                            if (nextVariant === 'pareto') {
-                              setSelectedLaborHanaChartFilterField(
-                                LABOR_HANA_PARETO_FILTER_FIELDS[0].value
-                              );
-                            }
-
-                            setChartVariants((currentValue) => ({
-                              ...currentValue,
-                              laborHana: nextVariant
-                            }));
-                          }}
+                          onChange={(nextVariant) => changeChartVariant('laborHana', nextVariant)}
                           alwaysGridToggle
                           supportsFilter
                           supportsPalette
@@ -11252,6 +11194,7 @@ export default function App() {
                         fullWidth
                         onChange={(_event, nextMode) => {
                           if (nextMode) {
+                            resetCardFilters('laborHana');
                             setLaborHanaViewMode(nextMode);
                           }
                         }}
@@ -11530,4 +11473,5 @@ const globalFilterSelectStyles = {
     fontSize: '0.76rem'
   })
 };
+
 

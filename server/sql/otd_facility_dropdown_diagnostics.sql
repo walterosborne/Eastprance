@@ -73,7 +73,7 @@ DECLARE @source nvarchar(max) = N'
 -- 2. Coverage by worksheet/BU and year.
 -- Missing Site with populated Type helps distinguish absent site fields
 -- from missing sheets or records.
-EXEC sys.sp_executesql N'
+DECLARE @coverageSql nvarchar(max) = N'
 WITH Otd AS (' + @source + N')
 SELECT
     reporting_year AS [Year],
@@ -88,10 +88,11 @@ FROM Otd
 GROUP BY reporting_year, business_unit
 ORDER BY reporting_year DESC, business_unit;
 ';
+EXEC sys.sp_executesql @coverageSql;
 
 -- 3. One row per raw OTD site, with the app's facility grouping applied.
 -- The 50-row cap keeps results manageable; increase if needed.
-EXEC sys.sp_executesql N'
+DECLARE @mappingSql nvarchar(max) = N'
 WITH Otd AS (' + @source + N'),
 SiteTotals AS (
     SELECT
@@ -127,3 +128,4 @@ OUTER APPLY (
 ORDER BY CASE WHEN st.raw_site IS NULL THEN 0 ELSE 1 END,
          st.source_rows DESC, st.raw_site;
 ';
+EXEC sys.sp_executesql @mappingSql;

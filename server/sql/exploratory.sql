@@ -1,29 +1,57 @@
 /*
-  QMI exploratory queries
-  Reuse this file for subsequent investigations.
-  Read-only unless a future task explicitly requires a change.
-*/
+    QMI exploratory queries
+    Safety event business-unit availability
+    Read-only. Reuse this file for subsequent investigations.
 
--- OTD: CWI - GC2S business-unit dropdown
--- Run only if the label is still missing after the latest OTD upload.
--- The OTD application obtains the dropdown value from [Business Unit].
+    The safety data source has Division and Site dimensions.
+    Confirm whether any business-unit field exists in the SQL table
+    before attempting business-unit-level reporting.
+*/
 SET NOCOUNT ON;
 
-DECLARE @BusinessUnitSearch nvarchar(100) = N'GC2S';
-
+-- 1. Available table columns, including any candidate BU identifiers.
 SELECT
-    TRY_CONVERT(int, [Year]) AS [Year],
-    COALESCE(NULLIF(LTRIM(RTRIM([BU])), ''), '(blank)') AS [Workbook BU],
-    COALESCE(NULLIF(LTRIM(RTRIM([Business Unit])), ''), '(blank)') AS [QMI Business Unit],
-    COALESCE(NULLIF(LTRIM(RTRIM([Division])), ''), '(blank)') AS [Division],
-    COUNT_BIG(*) AS [Records],
-    COUNT(DISTINCT NULLIF(LTRIM(RTRIM([Program])), '')) AS [Programs]
-FROM [ecosystem_source].[qmi].[otd]
-WHERE [BU] LIKE N'%' + @BusinessUnitSearch + N'%'
-   OR [Business Unit] LIKE N'%' + @BusinessUnitSearch + N'%'
+    c.column_id AS [Column Order],
+    c.name AS [Column Name],
+    ty.name AS [SQL Type],
+    CASE
+        WHEN LOWER(REPLACE(REPLACE(c.name, N' ', N''), N'_', N''))
+             IN (N'bu', N'businessunit', N'busunit', N'busunitlvl2nocode')
+        THEN N'Possible BU field'
+        WHEN LOWER(c.name) IN (N'division', N'site')
+        THEN N'Existing reporting dimension'
+        ELSE N''
+    END AS [Dimension Role]
+FROM [ecosystem_source].sys.columns AS c
+JOIN [ecosystem_source].sys.tables AS t
+    ON c.object_id = t.object_id
+JOIN [ecosystem_source].sys.schemas AS s
+    ON t.schema_id = s.schema_id
+JOIN [ecosystem_source].sys.types AS ty
+    ON c.user_type_id = ty.user_type_id
+WHERE s.name = N'qmi'
+  AND t.name = N'safety_events'
+ORDER BY c.column_id;
+
+-- 2. Current safety-event coverage by year and Division.
+-- This identifies which dimensions can already be represented reliably.
+SELECT
+    YEAR(TRY_CONVERT(date, [Date])) AS [Year],
+    COALESCE(NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(255), [Division]))), N''), N'(missing)') AS [Division],
+    COUNT_BIG(*) AS [Event Rows],
+    COUNT(DISTINCT NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(255), [Site]))), N'')) AS [Sites],
+    SUM(CASE WHEN TRY_CAST([SIF] AS int) = 1 THEN 1 ELSE 0 END) AS [SIF Flags],
+    SUM(CASE WHEN TRY_CAST([SIF] AS int) <> 1
+                  AND TRY_CAST([pSIF] AS int) = 1 THEN 1 ELSE 0 END) AS [pSIF Flags],
+    SUM(CASE WHEN TRY_CAST([SIF] AS int) <> 1
+                  AND TRY_CAST([pSIF] AS int) <> 1
+                  AND TRY_CAST([Near Miss] AS int) = 1 THEN 1 ELSE 0 END) AS [Near Miss Flags]
+FROM [ecosystem_source].[qmi].[safety_events]
+WHERE TRY_CONVERT(date, [Date]) IS NOT NULL
 GROUP BY
-    TRY_CONVERT(int, [Year]),
-    COALESCE(NULLIF(LTRIM(RTRIM([BU])), ''), '(blank)'),
-    COALESCE(NULLIF(LTRIM(RTRIM([Business Unit])), ''), '(blank)'),
-    COALESCE(NULLIF(LTRIM(RTRIM([Division])), ''), '(blank)')
-ORDER BY [Year] DESC, [Workbook BU], [QMI Business Unit];
+    YEAR(TRY_CONVERT(date, [Date])),
+    COALESCE(NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(255), [Division]))), N''), N'(missing)')
+ORDER BY [Year] DESC, [Division];
+
+-- A site name alone is not a reliable business-unit assignment.
+-- The application currently treats BU-filtered safety records as unmatched.

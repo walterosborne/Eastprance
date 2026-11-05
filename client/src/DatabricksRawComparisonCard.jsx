@@ -647,6 +647,7 @@ function useChartWidth() {
 }
 
 function ChartControls({
+  sourceLabel,
   variant,
   onVariantChange,
   filterField,
@@ -700,7 +701,7 @@ function ChartControls({
               onChange={(event) => onFilterFieldChange(event.target.value)}
               renderValue={() => activeFilter.label}
               MenuProps={selectMenuProps}
-              inputProps={{ 'aria-label': 'Select Databricks Raw filter field' }}
+              inputProps={{ 'aria-label': `Select ${sourceLabel} filter field` }}
             >
               {FILTER_FIELDS.map((option) => (
                 <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
@@ -734,7 +735,7 @@ function ChartControls({
               <TextField
                 {...params}
                 placeholder={filterValues.length === 0 ? activeFilter.allLabel : ''}
-                inputProps={{ ...params.inputProps, 'aria-label': 'Select Databricks Raw filter values' }}
+                inputProps={{ ...params.inputProps, 'aria-label': `Select ${sourceLabel} filter values` }}
               />
             )}
             slotProps={{ paper: selectMenuProps.PaperProps }}
@@ -751,7 +752,7 @@ function ChartControls({
                   value={paletteGroupField}
                   onChange={(event) => onPaletteGroupFieldChange(event.target.value)}
                   MenuProps={selectMenuProps}
-                  inputProps={{ 'aria-label': 'Select Databricks Raw group field' }}
+                  inputProps={{ 'aria-label': `Select ${sourceLabel} group field` }}
                 >
                   {paletteGroupOptions.map((option) => (
                     <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
@@ -766,7 +767,7 @@ function ChartControls({
                   value={paletteColorField}
                   onChange={(event) => onPaletteColorFieldChange(event.target.value)}
                   MenuProps={selectMenuProps}
-                  inputProps={{ 'aria-label': 'Select Databricks Raw color field' }}
+                  inputProps={{ 'aria-label': `Select ${sourceLabel} color field` }}
                 >
                   {paletteColorOptions.map((option) => (
                     <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
@@ -904,7 +905,12 @@ export default memo(function DatabricksRawComparisonCard({
   onVariantChange,
   globalFilters,
   selectedDateRange,
-  applyGlobalFilters
+  applyGlobalFilters,
+  metricKey = 'controllableCostsDatabricksRaw',
+  sourceLabel = 'Databricks Raw',
+  tableName = RAW_TABLE_NAME,
+  amountField = 'DOC_NET_VALUE',
+  order = 3
 }) {
   const [viewMode, setViewMode] = useState('monthly');
   const [filterField, setFilterField] = useState('facility');
@@ -927,8 +933,8 @@ export default memo(function DatabricksRawComparisonCard({
 
   const visibleRows = useMemo(() => getVisibleRows(state.rows), [state.rows]);
   const globallyFilteredRows = useMemo(
-    () => applyGlobalFilters(visibleRows, 'controllableCostsDatabricksRaw', globalFilters),
-    [visibleRows, globalFilters, applyGlobalFilters]
+    () => applyGlobalFilters(visibleRows, metricKey, globalFilters),
+    [visibleRows, globalFilters, applyGlobalFilters, metricKey]
   );
   const filterValueOptions = useMemo(
     () => getFilterOptions(globallyFilteredRows, filterField),
@@ -1016,13 +1022,13 @@ export default memo(function DatabricksRawComparisonCard({
       ];
 
   return (
-    <article className="analytics-card" style={{ order: 3 }} data-databricks-raw-comparison="true">
+    <article className="analytics-card" style={{ order }} data-cost-metric={metricKey}>
       <div className="card-header">
         <div className="card-header-main">
-          <h2 className="card-title">Controllable Costs — Databricks Raw</h2>
+          <h2 className="card-title">Controllable Costs — {sourceLabel}</h2>
         </div>
         <div className="card-info">
-          <button type="button" className="card-info-trigger" aria-label="Databricks Raw metric info">?</button>
+          <button type="button" className="card-info-trigger" aria-label={`${sourceLabel} metric info`}>?</button>
           <div className="card-info-tooltip" role="tooltip">
             {Number.isFinite(processingMonth) && (
               <p className="metric-info-paragraph">{getProcessingMonthNote(processingMonth)}</p>
@@ -1043,7 +1049,7 @@ export default memo(function DatabricksRawComparisonCard({
               </div>
             </div>
             <p className="metric-info-paragraph">
-              Raw Databricks controllable-cost transactions from {RAW_TABLE_NAME}, mapped through the same QMI hierarchy, facility, division-specific G/L, cost-category, and controllability rules used by the SQL extract.
+              {sourceLabel} controllable-cost transactions from {tableName}, using signed {amountField}, mapped through the same QMI hierarchy, facility, division-specific G/L, cost-category, and controllability rules used by the SQL extract.
             </p>
           </div>
         </div>
@@ -1051,7 +1057,7 @@ export default memo(function DatabricksRawComparisonCard({
 
       <div className="dashboard-grid">
         <div className="visual-column">
-          <section className="metric-overview-band" aria-label="Databricks Raw controllable costs overview">
+          <section className="metric-overview-band" aria-label={`${sourceLabel} controllable costs overview`}>
             <div className="metric-overview-summary metric-overview-summary-kpi-only">
               <div className="metric-overview-primary">
                 <p className="metric-overview-value">
@@ -1071,10 +1077,10 @@ export default memo(function DatabricksRawComparisonCard({
             {!state.loading && !state.error && !hasChartData && (
               <p className="chart-message">
                 {state.rows.length === 0
-                  ? 'No Databricks Raw costs are available for charting.'
+                  ? `No ${sourceLabel} costs are available for charting.`
                   : globallyFilteredRows.length === 0 || (isTrend && filteredRows.length === 0)
-                    ? 'No Databricks Raw costs were found for the selected filters.'
-                    : 'No Databricks Raw costs were found in the selected date range.'}
+                    ? `No ${sourceLabel} costs were found for the selected filters.`
+                    : `No ${sourceLabel} costs were found in the selected date range.`}
               </p>
             )}
             {!state.loading && !state.error && hasChartData && chartWidth > 0 && (
@@ -1114,6 +1120,7 @@ export default memo(function DatabricksRawComparisonCard({
           <div className="chart-control-row chart-control-row-single">
             <div className="chart-control-row-toggle">
               <ChartControls
+                sourceLabel={sourceLabel}
                 variant={chartVariant}
                 onVariantChange={onVariantChange}
                 filterField={filterField}
@@ -1154,7 +1161,7 @@ export default memo(function DatabricksRawComparisonCard({
                 }
               }}
               sx={timelineToggleGroupSx}
-              aria-label="Databricks Raw timeline"
+              aria-label={`${sourceLabel} timeline`}
             >
               {Object.entries(VIEW_CONFIG).map(([mode, config]) => (
                 <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>

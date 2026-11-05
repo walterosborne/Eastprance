@@ -34,7 +34,8 @@ import { readControllableCostsData } from './controllableCostsRepository.js';
 import { buildCostTestDiagnostics } from './costTestDiagnostics.js';
 import {
   readControllableCostsDatabricksData,
-  readControllableCostsDatabricksRawData
+  readControllableCostsDatabricksRawData,
+  readControllableCostsDatabricksNewData
 } from './controllableCostsDatabricksRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
 import {
@@ -117,6 +118,10 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
   registerSqlDatasetCache(
     'controllable-costs-databricks-raw',
     readControllableCostsDatabricksRawData
+  );
+  registerSqlDatasetCache(
+    'controllable-costs-databricks-new',
+    readControllableCostsDatabricksNewData
   );
 }
 registerSqlDatasetCache('otd', readOtdData);
@@ -586,6 +591,20 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
         return cardDataset;
       },
       'Unable to read raw Databricks controllable costs data.'
+    );
+  });
+
+  app.get('/api/controllable-costs-databricks-new', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'controllable-costs-databricks-new',
+      async () => {
+        const { accountRows, sdsNoFacilityCandidates, rawSourceCoverage, rawMappedCoverage, mappingDiagnostics, ...cardDataset } =
+          await getCachedSqlDataset('controllable-costs-databricks-new');
+        return cardDataset;
+      },
+      'Unable to read new Databricks controllable costs data.'
     );
   });
 

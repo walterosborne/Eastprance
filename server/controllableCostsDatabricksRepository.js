@@ -15,6 +15,8 @@ const DATABRICKS_PROCESSED_TABLE_NAME = 'finance_dev.analytics.cost_vis_full';
 const DATABRICKS_PROCESSED_TABLE_SQL = '`finance_dev`.`analytics`.`cost_vis_full`';
 const DATABRICKS_RAW_TABLE_NAME = 'finance_dev.analytics.dev_cv_transaction_details';
 const DATABRICKS_RAW_TABLE_SQL = '`finance_dev`.`analytics`.`dev_cv_transaction_details`';
+const DATABRICKS_NEW_TABLE_NAME = 'source_systems_dev.sql_central_integration.src_lfc_transaction_details_s2';
+const DATABRICKS_NEW_TABLE_SQL = '`source_systems_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`';
 const POLL_INTERVAL_MS = 2000;
 const MAX_WAIT_MS = 180000;
 const TERMINAL_FAILURE_STATES = new Set(['FAILED', 'CANCELED', 'CLOSED']);
@@ -124,7 +126,8 @@ ORDER BY
   cost_category
 `;
 
-const DATABRICKS_RAW_COST_QUERY = `
+function buildLedgerCostQuery(tableSql, amountField) {
+  return `
 WITH normalized AS (
   SELECT
     TRY_CAST(GJAHR AS INT) AS year,
@@ -141,8 +144,8 @@ WITH normalized AS (
       END AS BIGINT
     ) AS gl_account_number,
     TRIM(CAST(GL_TXT50 AS STRING)) AS cost_element_description,
-    TRY_CAST(DOC_NET_VALUE AS DOUBLE) AS cost
-  FROM ${DATABRICKS_RAW_TABLE_SQL}
+    TRY_CAST(${amountField} AS DOUBLE) AS cost
+  FROM ${tableSql}
 )
 SELECT
   year,
@@ -169,6 +172,10 @@ ORDER BY
   cost_center,
   gl_account_cost_element
 `;
+}
+
+const DATABRICKS_RAW_COST_QUERY = buildLedgerCostQuery(DATABRICKS_RAW_TABLE_SQL, 'DOC_NET_VALUE');
+const DATABRICKS_NEW_COST_QUERY = buildLedgerCostQuery(DATABRICKS_NEW_TABLE_SQL, 'KSL');
 
 function normalizeText(value) {
   return String(value ?? '')
@@ -724,7 +731,8 @@ function buildMappedPayload({
   tableName,
   sourceKind,
   sourceFilter,
-  exactSqlExtractScope
+  exactSqlExtractScope,
+  amountField = 'DOC_NET_VALUE'
 }) {
   const mappedRows = [];
   // Keep the SDS missing-facility scenario separate from the scorecard rows.
@@ -877,7 +885,7 @@ function buildMappedPayload({
     glAccountFilter: exactSqlExtractScope
       ? 'Exact division-specific G/L population from create_qmi_controllable_costs_new_extract.sql'
       : 'Union of G/L accounts used by create_qmi_controllable_costs_new_extract.sql',
-    amountField: 'DOC_NET_VALUE',
+    amountField,
     sourceRowCount: sourceRows.length,
     invalidSourceRowCount,
     hierarchyMatchedRowCount: mappedRows.length,
@@ -907,7 +915,8 @@ async function readDatabricksCostDataset({
   query,
   sourceKind,
   sourceFilter,
-  exactSqlExtractScope = false
+  exactSqlExtractScope = false,
+  amountField = 'DOC_NET_VALUE'
 }) {
   const stopTimer = createTimer();
 
@@ -928,7 +937,8 @@ async function readDatabricksCostDataset({
       tableName,
       sourceKind,
       sourceFilter,
-      exactSqlExtractScope
+      exactSqlExtractScope,
+      amountField
     });
 
     logDebug(scope, `Databricks ${sourceKind} controllable costs load completed.`, {
@@ -980,3 +990,15 @@ export async function readControllableCostsDatabricksRawData() {
   });
 }
 
+// Sector ledger with signed KSL and the existing QMI cost classification rules.
+export async function readControllableCostsDatabricksNewData() {
+  return readDatabricksCostDataset({
+    scope: 'controllable-costs-databricks-new',
+    tableName: DATABRICKS_NEW_TABLE_NAME,
+    query: DATABRICKS_NEW_COST_QUERY,
+    sourceKind: 'new',
+    sourceFilter: `${CWI_DIVISION}; ${SDS_DIVISION} via QMI cost-center hierarchy`,
+    exactSqlExtractScope: true,
+    amountField: 'KSL'
+  });
+}

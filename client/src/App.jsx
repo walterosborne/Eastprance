@@ -415,6 +415,11 @@ const GLOBAL_FILTER_FIELD_MAP = {
     businessUnit: 'business_unit',
     facility: 'facility'
   },
+  controllableCostsDatabricksNew: {
+    division: 'division',
+    businessUnit: 'business_unit',
+    facility: 'facility'
+  },
   sif: {
     division: 'division',
     facility: 'site'
@@ -466,7 +471,8 @@ const CARD_CHIP_OPTIONS = [
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
         ? [
           ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
-          'controllableCostsDatabricksRaw'
+          'controllableCostsDatabricksRaw',
+          'controllableCostsDatabricksNew'
         ]
         : []),
       'sif',
@@ -489,7 +495,8 @@ const CARD_CHIP_OPTIONS = [
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
         ? [
           ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
-          'controllableCostsDatabricksRaw'
+          'controllableCostsDatabricksRaw',
+          'controllableCostsDatabricksNew'
         ]
         : []),
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
@@ -513,6 +520,7 @@ const CARD_CHIP_OPTIONS = [
 
 const DEFAULT_CHART_VARIANTS = {
   controllableCostsDatabricksRaw: 'line',
+  controllableCostsDatabricksNew: 'line',
   controllableCosts: 'line',
   controllableCostsNew: 'line',
   controllableCostsHana: 'line',
@@ -527,6 +535,7 @@ const DEFAULT_CHART_VARIANTS = {
 };
 const CARD_VARIANT_OPTIONS_BY_METRIC = {
   controllableCostsDatabricksRaw: ['line', 'bar', 'palette', 'pareto'],
+  controllableCostsDatabricksNew: ['line', 'bar', 'palette', 'pareto'],
   controllableCosts: ['line', 'bar', 'palette', 'pareto'],
   controllableCostsNew: ['line', 'bar', 'palette', 'pareto'],
   controllableCostsHana: ['line', 'bar', 'palette', 'pareto'],
@@ -1852,6 +1861,7 @@ function getAvailableTimelineStamps({
   controllableCostsNewRows = [],
   controllableCostsHanaRows = [],
   controllableCostsDatabricksRawRows = [],
+  controllableCostsDatabricksNewRows = [],
   sifRows,
   potentialSifRows,
   nmfrRows,
@@ -1863,7 +1873,7 @@ function getAvailableTimelineStamps({
 }) {
   const stampSet = new Set();
 
-  [controllableCostsRows, controllableCostsNewRows, controllableCostsHanaRows, controllableCostsDatabricksRawRows].forEach((rows) => {
+  [controllableCostsRows, controllableCostsNewRows, controllableCostsHanaRows, controllableCostsDatabricksRawRows, controllableCostsDatabricksNewRows].forEach((rows) => {
     rows.forEach((row) => {
       const stamp = getControllableCostsRowStamp(row);
 
@@ -5283,6 +5293,11 @@ export default function App() {
     loading: CONTROLLABLE_COSTS_HANA_CARD_ENABLED,
     error: ''
   });
+  const [controllableCostsDatabricksNewState, setControllableCostsDatabricksNewState] = useState({
+    rows: [],
+    loading: CONTROLLABLE_COSTS_HANA_CARD_ENABLED,
+    error: ''
+  });
   const [sifState, setSifState] = useState({
     rows: [],
     loading: true,
@@ -5643,6 +5658,28 @@ export default function App() {
       }
     }
 
+    async function loadDatabricksNewData() {
+      try {
+        const payload = await fetchJson(
+          'controllable-costs-databricks-new',
+          '/api/controllable-costs-databricks-new'
+        );
+        if (!isMounted) return;
+        setControllableCostsDatabricksNewState({
+          rows: Array.isArray(payload.rows) ? payload.rows : [],
+          loading: false,
+          error: ''
+        });
+      } catch (error) {
+        if (!isMounted) return;
+        setControllableCostsDatabricksNewState({
+          rows: [],
+          loading: false,
+          error: error.message || 'Unable to load new Databricks costs.'
+        });
+      }
+    }
+
     async function loadSifData() {
       const startTime = performance.now();
 
@@ -5992,6 +6029,7 @@ export default function App() {
     }
     if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED) {
       loadDatabricksRawData();
+      loadDatabricksNewData();
     }
     loadSifData();
     loadPotentialSifData();
@@ -6118,6 +6156,7 @@ export default function App() {
     controllableCostsNewRows: controllableCostsNewState.rows,
     controllableCostsHanaRows: controllableCostsHanaState.rows,
     controllableCostsDatabricksRawRows: controllableCostsDatabricksRawState.rows,
+    controllableCostsDatabricksNewRows: controllableCostsDatabricksNewState.rows,
     sifRows: sifState.rows,
     potentialSifRows: potentialSifState.rows,
     nmfrRows: nmfrState.rows,
@@ -6128,7 +6167,7 @@ export default function App() {
     laborHanaRows: laborHanaState.rows
     }),
     [controllableCostsNewState.rows, controllableCostsHanaState.rows,
-      controllableCostsDatabricksRawState.rows, sifState.rows, potentialSifState.rows,
+      controllableCostsDatabricksRawState.rows, controllableCostsDatabricksNewState.rows, sifState.rows, potentialSifState.rows,
       nmfrState.rows, otdState.rows, customerEscapesState.rows, laborNewState.rows,
       laborHanaState.rows]
   );
@@ -6229,6 +6268,7 @@ export default function App() {
     controllableCostsNew: controllableCostsNewState.rows,
     controllableCostsHana: controllableCostsHanaState.rows,
     controllableCostsDatabricksRaw: controllableCostsDatabricksRawState.rows,
+    controllableCostsDatabricksNew: controllableCostsDatabricksNewState.rows,
     sif: sifState.rows,
     potentialSif: potentialSifState.rows,
     nmfr: nmfrState.rows,
@@ -6237,7 +6277,7 @@ export default function App() {
     laborNew: laborNewState.rows,
     laborHana: laborHanaState.rows
   }), [controllableCostsNewState.rows, controllableCostsHanaState.rows,
-    controllableCostsDatabricksRawState.rows, sifState.rows, potentialSifState.rows,
+    controllableCostsDatabricksRawState.rows, controllableCostsDatabricksNewState.rows, sifState.rows, potentialSifState.rows,
     nmfrState.rows, otdState.rows, customerEscapesState.rows, laborNewState.rows,
     laborHanaState.rows]);
   const globalFilterOptions = useMemo(() => Object.fromEntries(
@@ -8276,6 +8316,8 @@ export default function App() {
       && activeCardKeys.has('controllableCostsHana'),
     controllableCostsDatabricksRaw:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsDatabricksRaw'),
+    controllableCostsDatabricksNew:
+      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsDatabricksNew'),
     sif: activeCardKeys.has('sif'),
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
@@ -9931,6 +9973,22 @@ export default function App() {
                 chartVariant={chartVariants.controllableCostsDatabricksRaw}
                 onVariantChange={(nextVariant) => changeChartVariant('controllableCostsDatabricksRaw', nextVariant)}
                 state={controllableCostsDatabricksRawState}
+                globalFilters={activeGlobalFilters}
+                selectedDateRange={selectedDateRange}
+                applyGlobalFilters={applyGlobalFilters}
+              />
+            )}
+
+            {visibleCards.controllableCostsDatabricksNew && (
+              <DatabricksRawComparisonCard
+                metricKey="controllableCostsDatabricksNew"
+                sourceLabel="Databricks New"
+                tableName="source_systems_dev.sql_central_integration.src_lfc_transaction_details_s2"
+                amountField="KSL"
+                order={4}
+                chartVariant={chartVariants.controllableCostsDatabricksNew}
+                onVariantChange={(nextVariant) => changeChartVariant('controllableCostsDatabricksNew', nextVariant)}
+                state={controllableCostsDatabricksNewState}
                 globalFilters={activeGlobalFilters}
                 selectedDateRange={selectedDateRange}
                 applyGlobalFilters={applyGlobalFilters}

@@ -9,6 +9,7 @@ coverage/
 .env.*
 !.env.example
 server/.env
+upload.env
 
 *.log
 npm-debug.log*

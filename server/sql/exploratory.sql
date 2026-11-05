@@ -41,10 +41,10 @@ SELECT
     COUNT_BIG(*) AS [Event Rows],
     COUNT(DISTINCT NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(255), [Site]))), N'')) AS [Sites],
     SUM(CASE WHEN TRY_CAST([SIF] AS int) = 1 THEN 1 ELSE 0 END) AS [SIF Flags],
-    SUM(CASE WHEN TRY_CAST([SIF] AS int) <> 1
+    SUM(CASE WHEN COALESCE(TRY_CAST([SIF] AS int), 0) <> 1
                   AND TRY_CAST([pSIF] AS int) = 1 THEN 1 ELSE 0 END) AS [pSIF Flags],
-    SUM(CASE WHEN TRY_CAST([SIF] AS int) <> 1
-                  AND TRY_CAST([pSIF] AS int) <> 1
+    SUM(CASE WHEN COALESCE(TRY_CAST([SIF] AS int), 0) <> 1
+                  AND COALESCE(TRY_CAST([pSIF] AS int), 0) <> 1
                   AND TRY_CAST([Near Miss] AS int) = 1 THEN 1 ELSE 0 END) AS [Near Miss Flags]
 FROM [ecosystem_source].[qmi].[safety_events]
 WHERE TRY_CONVERT(date, [Date]) IS NOT NULL

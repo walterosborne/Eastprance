@@ -9983,7 +9983,7 @@ export default function App() {
               <DatabricksRawComparisonCard
                 metricKey="controllableCostsDatabricksNew"
                 sourceLabel="Databricks New"
-                tableName="source_systems_dev.sql_central_integration.src_lfc_transaction_details_s2"
+                tableName="raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s2"
                 amountField="KSL"
                 order={4}
                 chartVariant={chartVariants.controllableCostsDatabricksNew}

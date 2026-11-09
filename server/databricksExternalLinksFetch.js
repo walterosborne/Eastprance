@@ -3,14 +3,14 @@ const COST_RESULT_TABLE_MARKERS = [
   'finance_dev.analytics.dev_cv_transaction_details',
   '`finance_dev`.`analytics`.`cost_vis_full`',
   '`finance_dev`.`analytics`.`dev_cv_transaction_details`',
-  'source_systems_dev.sql_central_integration.src_lfc_transaction_details_s2',
-  '`source_systems_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`'
+  'raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s2',
+  '`raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`'
 ];
 const RAW_COST_TABLE_MARKERS = [
   'finance_dev.analytics.dev_cv_transaction_details',
   '`finance_dev`.`analytics`.`dev_cv_transaction_details`',
-  'source_systems_dev.sql_central_integration.src_lfc_transaction_details_s2',
-  '`source_systems_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`'
+  'raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s2',
+  '`raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`'
 ];
 
 const largeResultStatementIds = new Set();

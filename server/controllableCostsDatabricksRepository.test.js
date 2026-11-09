@@ -72,7 +72,7 @@ test('new ledger preserves credits, QMI scope, central SDS facilities and chunke
     return Response.json({ data_array: [row('CWI1', '4300591', -25)] });
   });
   const payload = await readControllableCostsDatabricksNewData();
-  assert.match(statement, /FROM `source_systems_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`/);
+  assert.match(statement, /FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`/);
   assert.match(statement, /TRY_CAST\(KSL AS DOUBLE\) AS cost/);
   assert.doesNotMatch(statement, /DOC_NET_VALUE|ABS\(/);
   assert.equal(payload.amountField, 'KSL');

@@ -13,12 +13,15 @@ import {
   getPool
 } from './sqlConnection.js';
 
+import { executeDatabricksQuery } from './databricksQuery.js';
+
 const SIF_KPI_ID = 5;
 const POTENTIAL_SIF_KPI_ID = 6;
 const NMFR_KPI_ID = 4;
 const INCIDENT_ORG_UNIT_NAME = 'Defense';
 const DEFENSE_SYSTEMS_BUS_UNIT = 'Defense Systems';
-const SAFETY_EVENTS_TABLE_NAME = 'safety_events';
+const SAFETY_EVENTS_TABLE_NAME = 'integrated_operations_dev.analytics.safety_events';
+const SAFETY_EVENTS_TABLE_SQL = '`integrated_operations_dev`.`analytics`.`safety_events`';
 const ROSTER_TABLE_NAME = 'RosterExtractFarm';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -449,69 +452,72 @@ async function readSafetyEmployeeCount(pool) {
   return normalizeInteger(result.recordset[0]?.employee_count) ?? 0;
 }
 
-async function readSafetyMonthlyCounts(pool, connectionConfig) {
-  const tableName = formatSqlIdentifier(SAFETY_EVENTS_TABLE_NAME, connectionConfig);
-  const result = await pool.request().query(`
+async function readSafetyMonthlyCounts() {
+  const result = await executeDatabricksQuery({
+    scope: 'safety',
+    tableName: SAFETY_EVENTS_TABLE_NAME,
+    query: `
     WITH parsed_events AS (
       SELECT
-        TRY_CONVERT(date, source.[Date]) AS [event_date],
-        LTRIM(RTRIM(COALESCE(source.[Division], ''))) AS [division],
-        LTRIM(RTRIM(COALESCE(source.[Site], ''))) AS [site],
-        COALESCE(TRY_CAST(source.[SIF] AS int), 0) AS [sif_flag],
-        COALESCE(TRY_CAST(source.[pSIF] AS int), 0) AS [potential_sif_flag],
-        COALESCE(TRY_CAST(source.[Near Miss] AS int), 0) AS [near_miss_flag]
-      FROM ${tableName} AS source
+        TRY_CAST(source.\`Date\` AS DATE) AS \`event_date\`,
+        TRIM(COALESCE(source.\`Division\`, '')) AS \`division\`,
+        TRIM(COALESCE(source.\`Site\`, '')) AS \`site\`,
+        COALESCE(TRY_CAST(source.\`SIF\` AS int), 0) AS \`sif_flag\`,
+        COALESCE(TRY_CAST(source.\`pSIF\` AS int), 0) AS \`potential_sif_flag\`,
+        COALESCE(TRY_CAST(source.\`Near Miss\` AS int), 0) AS \`near_miss_flag\`
+      FROM ${SAFETY_EVENTS_TABLE_SQL} AS source
     ),
     classified_events AS (
       SELECT
-        YEAR(source.[event_date]) AS [year],
-        MONTH(source.[event_date]) AS [month],
-        source.[division] AS [division],
-        source.[site] AS [site],
+        YEAR(source.\`event_date\`) AS \`year\`,
+        MONTH(source.\`event_date\`) AS \`month\`,
+        source.\`division\` AS \`division\`,
+        source.\`site\` AS \`site\`,
         CASE
-          WHEN source.[sif_flag] = 1 THEN 1
+          WHEN source.\`sif_flag\` = 1 THEN 1
           ELSE 0
-        END AS [sif_count],
+        END AS \`sif_count\`,
         CASE
-          WHEN source.[sif_flag] = 0
-            AND source.[potential_sif_flag] = 1 THEN 1
+          WHEN source.\`sif_flag\` = 0
+            AND source.\`potential_sif_flag\` = 1 THEN 1
           ELSE 0
-        END AS [potential_sif_count],
+        END AS \`potential_sif_count\`,
         CASE
-          WHEN source.[sif_flag] = 0
-            AND source.[potential_sif_flag] = 0
-            AND source.[near_miss_flag] = 1 THEN 1
+          WHEN source.\`sif_flag\` = 0
+            AND source.\`potential_sif_flag\` = 0
+            AND source.\`near_miss_flag\` = 1 THEN 1
           ELSE 0
-        END AS [near_miss_count]
+        END AS \`near_miss_count\`
       FROM parsed_events AS source
-      WHERE source.[event_date] IS NOT NULL
+      WHERE source.\`event_date\` IS NOT NULL
     )
     SELECT
-      [year],
-      [month],
-      [division],
-      [site],
-      SUM([sif_count]) AS [sif_count],
-      SUM([potential_sif_count]) AS [potential_sif_count],
-      SUM([near_miss_count]) AS [near_miss_count]
+      \`year\`,
+      \`month\`,
+      \`division\`,
+      \`site\`,
+      SUM(\`sif_count\`) AS \`sif_count\`,
+      SUM(\`potential_sif_count\`) AS \`potential_sif_count\`,
+      SUM(\`near_miss_count\`) AS \`near_miss_count\`
     FROM classified_events
-    WHERE [year] IS NOT NULL
-      AND [month] BETWEEN 1 AND 12
+    WHERE \`year\` IS NOT NULL
+      AND \`month\` BETWEEN 1 AND 12
     GROUP BY
-      [year],
-      [month],
-      [division],
-      [site]
+      \`year\`,
+      \`month\`,
+      \`division\`,
+      \`site\`
     HAVING
-      SUM([sif_count]) + SUM([potential_sif_count]) + SUM([near_miss_count]) > 0
+      SUM(\`sif_count\`) + SUM(\`potential_sif_count\`) + SUM(\`near_miss_count\`) > 0
     ORDER BY
-      [year] ASC,
-      [month] ASC,
-      [division] ASC,
-      [site] ASC;
-  `);
+      \`year\` ASC,
+      \`month\` ASC,
+      \`division\` ASC,
+      \`site\` ASC;
+  `
+  });
 
-  return result.recordset.map((row) => ({
+  return result.map((row) => ({
     year: normalizeInteger(row.year),
     month: normalizeInteger(row.month),
     division: normalizeText(row.division),
@@ -524,55 +530,27 @@ async function readSafetyMonthlyCounts(pool, connectionConfig) {
 
 export async function readSafetyEventMetricsData() {
   const stopTimer = createTimer();
-  const { config, missing } = getConnectionConfig();
-
-  logDebug('safety', 'Starting safety incident metrics data load.', {
-    hasConnectionConfig: missing.length === 0,
-    tableName: SAFETY_EVENTS_TABLE_NAME
-  });
-
-  if (missing.length > 0) {
-    logDebug('safety', 'Safety incident metrics load is missing SQL configuration; using fallback.', {
-      missing
-    });
-
-    return readFallbackSafetyMetricsData(
-      `Missing database environment variables: ${missing.join(', ')}`,
-      { includeNmfr: false }
-    );
-  }
 
   try {
-    const pool = await getPool(config, 'default');
-
-    logDebug('safety', 'Executing safety incident SQL query.', {
-      tableName: SAFETY_EVENTS_TABLE_NAME
-    });
-
-    const monthlyCounts = await readSafetyMonthlyCounts(pool, config);
-
+    const monthlyCounts = await readSafetyMonthlyCounts();
     const payload = {
-      source: 'mssql',
+      source: 'databricks',
       tableName: SAFETY_EVENTS_TABLE_NAME,
       rowCount: monthlyCounts.length,
       metrics: buildMetricPayloadsFromMonthlyCounts(monthlyCounts)
     };
-
-    logDebug('safety', 'Safety incident SQL query completed.', {
-      source: payload.source,
+    logDebug('safety', 'Safety incident Databricks query completed.', {
       tableName: payload.tableName,
       rowCount: payload.rowCount,
       duration: formatDuration(stopTimer())
     });
-
     return payload;
   } catch (error) {
-    logError('safety', 'Safety incident SQL query failed; using fallback data.', error, {
+    logError('safety', 'Safety incident Databricks query failed; using fallback data.', error, {
       tableName: SAFETY_EVENTS_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
-
-    return readFallbackSafetyMetricsData(`Database read failed: ${error.message}`, {
+    return readFallbackSafetyMetricsData(`Databricks read failed: ${error.message}`, {
       includeNmfr: false
     });
   }
@@ -580,7 +558,6 @@ export async function readSafetyEventMetricsData() {
 
 export async function readSafetyNmfrData() {
   const stopTimer = createTimer();
-  const { config, missing } = getConnectionConfig();
   const {
     config: rosterConfig,
     missing: rosterMissing,
@@ -588,37 +565,34 @@ export async function readSafetyNmfrData() {
   } = getConnectionConfig('roster');
 
   logDebug('safety', 'Starting safety NMFR data load.', {
-    hasConnectionConfig: missing.length === 0,
     hasRosterConnectionConfig: rosterMissing.length === 0,
     tableName: SAFETY_EVENTS_TABLE_NAME,
     rosterTableName: ROSTER_TABLE_NAME,
     rosterConnectionSource
   });
 
-  if (missing.length > 0 || rosterMissing.length > 0) {
+  if (rosterMissing.length > 0) {
     logDebug('safety', 'Safety NMFR data load is missing SQL configuration; using fallback.', {
-      missing,
       rosterMissing
     });
 
     return readFallbackSafetyMetricsData(
-      `Missing database environment variables: ${[...missing, ...rosterMissing].join(', ')}`,
+      `Missing database environment variables: ${rosterMissing.join(', ')}`,
       { includeNmfr: true }
     );
   }
 
   try {
-    const pool = await getPool(config, 'default');
     const rosterPool = await getPool(rosterConfig, 'roster');
 
-    logDebug('safety', 'Executing safety NMFR SQL queries.', {
+    logDebug('safety', 'Loading safety events from Databricks and NMFR roster from SQL Server.', {
       tableName: SAFETY_EVENTS_TABLE_NAME,
       rosterTableName: ROSTER_TABLE_NAME,
       rosterConnectionSource
     });
 
     const [monthlyCounts, defenseSystemsEmployeeCount] = await Promise.all([
-      readSafetyMonthlyCounts(pool, config),
+      readSafetyMonthlyCounts(),
       readSafetyEmployeeCount(rosterPool)
     ]);
 
@@ -629,7 +603,7 @@ export async function readSafetyNmfrData() {
     }
 
     const payload = {
-      source: 'mssql',
+      source: 'databricks',
       tableName: SAFETY_EVENTS_TABLE_NAME,
       rosterTableName: ROSTER_TABLE_NAME,
       defenseSystemsEmployeeCount,
@@ -637,7 +611,7 @@ export async function readSafetyNmfrData() {
       metrics: buildMetricPayloadsFromMonthlyCounts(monthlyCounts, defenseSystemsEmployeeCount)
     };
 
-    logDebug('safety', 'Safety NMFR SQL queries completed.', {
+    logDebug('safety', 'Safety NMFR data load completed.', {
       source: payload.source,
       tableName: payload.tableName,
       rosterTableName: payload.rosterTableName,
@@ -649,7 +623,7 @@ export async function readSafetyNmfrData() {
 
     return payload;
   } catch (error) {
-    logError('safety', 'Safety NMFR SQL queries failed; using fallback data.', error, {
+    logError('safety', 'Safety NMFR data load failed; using fallback data.', error, {
       tableName: SAFETY_EVENTS_TABLE_NAME,
       rosterTableName: ROSTER_TABLE_NAME,
       duration: formatDuration(stopTimer())

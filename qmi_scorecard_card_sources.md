@@ -88,9 +88,9 @@ The replacement controllable cost data comes directly from SAP transaction data 
 
 ## Safety Metrics
 
-All safety metrics, including pSIF, SIF, and Near Miss are collected [here](https://oursites.myngc.com/DS/EHS/Tools/CEHS%20Metrics%20Data%20Collection/NM/NearMissCompliation.xlsx), an Excel sheet updated 2-3 times per month. The Excel sheet is then uploaded to SQL.
+All safety metrics, including pSIF, SIF, and Near Miss are collected [here](https://oursites.myngc.com/DS/EHS/Tools/CEHS%20Metrics%20Data%20Collection/NM/NearMissCompliation.xlsx), an Excel sheet updated 2-3 times per month. The Excel sheet is then uploaded to Databricks.
 
-The same safety event data supports all three metrics.
+The same safety event data supports all three metrics. Events are classified once with SIF taking precedence over pSIF, then Near Miss. NMFR continues to use the SQL Server roster for its employee denominator.
 <dl>
 <dt>SIF</dt>
 <dd>Reports events identified as an actual Significant Injury or Fatality</dd>
@@ -104,7 +104,7 @@ The same safety event data supports all three metrics.
 Data will be maintained in Cority starting in 2027.
 </Callout>
 
-- **`qmi.safety_events` (SQL Database: `ecosystem_source`)** — An extract of the Excel file linked above. Contains the event date, organizational information, location, and the classifications needed to identify SIF, pSIF, and Near Miss events.
+- **`integrated_operations_dev.analytics.safety_events` (Databricks)** — An extract of the Excel file linked above. Contains the event date, organizational information, location, and the classifications needed to identify SIF, pSIF, and Near Miss events.
 
 | Field | Column Name in Table | Description |
 | --- | --- | --- |
@@ -115,7 +115,7 @@ Data will be maintained in Cority starting in 2027.
 | pSIF | `pSIF` | Flag identifying an event with the potential for a Significant Injury or Fatality. |
 | Near Miss | `Near Miss` | Flag identifying an event recorded as a near miss. |
 
-- **`RosterExtractFarm`** — An extract of the official NG roster, refreshed with a SQL job daily. Distinct Defense Systems employees are used in the rate denominator for NMFR.
+- **`RosterExtractFarm` (SQL Server)** — An extract of the official NG roster, refreshed with a SQL job daily. Distinct Defense Systems employees are used in the rate denominator for NMFR.
 
 | Field | Column Name in Table | Description |
 | --- | --- | --- |
@@ -128,9 +128,9 @@ NMFR is calculated as `(200,000 × Near Miss Count) / (Defense Systems Employee 
 
 Absolute source of truth is [this Excel sheet](https://ngc.sharepoint.us/:x:/r/teams/DSSectorMI/Shared%20Documents/General/2%20%20ID%20Contract%20Commit%20Performance.xlsx?d=w77e1d2579302471fa8f9ba8f453d0d1b&csf=1&web=1&e=xWNObo). Updated at least monthly, contains selected business units.
 
-The source workbook is normalized before being uploaded to SQL so that the different business unit sheets use a common structure. QMI compares the units identified as `Contract Commitment` against the corresponding `Actuals Delivered` values over time.
+The source workbook is normalized before being uploaded to Databricks so that the different business unit sheets use a common structure. QMI compares the units identified as `Contract Commitment` against the corresponding `Actuals Delivered` values over time.
 
-- **`qmi.otd` (SQL Database: `ecosystem_source`)** — Extract of above; program, business unit, project, site, month, committed units, and actual delivered units.
+- **`integrated_operations_dev.analytics.otd` (Databricks)** — Extract of above; program, business unit, project, site, month, committed units, and actual delivered units.
 
 | Field | Column Name in Table | Description |
 | --- | --- | --- |

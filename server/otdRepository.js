@@ -8,14 +8,11 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
-import {
-  formatSqlIdentifier,
-  getConnectionConfig,
-  getPool
-} from './sqlConnection.js';
+import { executeDatabricksQuery } from './databricksQuery.js';
 
 const MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-const OTD_TABLE_NAME = 'otd';
+const OTD_TABLE_NAME = 'integrated_operations_dev.analytics.otd';
+const OTD_TABLE_SQL = '`integrated_operations_dev`.`analytics`.`otd`';
 const DEFAULT_OTD_YEAR = 2026;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -107,77 +104,57 @@ async function readFallbackOtdData(reason) {
 
 export async function readOtdData() {
   const stopTimer = createTimer();
-  const { config, missing } = getConnectionConfig();
-
-  logDebug('otd', 'Starting OTD data load.', {
-    hasConnectionConfig: missing.length === 0,
-    tableName: OTD_TABLE_NAME
-  });
-
-  if (missing.length > 0) {
-    logDebug('otd', 'OTD data load is missing SQL configuration; using fallback.', {
-      missing
-    });
-
-    return readFallbackOtdData(
-      `Missing database environment variables: ${missing.join(', ')}`
-    );
-  }
 
   try {
-    const pool = await getPool(config);
-    const tableName = formatSqlIdentifier(OTD_TABLE_NAME, config);
-
-    logDebug('otd', 'Executing OTD SQL query.', {
-      tableName
-    });
-
-    const result = await pool.request().query(`
+    const result = await executeDatabricksQuery({
+      scope: 'otd',
+      tableName: OTD_TABLE_NAME,
+      query: `
       SELECT
-        [Timeline],
-        [Program],
-        [Division],
-        [Business Unit],
-        [Project ID],
-        [Site],
-        [Type],
-        [JAN],
-        [FEB],
-        [MAR],
-        [APR],
-        [MAY],
-        [JUN],
-        [JUL],
-        [AUG],
-        [SEP],
-        [OCT],
-        [NOV],
-        [DEC],
-        [Year]
-      FROM ${tableName}
-      ORDER BY [Year] ASC, [Project ID] ASC, [Timeline] ASC;
-    `);
-    const rows = result.recordset.map((row) => normalizeOtdRow(row, DEFAULT_OTD_YEAR));
+        \`Timeline\`,
+        \`Program\`,
+        \`Division\`,
+        \`Business Unit\`,
+        \`Project ID\`,
+        \`Site\`,
+        \`Type\`,
+        \`JAN\`,
+        \`FEB\`,
+        \`MAR\`,
+        \`APR\`,
+        \`MAY\`,
+        \`JUN\`,
+        \`JUL\`,
+        \`AUG\`,
+        \`SEP\`,
+        \`OCT\`,
+        \`NOV\`,
+        \`DEC\`,
+        \`Year\`
+      FROM ${OTD_TABLE_SQL}
+      ORDER BY \`Year\` ASC, \`Project ID\` ASC, \`Timeline\` ASC;
 
-    logDebug('otd', 'OTD SQL query completed.', {
-      source: 'mssql',
+    `
+    });
+    const rows = result.map((row) => normalizeOtdRow(row, DEFAULT_OTD_YEAR));
+
+    logDebug('otd', 'OTD Databricks query completed.', {
       tableName: OTD_TABLE_NAME,
       rowCount: rows.length,
       duration: formatDuration(stopTimer())
     });
 
     return {
-      source: 'mssql',
+      source: 'databricks',
       tableName: OTD_TABLE_NAME,
       rowCount: rows.length,
       rows
     };
   } catch (error) {
-    logError('otd', 'OTD SQL query failed; using fallback data.', error, {
+    logError('otd', 'OTD Databricks query failed; using fallback data.', error, {
       tableName: OTD_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
-
-    return readFallbackOtdData(`Database read failed: ${error.message}`);
+    return readFallbackOtdData(`Databricks read failed: ${error.message}`);
   }
 }

@@ -1293,6 +1293,10 @@ function logClientDebug(scope, message, metadata) {
 }
 
 function getSourceLabel(source) {
+  if (source === 'databricks') {
+    return 'Databricks data';
+  }
+
   if (source === 'mssql' || source === 'dbm-sql') {
     return 'SQL Server data';
   }

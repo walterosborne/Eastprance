@@ -155,6 +155,21 @@ test('saved BU choices migrate to scoped groups, Other, or the whole unmapped di
   assert.deepEqual(canonicalizeBuGroupSelections([selection], groups, hierarchy), [selection]);
 });
 
+test('a selected real BU stays selected when another dataset lists the same label as unmapped', () => {
+  const hierarchy = [{
+    division: 'C2 & Weapons Integration',
+    mappedBusinessUnits: ['CWI Weapons Integration Mission Solutions'],
+    unmappedBusinessUnits: ['CWI Weapons Integration Mission Solutions', 'Unlisted']
+  }];
+  const selected = makeBusinessUnitChildToken(
+    'C2 & Weapons Integration', 'CWI Weapons Integration Mission Solutions'
+  );
+  assert.deepEqual(canonicalizeBuGroupSelections([selected], [], hierarchy), [selected]);
+  assert.deepEqual(canonicalizeBuGroupSelections([
+    makeBusinessUnitOtherToken('C2 & Weapons Integration')
+  ], [], hierarchy), [makeBusinessUnitOtherToken('C2 & Weapons Integration')]);
+});
+
 test('blank BU values are retained and marked as unmapped', async () => {
   const { applyBuGroupingsToPayload } = await import('./buGroupingsRepository.js');
   const payload = await applyBuGroupingsToPayload({

@@ -60,18 +60,20 @@ export function canonicalizeBuGroupSelections(values, groups, hierarchy) {
     let matched = false;
     for (const entry of entries) {
       if (parsed.division && key(parsed.division) !== key(entry.parent)) continue;
-      if (parsed.type === 'other'
-        || entry.unmappedBusinessUnits.some((original) => key(original) === key(name))) {
+      const child = entry.children.find((candidate) => key(candidate) === key(group));
+      if (parsed.type === 'other') {
         selections.push(entry.children.length
           ? makeBusinessUnitOtherToken(entry.parent)
           : makeBusinessUnitDivisionToken(entry.parent));
         matched = true;
-      } else {
-        const child = entry.children.find((child) => key(child) === key(group));
-        if (child) {
-          selections.push(makeBuEntryChildToken(entry, child));
-          matched = true;
-        }
+      } else if (child) {
+        selections.push(makeBuEntryChildToken(entry, child));
+        matched = true;
+      } else if (entry.unmappedBusinessUnits.some((original) => key(original) === key(name))) {
+        selections.push(entry.children.length
+          ? makeBusinessUnitOtherToken(entry.parent)
+          : makeBusinessUnitDivisionToken(entry.parent));
+        matched = true;
       }
     }
     // Preserve saved selections until their division data has loaded.

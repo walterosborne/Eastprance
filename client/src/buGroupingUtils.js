@@ -1,4 +1,9 @@
-import { parseBusinessUnitFilterToken } from './hierarchyFilterUtils.js';
+import {
+  makeBusinessUnitChildToken,
+  makeBusinessUnitDivisionToken,
+  makeBusinessUnitOtherToken,
+  parseBusinessUnitFilterToken
+} from './hierarchyFilterUtils.js';
 
 const label = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().replace(/^DS\s+/i, '');
 const key = (value) => label(value).toLowerCase();
@@ -10,7 +15,6 @@ function groupingLookup(groups) {
     if (!group) continue;
     for (const original of entry.originals ?? []) lookup.set(key(original), group);
   }
-  // Group titles take precedence over originals that happen to share a title.
   for (const entry of groups) {
     const group = label(entry.group);
     if (group) lookup.set(key(group), group);
@@ -18,33 +22,60 @@ function groupingLookup(groups) {
   return lookup;
 }
 
-export function getBuGroupOptions(groups, options) {
-  const lookup = groupingLookup(groups);
-  const names = new Map();
-  for (const value of [...groups.map((entry) => entry.group), ...options]) {
-    const name = lookup.get(key(value)) ?? label(value);
-    if (name) names.set(key(name), name);
-  }
-  return [...names.values()].sort((a, b) => a.localeCompare(b));
+export function buildBuDivisionEntries(hierarchy) {
+  return hierarchy.map((entry) => {
+    const parent = label(entry.division);
+    const mapped = [...new Map((entry.mappedBusinessUnits ?? [])
+      .map((name) => [key(name), label(name)]).filter(([name]) => name)).values()]
+      .sort((a, b) => a.localeCompare(b));
+    const hasUnmapped = (entry.unmappedBusinessUnits ?? []).length > 0;
+    return {
+      parent,
+      label: mapped.length ? parent : `${parent} (All)`,
+      children: mapped.length ? [...mapped, ...(hasUnmapped ? ['Other'] : [])] : [],
+      hasUnmapped,
+      unmappedBusinessUnits: entry.unmappedBusinessUnits ?? []
+    };
+  }).sort((a, b) => a.parent.localeCompare(b.parent));
+}
+
+export function makeBuEntryChildToken(entry, child) {
+  return child === 'Other' && entry.hasUnmapped
+    ? makeBusinessUnitOtherToken(entry.parent)
+    : makeBusinessUnitChildToken(entry.parent, child);
 }
 
 export function canonicalizeBuGroupSelections(values, groups, hierarchy) {
   const lookup = groupingLookup(groups);
+  const entries = buildBuDivisionEntries(hierarchy);
   const selections = [];
   for (const value of values) {
     const parsed = parseBusinessUnitFilterToken(value);
     if (parsed.type === 'division') {
-      const entry = hierarchy.find((entry) => key(entry.division) === key(parsed.division));
-      if (entry) {
-        selections.push(...entry.businessUnits.map((name) => lookup.get(key(name)) ?? label(name)));
-      } else {
-        // Retain saved division selections until their dataset has loaded.
-        selections.push(value);
-      }
-    } else {
-      const name = parsed.businessUnit || parsed.label;
-      selections.push(lookup.get(key(name)) ?? label(name));
+      selections.push(makeBusinessUnitDivisionToken(label(parsed.division)));
+      continue;
     }
+    const name = parsed.businessUnit || parsed.label;
+    const group = lookup.get(key(name)) ?? label(name);
+    let matched = false;
+    for (const entry of entries) {
+      if (parsed.division && key(parsed.division) !== key(entry.parent)) continue;
+      if (parsed.type === 'other'
+        || entry.unmappedBusinessUnits.some((original) => key(original) === key(name))) {
+        selections.push(entry.children.length
+          ? makeBusinessUnitOtherToken(entry.parent)
+          : makeBusinessUnitDivisionToken(entry.parent));
+        matched = true;
+      } else {
+        const child = entry.children.find((child) => key(child) === key(group));
+        if (child) {
+          selections.push(makeBuEntryChildToken(entry, child));
+          matched = true;
+        }
+      }
+    }
+    // Preserve saved selections until their division data has loaded.
+    if (!matched) selections.push(value);
   }
   return [...new Set(selections.filter(Boolean))];
 }

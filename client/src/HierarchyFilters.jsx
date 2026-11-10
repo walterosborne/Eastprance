@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  makeBusinessUnitDivisionToken,
   makeFacilityGroupToken,
   makeFacilityOriginalToken,
   isUnmappedCostCenterFacility,
@@ -8,7 +9,7 @@ import {
 } from './hierarchyFilterUtils';
 import './hierarchyFilter.css';
 
-import { canonicalizeBuGroupSelections, getBuGroupOptions } from './buGroupingUtils';
+import { buildBuDivisionEntries, canonicalizeBuGroupSelections, makeBuEntryChildToken } from './buGroupingUtils';
 
 function normalizeLabel(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -80,7 +81,7 @@ function HierarchyFilter({
 
     return entries
       .map((entry) => {
-        const parentMatches = normalizeKey(entry.parent).includes(normalizedSearch);
+        const parentMatches = normalizeKey(entry.label ?? entry.parent).includes(normalizedSearch);
         const matchingChildren = entry.children.filter((child) =>
           normalizeKey(child).includes(normalizedSearch)
         );
@@ -262,7 +263,7 @@ function HierarchyFilter({
                         ref={(element) => setIndeterminate(element, parentIndeterminate)}
                         onChange={() => toggleParent(entry)}
                       />
-                      <span className="hierarchy-filter-group-name">{entry.parent}</span>
+                      <span className="hierarchy-filter-group-name">{entry.label ?? entry.parent}</span>
                       {entry.children.length > 0 ? (
                         <span className="hierarchy-filter-count">{entry.children.length}</span>
                       ) : null}
@@ -476,7 +477,6 @@ export function FacilityHierarchyFilter({
 
 export function BusinessUnitHierarchyFilter({
   hierarchy = [],
-  options = [],
   value = [],
   onChange,
   allLabel = 'All business units',
@@ -504,7 +504,7 @@ export function BusinessUnitHierarchyFilter({
     return () => { cancelled = true; };
   }, []);
 
-  const names = useMemo(() => getBuGroupOptions(groups, options), [groups, options]);
+  const entries = useMemo(() => buildBuDivisionEntries(hierarchy), [hierarchy]);
   const canonicalValue = useMemo(
     () => canonicalizeBuGroupSelections(value, groups, hierarchy),
     [value, groups, hierarchy]
@@ -517,21 +517,20 @@ export function BusinessUnitHierarchyFilter({
 
   return (
     <HierarchyFilter
-      entries={names.map((name) => ({ parent: name, children: [] }))}
+      entries={entries}
       value={canonicalValue}
       onChange={onChange}
       allLabel={allLabel}
       inputId={inputId}
       ariaLabel="Filter dashboard by Business Unit"
-      menuAriaLabel="Business units"
-      searchPlaceholder="Search business units"
-      searchAriaLabel="Search business units"
-      makeParentToken={(entry) => entry.parent}
-      makeChildToken={() => ''}
+      menuAriaLabel="Business units by division"
+      searchPlaceholder="Search divisions or business units"
+      searchAriaLabel="Search divisions or business units"
+      makeParentToken={(entry) => makeBusinessUnitDivisionToken(entry.parent)}
+      makeChildToken={makeBuEntryChildToken}
       getTokenLabel={(token) => parseBusinessUnitFilterToken(token).label}
       loading={loading}
-      warning={loadError ? 'BU groupings unavailable; showing current BU names.' : ''}
-      flat
+      warning={loadError ? 'BU groupings unavailable; division-level filtering still works.' : ''}
     />
   );
 }

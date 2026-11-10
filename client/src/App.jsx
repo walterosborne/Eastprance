@@ -1415,17 +1415,22 @@ function getBusinessUnitHierarchy(rowsByMetric) {
       const division = normalizeDivisionValue(row?.[divisionFieldName]);
       const businessUnit = normalizeBusinessUnitValue(row?.[businessUnitFieldName]);
 
-      if (!division || !businessUnit || isExcludedDivision(division)) {
+      if (!division || isExcludedDivision(division)) {
         return;
       }
 
       const divisionKey = division.toLowerCase();
       const entry = divisionsByKey.get(divisionKey) ?? {
         division,
-        businessUnits: new Set()
+        businessUnits: new Set(),
+        mappedBusinessUnits: new Set(),
+        unmappedBusinessUnits: new Set()
       };
 
       entry.businessUnits.add(businessUnit);
+      const target = row.__business_unit_mapped === true
+        ? entry.mappedBusinessUnits : entry.unmappedBusinessUnits;
+      target.add(businessUnit);
       divisionsByKey.set(divisionKey, entry);
     });
   });
@@ -1433,8 +1438,9 @@ function getBusinessUnitHierarchy(rowsByMetric) {
   return [...divisionsByKey.values()]
     .map((entry) => ({
       division: entry.division,
-      businessUnits: [...entry.businessUnits]
-        .sort((left, right) => left.localeCompare(right))
+      businessUnits: [...entry.businessUnits].sort((left, right) => left.localeCompare(right)),
+      mappedBusinessUnits: [...entry.mappedBusinessUnits].sort((left, right) => left.localeCompare(right)),
+      unmappedBusinessUnits: [...entry.unmappedBusinessUnits].sort((left, right) => left.localeCompare(right))
     }))
     .sort((left, right) => left.division.localeCompare(right.division));
 }
@@ -1522,7 +1528,9 @@ function applyGlobalFilters(rows, metricKey, globalFilters) {
           : '';
 
         return selectedValues.some((selectedValue) =>
-          businessUnitFilterMatches(selectedValue, normalizedDivision, normalizedRowValue)
+          businessUnitFilterMatches(
+            selectedValue, normalizedDivision, normalizedRowValue, row.__business_unit_mapped === true
+          )
         );
       }
 

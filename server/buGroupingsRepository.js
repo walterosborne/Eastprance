@@ -229,10 +229,6 @@ export async function applyBuGroupingsToPayload(payload, scope) {
 
       const original = normalizeText(row[fieldName]);
 
-      if (!original) {
-        return;
-      }
-
       if (groupedRow === row) {
         groupedRow = { ...row };
       }
@@ -243,6 +239,7 @@ export async function applyBuGroupingsToPayload(payload, scope) {
       }
 
       const groupedBusinessUnit = lookup.get(normalizeLookupKey(original));
+      groupedRow.__business_unit_mapped = Boolean(groupedBusinessUnit);
 
       if (!groupedBusinessUnit) {
         unmatchedBusinessUnits.add(original);

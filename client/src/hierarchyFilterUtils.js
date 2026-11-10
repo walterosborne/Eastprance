@@ -1,6 +1,7 @@
 const FACILITY_GROUP_PREFIX = '__qmi_facility_group__:';
 const FACILITY_ORIGINAL_PREFIX = '__qmi_facility_original__:';
 const BUSINESS_UNIT_DIVISION_PREFIX = '__qmi_business_unit_division__:';
+const BUSINESS_UNIT_OTHER_PREFIX = '__qmi_business_unit_other__:';
 const BUSINESS_UNIT_CHILD_PREFIX = '__qmi_business_unit_child__:';
 
 function normalizeComparable(value) {
@@ -89,12 +90,25 @@ export function makeBusinessUnitDivisionToken(division) {
   return `${BUSINESS_UNIT_DIVISION_PREFIX}${String(division ?? '').trim()}`;
 }
 
+export function makeBusinessUnitOtherToken(division) {
+  return `${BUSINESS_UNIT_OTHER_PREFIX}${String(division ?? '').trim()}`;
+}
+
 export function makeBusinessUnitChildToken(division, businessUnit) {
   return `${BUSINESS_UNIT_CHILD_PREFIX}${encodePair(division, businessUnit)}`;
 }
 
 export function parseBusinessUnitFilterToken(value) {
   const text = String(value ?? '').trim();
+
+  if (text.startsWith(BUSINESS_UNIT_OTHER_PREFIX)) {
+    return {
+      type: 'other',
+      division: text.slice(BUSINESS_UNIT_OTHER_PREFIX.length).trim(),
+      businessUnit: '',
+      label: 'Other'
+    };
+  }
 
   if (text.startsWith(BUSINESS_UNIT_DIVISION_PREFIX)) {
     const division = text.slice(BUSINESS_UNIT_DIVISION_PREFIX.length).trim();
@@ -128,10 +142,14 @@ export function parseBusinessUnitFilterToken(value) {
   };
 }
 
-export function businessUnitFilterMatches(selectedValue, divisionValue, businessUnitValue) {
+export function businessUnitFilterMatches(selectedValue, divisionValue, businessUnitValue, isMapped = true) {
   const selection = parseBusinessUnitFilterToken(selectedValue);
   const normalizedDivision = normalizeComparable(divisionValue);
   const normalizedBusinessUnit = normalizeComparable(businessUnitValue);
+
+  if (selection.type === 'other') {
+    return normalizeComparable(selection.division) === normalizedDivision && !isMapped;
+  }
 
   if (selection.type === 'division') {
     return normalizeComparable(selection.division) === normalizedDivision;
@@ -141,7 +159,7 @@ export function businessUnitFilterMatches(selectedValue, divisionValue, business
     const businessUnitMatches = normalizeComparable(selection.businessUnit) === normalizedBusinessUnit;
     const selectedDivision = normalizeComparable(selection.division);
 
-    return businessUnitMatches
+    return isMapped && businessUnitMatches
       && (!selectedDivision || selectedDivision === normalizedDivision);
   }
 

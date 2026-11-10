@@ -10790,6 +10790,10 @@ export default function App() {
                           <p className="chart-message">
                             {otdState.rows.length === 0
                               ? 'No OTD data are available for charting.'
+                              : baseFilteredOtdRows.length === 0
+                                && activeGlobalFilters.businessUnit.length > 0
+                                && otdState.rows.every((row) => !String(row.business_unit ?? '').trim())
+                                ? 'OTD data do not include business units, so the BU filter cannot be applied.'
                               : filteredOtdRows.length === 0 && otdFilterApplies
                                 ? 'No OTD data were found for the selected filters.'
                                 : 'No OTD months fall within the selected date range.'}

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  makeBusinessUnitChildToken,
-  makeBusinessUnitDivisionToken,
   makeFacilityGroupToken,
   makeFacilityOriginalToken,
   isUnmappedCostCenterFacility,
@@ -10,7 +8,7 @@ import {
 } from './hierarchyFilterUtils';
 import './hierarchyFilter.css';
 
-const FALLBACK_DIVISION_LABEL = 'Other / Unassigned';
+import { canonicalizeBuGroupSelections, getBuGroupOptions } from './buGroupingUtils';
 
 function normalizeLabel(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -476,103 +474,6 @@ export function FacilityHierarchyFilter({
   );
 }
 
-function mergeBusinessUnitHierarchy(hierarchy, fallbackBusinessUnits) {
-  const divisionsByKey = new Map();
-  const mappedBusinessUnitKeys = new Set();
-
-  (Array.isArray(hierarchy) ? hierarchy : []).forEach((entry) => {
-    const division = normalizeLabel(entry?.division);
-
-    if (!division) {
-      return;
-    }
-
-    const businessUnits = [...new Set(
-      (Array.isArray(entry?.businessUnits) ? entry.businessUnits : [])
-        .map(normalizeLabel)
-        .filter(Boolean)
-    )].sort((left, right) => left.localeCompare(right));
-
-    businessUnits.forEach((businessUnit) => mappedBusinessUnitKeys.add(normalizeKey(businessUnit)));
-    divisionsByKey.set(normalizeKey(division), {
-      parent: division,
-      matchParent: division,
-      children: businessUnits
-    });
-  });
-
-  const fallbackBusinessUnitsFiltered = [...new Set(
-    (Array.isArray(fallbackBusinessUnits) ? fallbackBusinessUnits : [])
-      .map(normalizeLabel)
-      .filter((businessUnit) => businessUnit && !mappedBusinessUnitKeys.has(normalizeKey(businessUnit)))
-  )].sort((left, right) => left.localeCompare(right));
-
-  if (fallbackBusinessUnitsFiltered.length > 0) {
-    divisionsByKey.set('__fallback__', {
-      parent: FALLBACK_DIVISION_LABEL,
-      matchParent: '',
-      children: fallbackBusinessUnitsFiltered
-    });
-  }
-
-  return [...divisionsByKey.values()].sort((left, right) =>
-    left.parent.localeCompare(right.parent)
-  );
-}
-
-function canonicalizeBusinessUnitSelections(values, entries) {
-  const divisionByKey = new Map();
-  const businessUnitLocations = new Map();
-
-  entries.forEach((entry) => {
-    const matchParent = entry.matchParent ?? entry.parent;
-    divisionByKey.set(normalizeKey(entry.parent), matchParent);
-
-    entry.children.forEach((businessUnit) => {
-      const key = normalizeKey(businessUnit);
-      const locations = businessUnitLocations.get(key) ?? [];
-      locations.push({ division: matchParent, businessUnit });
-      businessUnitLocations.set(key, locations);
-    });
-  });
-
-  const selections = [];
-
-  (Array.isArray(values) ? values : []).forEach((value) => {
-    const parsed = parseBusinessUnitFilterToken(value);
-
-    if (parsed.type === 'division') {
-      selections.push(makeBusinessUnitDivisionToken(parsed.division));
-      return;
-    }
-
-    if (parsed.type === 'businessUnit') {
-      selections.push(makeBusinessUnitChildToken(parsed.division, parsed.businessUnit));
-      return;
-    }
-
-    const matchingLocations = businessUnitLocations.get(normalizeKey(parsed.businessUnit)) ?? [];
-
-    if (matchingLocations.length > 0) {
-      matchingLocations.forEach(({ division, businessUnit }) => {
-        selections.push(makeBusinessUnitChildToken(division, businessUnit));
-      });
-      return;
-    }
-
-    const matchingDivision = divisionByKey.get(normalizeKey(parsed.businessUnit));
-
-    if (matchingDivision !== undefined) {
-      selections.push(makeBusinessUnitDivisionToken(matchingDivision));
-      return;
-    }
-
-    selections.push(value);
-  });
-
-  return [...new Set(selections.filter(Boolean))];
-}
-
 export function BusinessUnitHierarchyFilter({
   hierarchy = [],
   options = [],
@@ -581,35 +482,59 @@ export function BusinessUnitHierarchyFilter({
   allLabel = 'All business units',
   inputId = 'global-filter-businessUnit'
 }) {
-  const entries = useMemo(
-    () => mergeBusinessUnitHierarchy(hierarchy, options),
-    [hierarchy, options]
-  );
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGroupings() {
+      try {
+        const response = await fetch('/api/bu-groupings');
+        if (!response.ok) throw new Error('Unable to load BU groupings.');
+        const payload = await response.json();
+        if (!cancelled) setGroups(Array.isArray(payload.groups) ? payload.groups : []);
+      } catch {
+        if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadGroupings();
+    return () => { cancelled = true; };
+  }, []);
+
+  const names = useMemo(() => getBuGroupOptions(groups, options), [groups, options]);
   const canonicalValue = useMemo(
-    () => canonicalizeBusinessUnitSelections(value, entries),
-    [value, entries]
+    () => canonicalizeBuGroupSelections(value, groups, hierarchy),
+    [value, groups, hierarchy]
   );
+  useEffect(() => {
+    if (!loading && JSON.stringify(value) !== JSON.stringify(canonicalValue)) {
+      onChange?.(canonicalValue);
+    }
+  }, [loading, value, canonicalValue, onChange]);
 
   return (
     <HierarchyFilter
-      entries={entries}
+      entries={names.map((name) => ({ parent: name, children: [] }))}
       value={canonicalValue}
       onChange={onChange}
       allLabel={allLabel}
       inputId={inputId}
       ariaLabel="Filter dashboard by Business Unit"
-      menuAriaLabel="Business units by division"
-      searchPlaceholder="Search divisions or business units"
-      searchAriaLabel="Search divisions or business units"
-      makeParentToken={(entry) => makeBusinessUnitDivisionToken(entry.matchParent ?? entry.parent)}
-      makeChildToken={(entry, child) =>
-        makeBusinessUnitChildToken(entry.matchParent ?? entry.parent, child)
-      }
+      menuAriaLabel="Business units"
+      searchPlaceholder="Search business units"
+      searchAriaLabel="Search business units"
+      makeParentToken={(entry) => entry.parent}
+      makeChildToken={() => ''}
       getTokenLabel={(token) => parseBusinessUnitFilterToken(token).label}
+      loading={loading}
+      warning={loadError ? 'BU groupings unavailable; showing current BU names.' : ''}
+      flat
     />
   );
 }
-
 
 export function FlatCheckboxFilter({
   options = [],

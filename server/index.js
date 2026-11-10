@@ -51,6 +51,7 @@ import {
   applyFacilityGroupingsToPayload,
   readFacilityGroupingHierarchy
 } from './facilityGroupingsRepository.js';
+import { applyBuGroupingsToPayload, readBuGroupingTitles } from './buGroupingsRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
 import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
@@ -178,7 +179,8 @@ async function sendDatasetResponse(request, response, scope, loadDataset, failur
 
   try {
     const payload = await loadDataset();
-    const groupedPayload = await applyFacilityGroupingsToPayload(payload, scope);
+    const facilityGroupedPayload = await applyFacilityGroupingsToPayload(payload, scope);
+    const groupedPayload = await applyBuGroupingsToPayload(facilityGroupedPayload, scope);
 
     logDebug(scope, `Request #${request.requestId ?? 'n/a'} loaded dataset.`, {
       source: groupedPayload.source,
@@ -209,6 +211,16 @@ app.get('/api/facility-groupings', async (request, response) => {
     'facility-groupings',
     readFacilityGroupingHierarchy,
     'Unable to read facility groupings.'
+  );
+});
+
+app.get('/api/bu-groupings', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'bu-groupings',
+    readBuGroupingTitles,
+    'Unable to read BU groupings.'
   );
 });
 

@@ -1,4 +1,10 @@
-runas /netonly /user:YOUR_YY_ACCOUNT@northgrum.com cmd
-npm run test:qaf --workspace server
-
-.\scripts\Test-CustomerEscapesWindowsAuth.ps1 -Server "YOUR_SQL_SERVER.northgrum.com"
+const p = await fetch('/api/labor-utilization-new').then(r => r.json());
+console.table(p.rows.filter(r => /Weapons Integration Mission/i.test(
+  `${r.business_unit} ${r.__business_unit_original}`
+)).map(r => ({
+  division: r.division,
+  original: r.__business_unit_original,
+  grouped: r.business_unit,
+  mapped: r.__business_unit_mapped,
+  hours: r.entered_hours
+})));

@@ -86,7 +86,8 @@ async function loadBuGroupings() {
         LTRIM(RTRIM(COALESCE(
           TRY_CONVERT(nvarchar(4000), businessUnit.[Name]),
           ''
-        ))) AS [group]
+        ))) AS [group],
+        CAST(0 AS bit) AS [is_canonical]
       FROM ${tableName} AS source
       INNER JOIN ${businessUnitsTableName} AS businessUnit
         ON businessUnit.[Id] = source.[BusinessUnitId]
@@ -97,9 +98,20 @@ async function loadBuGroupings() {
         AND NULLIF(LTRIM(RTRIM(COALESCE(
               TRY_CONVERT(nvarchar(4000), businessUnit.[Name]),
               ''
-            ))), '') IS NOT NULL;
+            ))), '') IS NOT NULL
+      UNION ALL
+      SELECT
+        LTRIM(RTRIM(businessUnit.[Name])) AS [original],
+        LTRIM(RTRIM(businessUnit.[Name])) AS [group],
+        CAST(1 AS bit) AS [is_canonical]
+      FROM ${businessUnitsTableName} AS businessUnit
+      WHERE NULLIF(LTRIM(RTRIM(businessUnit.[Name])), '') IS NOT NULL;
     `);
 
+    // Canonical names are valid source values even without an alias mapping.
+    const isCanonical = (row) => row.is_canonical === true || Number(row.is_canonical) === 1;
+    const canonicalKeys = new Set(result.recordset.filter(isCanonical)
+      .map((row) => normalizeLookupKey(row.original)));
     const lookup = new Map();
     const entries = [];
     let duplicateCount = 0;
@@ -109,7 +121,7 @@ async function loadBuGroupings() {
       const group = normalizeText(row.group);
       const key = normalizeLookupKey(original);
 
-      if (!key || !group) {
+      if (!key || !group || (!isCanonical(row) && canonicalKeys.has(key))) {
         return;
       }
 

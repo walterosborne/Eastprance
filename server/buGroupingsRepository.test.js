@@ -4,6 +4,7 @@ import { buildBuDivisionEntries, canonicalizeBuGroupSelections, makeBuEntryChild
 import { businessUnitFilterMatches, makeBusinessUnitChildToken, makeBusinessUnitDivisionToken, makeBusinessUnitOtherToken } from '../client/src/hierarchyFilterUtils.js';
 
 let queryCount = 0;
+const realBusinessUnits = ['Proper BU', 'Strategic BU', 'Native BU'];
 let mappings = [
   { original: 'WS Old Name', group: 'Proper BU' },
   { original: 'WS Other Name', group: 'Proper BU' },
@@ -26,7 +27,12 @@ await mock.module('./sqlConnection.js', {
           assert.match(statement, /businessUnit\.\[Id\] = source\.\[BusinessUnitId\]/);
           assert.match(statement, /businessUnit\.\[Name\]/);
           assert.doesNotMatch(statement, /source\.\[Group\]/);
-          return { recordset: mappings };
+          assert.match(statement, /UNION ALL/);
+          assert.match(statement, /CAST\(1 AS bit\) AS \[is_canonical\]/);
+          return { recordset: [
+            ...mappings,
+            ...realBusinessUnits.map((name) => ({ original: name, group: name, is_canonical: true }))
+          ] };
         }
       })
     })
@@ -60,7 +66,43 @@ test('BU mappings merge names across cards without mutating cached datasets or m
   const titles = await readBuGroupingTitles();
   assert.equal(titles.tableName, 'qmi.bugroupings');
   assert.equal(titles.businessUnitTableName, 'qmi.businessunits');
-  assert.deepEqual(titles.groups.map((g) => g.group), ['Proper BU', 'Strategic BU']);
+  assert.deepEqual(titles.groups.map((g) => g.group), ['Native BU', 'Proper BU', 'Strategic BU']);
+});
+
+test('canonical BU values are mapped without alias rows and share the same selection as their aliases', async () => {
+  const { applyBuGroupingsToPayload, readBuGroupingTitles } = await import('./buGroupingsRepository.js');
+  const payload = await applyBuGroupingsToPayload({ rows: [
+    { division: 'Mixed', business_unit: ' proper  bu ', value: 10 },
+    { division: 'Mixed', business_unit: 'WS Old Name', value: 20 },
+    { division: 'Mixed', business_unit: 'Unknown', value: 30 },
+    { division: 'Native', business_unit: ' native BU ', value: 40 }
+  ] }, 'otd');
+  assert.deepEqual(payload.rows.map((r) => r.business_unit), ['Proper BU', 'Proper BU', 'Unknown', 'Native BU']);
+  assert.deepEqual(payload.rows.map((r) => r.__business_unit_mapped), [true, true, false, true]);
+  const selected = payload.rows.filter((r) => businessUnitFilterMatches(
+    makeBusinessUnitChildToken('Mixed', 'Proper BU'), r.division, r.business_unit, r.__business_unit_mapped
+  ));
+  assert.equal(selected.length, 2);
+  assert.equal(selected.reduce((sum, r) => sum + r.value, 0), 30);
+  const other = payload.rows.filter((r) => businessUnitFilterMatches(
+    makeBusinessUnitOtherToken('Mixed'), r.division, r.business_unit, r.__business_unit_mapped
+  ));
+  assert.deepEqual(other.map((r) => r.business_unit), ['Unknown']);
+  const titles = await readBuGroupingTitles();
+  assert.ok(titles.groups.find((g) => g.group === 'Native BU').originals.includes('Native BU'));
+});
+
+test('canonical names take precedence over a conflicting alias for that same source value', async () => {
+  const originalMappings = mappings;
+  try {
+    mappings = [{ original: 'Proper BU', group: 'Strategic BU' }];
+    const { applyBuGroupingsToPayload } = await import('./buGroupingsRepository.js?canonical-priority');
+    const payload = await applyBuGroupingsToPayload({ rows: [{ business_unit: 'Proper BU' }] }, 'otd');
+    assert.equal(payload.rows[0].business_unit, 'Proper BU');
+    assert.equal(payload.rows[0].__business_unit_mapped, true);
+  } finally {
+    mappings = originalMappings;
+  }
 });
 
 test('divisions expose mapped titles and Other only when mapped and unmapped BUs coexist', () => {

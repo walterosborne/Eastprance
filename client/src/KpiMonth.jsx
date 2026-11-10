@@ -26,5 +26,5 @@ export function KpiMonthLabel({ stamp }) {
     ? monthFormatter.format(new Date(stamp))
     : 'No data';
 
-  return <>Latest complete month: {label}</>;
+  return <>{label}</>;
 }

@@ -13,8 +13,8 @@ await mock.module('./sqlConnection.js', {
   namedExports: {
     getConnectionConfig: () => ({ config: {}, missing: [] }),
     formatSqlIdentifier: (name) => {
-      assert.equal(name, 'qmi.bugroupings');
-      return '[qmi].[bugroupings]';
+      assert.ok(['qmi.bugroupings', 'qmi.businessunits'].includes(name));
+      return name.split('.').map((part) => `[${part}]`).join('.');
     },
     getPool: async () => ({
       request: () => ({
@@ -22,7 +22,10 @@ await mock.module('./sqlConnection.js', {
           queryCount += 1;
           assert.match(statement, /FROM \[qmi\]\.\[bugroupings\]/);
           assert.match(statement, /source\.\[Original\]/);
-          assert.match(statement, /source\.\[Group\]/);
+          assert.match(statement, /INNER JOIN \[qmi\]\.\[businessunits\] AS businessUnit/);
+          assert.match(statement, /businessUnit\.\[Id\] = source\.\[BusinessUnitId\]/);
+          assert.match(statement, /businessUnit\.\[Name\]/);
+          assert.doesNotMatch(statement, /source\.\[Group\]/);
           return { recordset: mappings };
         }
       })
@@ -55,6 +58,7 @@ test('BU mappings merge names across cards without mutating cached datasets or m
   assert.equal(await applyBuGroupingsToPayload(payload, 'sif'), payload);
   const titles = await readBuGroupingTitles();
   assert.equal(titles.tableName, 'qmi.bugroupings');
+  assert.equal(titles.businessUnitTableName, 'qmi.businessunits');
   assert.deepEqual(titles.groups.map((g) => g.group), ['Proper BU', 'Strategic BU']);
 });
 
@@ -78,7 +82,7 @@ test('conflicting mappings do not silently select the wrong BU or break source d
   mappings = [{ original: 'BU', group: 'One' }, { original: 'bu', group: 'Two' }];
   const { readBuGroupingTitles, applyBuGroupingsToPayload } =
     await import('./buGroupingsRepository.js?conflict-test');
-  await assert.rejects(readBuGroupingTitles(), /conflicting groups/);
+  await assert.rejects(readBuGroupingTitles(), /conflicting real BUs/);
   const source = { rows: [{ business_unit: 'BU', value: 10 }] };
   const payload = await applyBuGroupingsToPayload(source, 'otd');
   assert.equal(payload.rows, source.rows);

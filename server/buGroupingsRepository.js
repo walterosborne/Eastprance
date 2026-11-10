@@ -11,6 +11,7 @@ import {
 } from './sqlConnection.js';
 
 const BU_GROUPINGS_TABLE_NAME = 'qmi.bugroupings';
+const BUSINESS_UNITS_TABLE_NAME = 'qmi.businessunits';
 const BU_GROUPINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const BU_FIELDS_BY_SCOPE = {
@@ -73,6 +74,7 @@ async function loadBuGroupings() {
 
   const pool = await getPool(config);
   const tableName = formatSqlIdentifier(BU_GROUPINGS_TABLE_NAME, config);
+  const businessUnitsTableName = formatSqlIdentifier(BUSINESS_UNITS_TABLE_NAME, config);
 
   try {
     const result = await pool.request().query(`
@@ -82,16 +84,18 @@ async function loadBuGroupings() {
           ''
         ))) AS [original],
         LTRIM(RTRIM(COALESCE(
-          TRY_CONVERT(nvarchar(4000), source.[Group]),
+          TRY_CONVERT(nvarchar(4000), businessUnit.[Name]),
           ''
         ))) AS [group]
       FROM ${tableName} AS source
+      INNER JOIN ${businessUnitsTableName} AS businessUnit
+        ON businessUnit.[Id] = source.[BusinessUnitId]
       WHERE NULLIF(LTRIM(RTRIM(COALESCE(
               TRY_CONVERT(nvarchar(4000), source.[Original]),
               ''
             ))), '') IS NOT NULL
         AND NULLIF(LTRIM(RTRIM(COALESCE(
-              TRY_CONVERT(nvarchar(4000), source.[Group]),
+              TRY_CONVERT(nvarchar(4000), businessUnit.[Name]),
               ''
             ))), '') IS NOT NULL;
     `);
@@ -116,7 +120,7 @@ async function loadBuGroupings() {
 
         if (normalizeLookupKey(existingGroup) !== normalizeLookupKey(group)) {
           throw new Error(
-            'Business unit grouping table contains conflicting groups for one Original value.'
+            'Business unit mappings contain conflicting real BUs for one Original value.'
           );
         }
 
@@ -141,6 +145,7 @@ async function loadBuGroupings() {
 
     logDebug('bu-groupings', 'Business unit groupings loaded.', {
       tableName: BU_GROUPINGS_TABLE_NAME,
+      businessUnitTableName: BUSINESS_UNITS_TABLE_NAME,
       rowCount: payload.rowCount,
       mappedBusinessUnitCount: payload.mappedBusinessUnitCount,
       groupCount: payload.groupCount,
@@ -152,6 +157,7 @@ async function loadBuGroupings() {
   } catch (error) {
     logError('bu-groupings', 'Unable to load business unit groupings.', error, {
       tableName: BU_GROUPINGS_TABLE_NAME,
+      businessUnitTableName: BUSINESS_UNITS_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
     throw error;
@@ -186,6 +192,7 @@ export async function readBuGroupingTitles() {
   return {
     source: 'mssql',
     tableName: BU_GROUPINGS_TABLE_NAME,
+    businessUnitTableName: BUSINESS_UNITS_TABLE_NAME,
     rowCount: payload.rowCount,
     mappedBusinessUnitCount: payload.mappedBusinessUnitCount,
     groupCount: payload.groupCount,

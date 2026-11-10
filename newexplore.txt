@@ -1,10 +1,16 @@
-const p = await fetch('/api/labor-utilization-new').then(r => r.json());
-console.table(p.rows.filter(r => /Weapons Integration Mission/i.test(
-  `${r.business_unit} ${r.__business_unit_original}`
-)).map(r => ({
-  division: r.division,
-  original: r.__business_unit_original,
-  grouped: r.business_unit,
-  mapped: r.__business_unit_mapped,
-  hours: r.entered_hours
-})));
+WITH bus AS (
+    SELECT LTRIM(RTRIM(LEV04_DESC)) AS bu,
+           ROW_NUMBER() OVER (
+               PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+               ORDER BY last_modified_date DESC, created_date DESC, id DESC
+           ) AS rn
+    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+)
+SELECT DISTINCT b.bu AS [BU], COALESCE(canonical.[Name], mapped.[Name]) AS [BU Match]
+FROM bus b
+LEFT JOIN [ecosystem_source].[qmi].[businessunits] canonical ON canonical.[Name] = b.bu
+LEFT JOIN [ecosystem_source].[qmi].[bugroupings] g ON g.[Original] = b.bu
+LEFT JOIN [ecosystem_source].[qmi].[businessunits] mapped ON mapped.[Id] = g.[BusinessUnitId]
+WHERE b.rn = 1 AND NULLIF(b.bu, '') IS NOT NULL
+ORDER BY [BU];

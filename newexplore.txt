@@ -1,16 +1,29 @@
-WITH bus AS (
-    SELECT LTRIM(RTRIM(LEV04_DESC)) AS bu,
-           ROW_NUMBER() OVER (
-               PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-               ORDER BY last_modified_date DESC, created_date DESC, id DESC
-           ) AS rn
-    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-)
-SELECT DISTINCT b.bu AS [BU], COALESCE(canonical.[Name], mapped.[Name]) AS [BU Match]
-FROM bus b
-LEFT JOIN [ecosystem_source].[qmi].[businessunits] canonical ON canonical.[Name] = b.bu
-LEFT JOIN [ecosystem_source].[qmi].[bugroupings] g ON g.[Original] = b.bu
-LEFT JOIN [ecosystem_source].[qmi].[businessunits] mapped ON mapped.[Id] = g.[BusinessUnitId]
-WHERE b.rn = 1 AND NULLIF(b.bu, '') IS NOT NULL
-ORDER BY [BU];
+const paths = [
+  '/api/controllable-costs-new',
+  '/api/controllable-costs-databricks-raw',
+  '/api/controllable-costs-databricks-new',
+  '/api/otd',
+  '/api/customer-escapes',
+  '/api/labor-utilization-new'
+];
+const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().replace(/^DS\s+/i, '');
+const datasets = await Promise.all(paths.map(async (path) => {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(`${response.status}`);
+    return { path, rows: (await response.json()).rows ?? [] };
+  } catch (error) {
+    return { path, rows: [], error: error.message };
+  }
+}));
+const matches = new Map();
+for (const { rows } of datasets) for (const row of rows) {
+  const division = normalize(row.division);
+  if (!division || division.toLowerCase() === 'future concepts') continue;
+  const BU = normalize(row.__business_unit_original ?? row.business_unit);
+  const match = row.__business_unit_mapped === true ? normalize(row.business_unit) : null;
+  matches.set(JSON.stringify([BU.toLowerCase(), match?.toLowerCase()]), { BU, 'BU Match': match });
+}
+console.table([...matches.values()].sort((a, b) => a.BU.localeCompare(b.BU)));
+const failed = datasets.filter((dataset) => dataset.error);
+if (failed.length) console.warn('Unavailable sources:', failed.map(({ path, error }) => `${path}: ${error}`));

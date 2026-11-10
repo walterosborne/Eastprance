@@ -1,29 +1,16 @@
-const paths = [
-  '/api/controllable-costs-new',
-  '/api/controllable-costs-databricks-raw',
-  '/api/controllable-costs-databricks-new',
-  '/api/otd',
-  '/api/customer-escapes',
-  '/api/labor-utilization-new'
-];
-const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().replace(/^DS\s+/i, '');
-const datasets = await Promise.all(paths.map(async (path) => {
-  try {
-    const response = await fetch(path);
-    if (!response.ok) throw new Error(`${response.status}`);
-    return { path, rows: (await response.json()).rows ?? [] };
-  } catch (error) {
-    return { path, rows: [], error: error.message };
-  }
-}));
-const matches = new Map();
-for (const { rows } of datasets) for (const row of rows) {
-  const division = normalize(row.division);
-  if (!division || division.toLowerCase() === 'future concepts') continue;
-  const BU = normalize(row.__business_unit_original ?? row.business_unit);
-  const match = row.__business_unit_mapped === true ? normalize(row.business_unit) : null;
-  matches.set(JSON.stringify([BU.toLowerCase(), match?.toLowerCase()]), { BU, 'BU Match': match });
-}
-console.table([...matches.values()].sort((a, b) => a.BU.localeCompare(b.BU)));
-const failed = datasets.filter((dataset) => dataset.error);
-if (failed.length) console.warn('Unavailable sources:', failed.map(({ path, error }) => `${path}: ${error}`));
+WITH source_bu AS (
+    SELECT LTRIM(RTRIM([Business Unit])) AS BU FROM [qmi].[otd]
+    UNION SELECT LTRIM(RTRIM(business_unit)) FROM [qmi].[controllable_costs_new_extract]
+    UNION SELECT LTRIM(RTRIM([Business Unit])) FROM [qmi].[controllable_costs_hana]
+    UNION SELECT LTRIM(RTRIM([Business Unit])) FROM [qmi].[labor_agg]
+    UNION SELECT LTRIM(RTRIM(LEV04_DESC))
+    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+)
+SELECT s.BU, COALESCE(c.[Name], m.[Name]) AS [BU Match]
+FROM source_bu s
+LEFT JOIN [qmi].[businessunits] c ON c.[Name] = s.BU
+LEFT JOIN [qmi].[bugroupings] g ON g.[Original] = s.BU
+LEFT JOIN [qmi].[businessunits] m ON m.[Id] = g.[BusinessUnitId]
+WHERE NULLIF(s.BU, '') IS NOT NULL
+ORDER BY s.BU;

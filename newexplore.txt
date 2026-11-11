@@ -1,65 +1,39 @@
-WITH ds_centers AS (
-  SELECT DISTINCT
-    UPPER(TRIM(CAST(new_Cost_Center AS STRING))) AS center,
-    REGEXP_REPLACE(UPPER(TRIM(CAST(new_Cost_Center AS STRING))), '[^A-Z0-9]', '') AS compact_center
+WITH defense_centers AS (
+  SELECT DISTINCT UPPER(TRIM(CAST(new_Cost_Center AS STRING))) AS center
   FROM `finance_dev`.`analytics`.`cost_vis_full`
   WHERE CC_Bus_Unit_Lvl_2 LIKE '%Defense Systems%'
 ),
+compact_centers AS (
+  SELECT DISTINCT REGEXP_REPLACE(center, '[^A-Z0-9]', '') AS center
+  FROM defense_centers
+),
 ledger AS (
-  SELECT 'S2' AS source, GJAHR, POPER, RCNTR, RACCT, KSL AS amount
+  SELECT 'S2' AS source, GJAHR, POPER, SEGMENT, RCNTR, KSL
   FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`
   UNION ALL
-  SELECT 'SX', GJAHR, POPER, RCNTR, RACCT, KSL
+  SELECT 'SX', GJAHR, POPER, SEGMENT, RCNTR, KSL
   FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_sx`
-  UNION ALL
-  SELECT 'Raw', GJAHR, POPER, RCNTR, RACCT, DOC_NET_VALUE
-  FROM `finance_dev`.`analytics`.`dev_cv_transaction_details`
 ),
-centers AS (
+monthly AS (
   SELECT source,
+    TRY_CAST(GJAHR AS INT) AS year,
+    TRY_CAST(POPER AS INT) AS month,
+    TRIM(CAST(SEGMENT AS STRING)) AS segment,
     UPPER(TRIM(CAST(RCNTR AS STRING))) AS center,
-    COUNT(*) AS transaction_rows,
-    ROUND(SUM(TRY_CAST(amount AS DOUBLE)), 2) AS net_cost,
-    ROUND(SUM(ABS(TRY_CAST(amount AS DOUBLE))), 2) AS absolute_cost
+    TRY_CAST(KSL AS DOUBLE) AS cost
   FROM ledger
-  WHERE TRY_CAST(GJAHR AS INT) = 2025
-    AND TRY_CAST(POPER AS INT) = 12
-    AND NULLIF(TRIM(CAST(RCNTR AS STRING)), '') IS NOT NULL
-    AND TRY_CAST(amount AS DOUBLE) IS NOT NULL
-    AND (TRY_CAST(RACCT AS BIGINT) BETWEEN 4100000 AND 4109999
-      OR TRY_CAST(RACCT AS BIGINT) IN (
-      8320037,
-      4300305, 4300395, 4300591, 4300625, 4300626, 4300628, 4300630,
-      4300643, 4300652, 4300666, 4300669, 4300671, 4300680, 4300698,
-      4300699, 4300700, 4300701, 4300702, 4300703, 4300704, 4300705,
-      4300805, 4300807, 4300852, 4300884, 4300887, 4301013, 4301048,
-      4301049, 4301050, 4301077, 4301101, 4301102, 4301103, 4301104,
-      4301231, 8320479
-      ))
-  GROUP BY source, UPPER(TRIM(CAST(RCNTR AS STRING)))
-),
-matched AS (
-  SELECT c.*,
-    REGEXP_REPLACE(c.center, '[^A-Z0-9]', '') AS compact_center,
-    CASE WHEN e.center IS NOT NULL THEN 1 ELSE 0 END AS exact_ds,
-    CASE WHEN n.compact_center IS NOT NULL THEN 1 ELSE 0 END AS compact_ds
-  FROM centers c
-  LEFT JOIN (SELECT DISTINCT center FROM ds_centers) e ON e.center = c.center
-  LEFT JOIN (SELECT DISTINCT compact_center FROM ds_centers) n
-    ON n.compact_center = REGEXP_REPLACE(c.center, '[^A-Z0-9]', '')
-),
-ranked AS (
-  SELECT *,
-    SUM(CASE WHEN exact_ds = 1 THEN transaction_rows ELSE 0 END)
-      OVER (PARTITION BY source) AS exact_ds_rows,
-    SUM(CASE WHEN exact_ds = 0 AND compact_ds = 1 THEN transaction_rows ELSE 0 END)
-      OVER (PARTITION BY source) AS formatting_only_rows,
-    ROW_NUMBER() OVER (PARTITION BY source ORDER BY absolute_cost DESC, center) AS center_rank
-  FROM matched
 )
-SELECT source, center_rank, center, compact_center, transaction_rows,
-  net_cost, absolute_cost, exact_ds, compact_ds,
-  exact_ds_rows, formatting_only_rows
-FROM ranked
-WHERE center_rank <= 15
-ORDER BY source, center_rank;
+SELECT m.source, m.year, m.month, m.segment,
+  COUNT(*) AS rows,
+  COUNT_IF(NULLIF(m.center, '') IS NOT NULL) AS rows_with_rcntr,
+  COUNT_IF(d.center IS NOT NULL) AS ds_center_rows,
+  COUNT_IF(d.center IS NULL AND c.center IS NOT NULL) AS formatting_only_rows,
+  ROUND(SUM(m.cost), 2) AS all_ksl,
+  ROUND(SUM(CASE WHEN d.center IS NOT NULL THEN m.cost ELSE 0 END), 2) AS ds_center_ksl
+FROM monthly m
+LEFT JOIN defense_centers d ON d.center = m.center
+LEFT JOIN compact_centers c
+  ON c.center = REGEXP_REPLACE(m.center, '[^A-Z0-9]', '')
+WHERE m.year >= 2025 AND m.month BETWEEN 1 AND 12
+GROUP BY m.source, m.year, m.month, m.segment
+ORDER BY m.source, m.year DESC, m.month DESC, m.segment;

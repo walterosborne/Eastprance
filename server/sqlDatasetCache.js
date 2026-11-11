@@ -150,6 +150,7 @@ async function refreshDataset(scope, reason) {
 
       entry.payload = payload;
       entry.loadedAt = new Date();
+      entry.lastRefreshError = null;
 
       logDebug('cache', `${scope} dataset cache refreshed.`, {
         reason,
@@ -161,6 +162,7 @@ async function refreshDataset(scope, reason) {
 
       return payload;
     } catch (error) {
+      entry.lastRefreshError = error;
       logError('cache', `${scope} dataset cache refresh failed.`, error, {
         reason,
         hasExistingPayload: Boolean(entry.payload),
@@ -185,24 +187,31 @@ export function registerSqlDatasetCache(scope, loader) {
     loader,
     payload: null,
     loadedAt: null,
+    lastRefreshError: null,
     refreshPromise: null
   });
 }
 
-export async function getCachedSqlDataset(scope) {
+export async function getCachedSqlDataset(scope, { refresh = false, rejectStale = false } = {}) {
   const entry = getDatasetEntry(scope);
 
-  if (entry.payload) {
-    logDebug('cache', `Serving cached ${scope} dataset.`, {
-      loadedAt: entry.loadedAt?.toISOString(),
-      rowCount: entry.payload.rowCount,
-      source: entry.payload.source
-    });
-
-    return entry.payload;
+  if (refresh) {
+    await refreshDataset(scope, 'requested refresh');
+  } else if (!entry.payload) {
+    await refreshDataset(scope, 'first request');
   }
 
-  return refreshDataset(scope, 'first request');
+  if (rejectStale && entry.lastRefreshError) {
+    throw entry.lastRefreshError;
+  }
+
+  logDebug('cache', `Serving cached ${scope} dataset.`, {
+    loadedAt: entry.loadedAt?.toISOString(),
+    rowCount: entry.payload.rowCount,
+    source: entry.payload.source
+  });
+
+  return entry.payload;
 }
 
 export async function warmAllSqlDatasetCaches(reason) {

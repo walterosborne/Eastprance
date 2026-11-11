@@ -5677,8 +5677,12 @@ export default function App() {
           '/api/controllable-costs-databricks-new'
         );
         if (!isMounted) return;
+        if (payload.tableName !== 'raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s2') {
+          throw new Error(`Databricks New returned ${payload.tableName || 'an unknown source'}. Restart the QMI server to load the current table.`);
+        }
         setControllableCostsDatabricksNewState({
           rows: Array.isArray(payload.rows) ? payload.rows : [],
+          tableName: payload.tableName,
           loading: false,
           error: ''
         });
@@ -9995,7 +9999,7 @@ export default function App() {
               <DatabricksRawComparisonCard
                 metricKey="controllableCostsDatabricksNew"
                 sourceLabel="Databricks New"
-                tableName="raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s2"
+                tableName={controllableCostsDatabricksNewState.tableName || 'unavailable'}
                 amountField="KSL"
                 order={4}
                 chartVariant={chartVariants.controllableCostsDatabricksNew}

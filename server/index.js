@@ -613,7 +613,10 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
       'controllable-costs-databricks-new',
       async () => {
         const { accountRows, sdsNoFacilityCandidates, rawSourceCoverage, rawMappedCoverage, mappingDiagnostics, ...cardDataset } =
-          await getCachedSqlDataset('controllable-costs-databricks-new');
+          await getCachedSqlDataset('controllable-costs-databricks-new', {
+            refresh: request.query.refresh === '1',
+            rejectStale: true
+          });
         return cardDataset;
       },
       'Unable to read new Databricks controllable costs data.'

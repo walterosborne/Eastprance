@@ -1,18 +1,39 @@
-Promise.all([
-  ['Raw', '/api/controllable-costs-databricks-raw'],
-  ['New', '/api/controllable-costs-databricks-new?refresh=1']
-].map(async ([name, url]) => {
-  const response = await fetch(url);
-  const data = await response.json();
-  return {
-    name,
-    status: response.status,
-    table: data.tableName,
-    sourceRows: data.sourceRowCount,
-    unmatchedHierarchy: data.hierarchyUnmatchedRowCount,
-    excludedByScope: data.excludedBySqlScopeRowCount,
-    finalRows: data.rowCount,
-    totalCost: data.totalCost,
-    error: data.error
-  };
-})).then(console.table);
+WITH defense_centers AS (
+  SELECT DISTINCT UPPER(TRIM(CAST(new_Cost_Center AS STRING))) AS cost_center
+  FROM `finance_dev`.`analytics`.`cost_vis_full`
+  WHERE CC_Bus_Unit_Lvl_2 LIKE '%Defense Systems%'
+),
+s2 AS (
+  SELECT
+    UPPER(TRIM(CAST(RCNTR AS STRING))) AS rcntr,
+    UPPER(TRIM(CAST(SCNTR AS STRING))) AS scntr,
+    UPPER(TRIM(CAST(UKOSTL AS STRING))) AS ukostl,
+    TRY_CAST(KSL AS DOUBLE) AS ksl
+  FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`
+  WHERE TRY_CAST(GJAHR AS INT) = 2025
+    AND TRY_CAST(POPER AS INT) = 12
+    AND (
+      TRY_CAST(RACCT AS BIGINT) BETWEEN 4100000 AND 4109999
+      OR TRY_CAST(RACCT AS BIGINT) IN (
+      8320037,
+      4300305, 4300395, 4300591, 4300625, 4300626, 4300628, 4300630,
+      4300643, 4300652, 4300666, 4300669, 4300671, 4300680, 4300698,
+      4300699, 4300700, 4300701, 4300702, 4300703, 4300704, 4300705,
+      4300805, 4300807, 4300852, 4300884, 4300887, 4301013, 4301048,
+      4301049, 4301050, 4301077, 4301101, 4301102, 4301103, 4301104,
+      4301231, 8320479
+      )
+    )
+)
+SELECT COUNT(*) AS candidate_rows,
+  ROUND(SUM(ksl), 2) AS candidate_ksl,
+  COUNT_IF(r.cost_center IS NOT NULL) AS rcntr_ds_rows,
+  ROUND(SUM(CASE WHEN r.cost_center IS NOT NULL THEN ksl ELSE 0 END), 2) AS rcntr_ds_ksl,
+  COUNT_IF(s.cost_center IS NOT NULL) AS scntr_ds_rows,
+  ROUND(SUM(CASE WHEN s.cost_center IS NOT NULL THEN ksl ELSE 0 END), 2) AS scntr_ds_ksl,
+  COUNT_IF(u.cost_center IS NOT NULL) AS ukostl_ds_rows,
+  ROUND(SUM(CASE WHEN u.cost_center IS NOT NULL THEN ksl ELSE 0 END), 2) AS ukostl_ds_ksl
+FROM s2
+LEFT JOIN defense_centers r ON r.cost_center = s2.rcntr
+LEFT JOIN defense_centers s ON s.cost_center = s2.scntr
+LEFT JOIN defense_centers u ON u.cost_center = s2.ukostl;

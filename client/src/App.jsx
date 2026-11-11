@@ -8177,35 +8177,41 @@ export default function App() {
     { value: 'facility', label: 'Facility', allLabel: 'All facilities' },
     { value: 'defect_type', label: 'Defect Type', allLabel: 'All defect types' }
   ];
-  const customerEscapesFilterOptions = useMemo(() => customerEscapesFilterField === 'defect_type'
-    ? ['Software', 'Hardware', 'Documentation']
-    : [...new Set(unprocessedCustomerEscapesBaseRows
-      .map((row) => String(row[customerEscapesFilterField] ?? '').trim())
-      .filter(Boolean))].sort((left, right) => left.localeCompare(right)),
-  [unprocessedCustomerEscapesBaseRows, customerEscapesFilterField]);
-  const activeCustomerEscapesFilterValues = useMemo(() => customerEscapesFilterValues.filter(
-    (value) => customerEscapesFilterOptions.includes(value)
-  ), [customerEscapesFilterValues, customerEscapesFilterOptions]);
-  const unprocessedCustomerEscapesRows = useMemo(() =>
-    customerEscapesFilterField === 'defect_type'
-      || activeCustomerEscapesFilterValues.length === 0
-      ? unprocessedCustomerEscapesBaseRows
-      : unprocessedCustomerEscapesBaseRows.filter((row) =>
-        activeCustomerEscapesFilterValues.includes(String(row[customerEscapesFilterField] ?? '').trim())
-      ),
-  [unprocessedCustomerEscapesBaseRows, customerEscapesFilterField, activeCustomerEscapesFilterValues]);
   const {
     baseRows: filteredCustomerEscapesRows,
-    filteredRows: customerEscapesChartSourceRows,
     processingMonth: customerEscapesProcessingMonth,
     dateRange: customerEscapesDateRange
   } = useCardProcessingRows(
     unprocessedCustomerEscapesBaseRows,
-    unprocessedCustomerEscapesRows,
+    unprocessedCustomerEscapesBaseRows,
     'customerEscapes',
     false,
     selectedDateRange
   );
+  const customerEscapesFilterOptions = useMemo(() => {
+    if (customerEscapesFilterField === 'defect_type') {
+      return ['Software', 'Hardware', 'Documentation'];
+    }
+    const rows = customerEscapesFilterField === 'facility'
+      ? getCustomerEscapesEntries(filteredCustomerEscapesRows, customerEscapesDateRange)
+        .filter((entry) => entry.value > 0)
+      : unprocessedCustomerEscapesBaseRows;
+    return [...new Set(rows
+      .map((row) => String(row[customerEscapesFilterField] ?? '').trim())
+      .filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  }, [unprocessedCustomerEscapesBaseRows, filteredCustomerEscapesRows,
+    customerEscapesFilterField, customerEscapesDateRange]);
+  const activeCustomerEscapesFilterValues = useMemo(() => customerEscapesFilterValues.filter(
+    (value) => customerEscapesFilterOptions.includes(value)
+  ), [customerEscapesFilterValues, customerEscapesFilterOptions]);
+  const customerEscapesChartSourceRows = useMemo(() =>
+    customerEscapesFilterField === 'defect_type'
+      || activeCustomerEscapesFilterValues.length === 0
+      ? filteredCustomerEscapesRows
+      : filteredCustomerEscapesRows.filter((row) =>
+        activeCustomerEscapesFilterValues.includes(String(row[customerEscapesFilterField] ?? '').trim())
+      ),
+  [filteredCustomerEscapesRows, customerEscapesFilterField, activeCustomerEscapesFilterValues]);
   function summarizeCustomerEscapes(rows) {
     const months = new Map();
     rows.forEach((row) => {

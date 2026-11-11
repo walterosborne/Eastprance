@@ -5,7 +5,7 @@ WITH ledger AS (
     NULLIF(TRIM(CAST(RCNTR AS STRING)), '') AS cost_center,
     TRY_CAST(RACCT AS BIGINT) AS gl_account,
     TRY_CAST(KSL AS DOUBLE) AS cost
-  FROM `source_systems_dev`.`sql_central_integration`.`src_lfc_transaction_details_sx`
+  FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`
   WHERE TRY_CAST(GJAHR AS INT) >= 2025
 ),
 scoped AS (

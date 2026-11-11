@@ -1,16 +1,34 @@
-WITH source_bu AS (
-    SELECT LTRIM(RTRIM([Business Unit])) AS BU FROM [qmi].[otd]
-    UNION SELECT LTRIM(RTRIM(business_unit)) FROM [qmi].[controllable_costs_new_extract]
-    UNION SELECT LTRIM(RTRIM([Business Unit])) FROM [qmi].[controllable_costs_hana]
-    UNION SELECT LTRIM(RTRIM([Business Unit])) FROM [qmi].[labor_agg]
-    UNION SELECT LTRIM(RTRIM(LEV04_DESC))
-    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+WITH ledger AS (
+  SELECT
+    TRY_CAST(GJAHR AS INT) AS year,
+    TRY_CAST(POPER AS INT) AS month,
+    NULLIF(TRIM(CAST(RCNTR AS STRING)), '') AS cost_center,
+    TRY_CAST(RACCT AS BIGINT) AS gl_account,
+    TRY_CAST(KSL AS DOUBLE) AS cost
+  FROM `source_systems_dev`.`sql_central_integration`.`src_lfc_transaction_details_sx`
+  WHERE TRY_CAST(GJAHR AS INT) >= 2025
+),
+scoped AS (
+  SELECT *,
+    (gl_account BETWEEN 4100000 AND 4109999 OR gl_account IN (
+      8320037,
+      4300305, 4300395, 4300591, 4300625, 4300626, 4300628, 4300630,
+      4300643, 4300652, 4300666, 4300669, 4300671, 4300680, 4300698,
+      4300699, 4300700, 4300701, 4300702, 4300703, 4300704, 4300705,
+      4300805, 4300807, 4300852, 4300884, 4300887, 4301013, 4301048,
+      4301049, 4301050, 4301077, 4301101, 4301102, 4301103, 4301104,
+      4301231, 8320479
+    )) AS eligible_gl
+  FROM ledger
+  WHERE month BETWEEN 1 AND 12
 )
-SELECT s.BU, COALESCE(c.[Name], m.[Name]) AS [BU Match]
-FROM source_bu s
-LEFT JOIN [qmi].[businessunits] c ON c.[Name] = s.BU
-LEFT JOIN [qmi].[bugroupings] g ON g.[Original] = s.BU
-LEFT JOIN [qmi].[businessunits] m ON m.[Id] = g.[BusinessUnitId]
-WHERE NULLIF(s.BU, '') IS NOT NULL
-ORDER BY s.BU;
+SELECT year, month,
+  COUNT(*) AS all_rows,
+  ROUND(SUM(cost), 2) AS all_ksl,
+  COUNT_IF(cost_center IS NOT NULL) AS rows_with_rcntr,
+  COUNT_IF(eligible_gl) AS eligible_gl_rows,
+  COUNT_IF(cost_center IS NOT NULL AND eligible_gl AND cost IS NOT NULL) AS candidate_rows,
+  ROUND(SUM(CASE WHEN cost_center IS NOT NULL AND eligible_gl THEN cost ELSE 0 END), 2) AS candidate_ksl
+FROM scoped
+GROUP BY year, month
+ORDER BY year DESC, month DESC;

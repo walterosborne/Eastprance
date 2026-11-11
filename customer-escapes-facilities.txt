@@ -1,0 +1,30 @@
+-- Run in SQL Server against the Quality Data Mart database.
+-- Defense Systems rows use the card's source filters. Other sectors show how
+-- these campuses are classified on comparable records.
+SELECT
+    LTRIM(RTRIM(pc.[PCMY_PROG_Campus])) AS facility,
+    pc.[PCMY_PROG_Sector] AS sector,
+    pc.[PCMY_PROG_Division] AS division,
+    pc.[PCMY_PROG_BusinessUnit] AS business_unit,
+    md.[MYDT_From_DT] AS data_month,
+    p.[PMDH_PROG_ID] AS program_id,
+    COUNT_BIG(*) AS source_rows,
+    COUNT_BIG(CASE WHEN v.defect_units <> 0 THEN 1 END) AS nonzero_source_rows,
+    SUM(CASE WHEN p.[PMDH_DATV_ID] = 148 THEN v.defect_units ELSE 0 END) AS software_escapes,
+    SUM(CASE WHEN p.[PMDH_DATV_ID] = 151 THEN v.defect_units ELSE 0 END) AS hardware_escapes,
+    SUM(CASE WHEN p.[PMDH_DATV_ID] = 154 THEN v.defect_units ELSE 0 END) AS documentation_escapes
+FROM [QAF_RawData].[PMDH_Program_MonthYear_Data_History] AS p
+JOIN [QAF_RawData].[MYDT_Month_Year_Date] AS md
+    ON md.[MYDT_ID] = p.[PMDH_MYDT_ID]
+JOIN [QAF_RawData].[PCMY_Program_Configuration_Month_Year] AS pc
+    ON pc.[PCMY_ID] = p.[PMDH_PCMY_ID]
+CROSS APPLY (VALUES (CONVERT(decimal(18, 2), p.[PMDH_Data_Value]))) AS v(defect_units)
+WHERE p.[PMDH_Level] = 4
+  AND p.[PMDH_DATV_ID] IN (148, 151, 154)
+  AND pc.[PCMY_Status] = 'FINAL'
+  AND md.[MYDT_From_DT] >= '2025-01-01'
+  AND md.[MYDT_From_DT] < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+  AND UPPER(LTRIM(RTRIM(pc.[PCMY_PROG_Campus]))) IN ('IRVING', 'PICATINNY ARSENAL')
+GROUP BY LTRIM(RTRIM(pc.[PCMY_PROG_Campus])), pc.[PCMY_PROG_Sector],
+    pc.[PCMY_PROG_Division], pc.[PCMY_PROG_BusinessUnit], md.[MYDT_From_DT], p.[PMDH_PROG_ID]
+ORDER BY facility, sector, data_month DESC, division, business_unit, program_id;

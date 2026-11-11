@@ -1,19 +1,32 @@
-WITH defense_centers AS (
-  SELECT DISTINCT UPPER(TRIM(CAST(new_Cost_Center AS STRING))) AS cost_center
+WITH ds_centers AS (
+  SELECT DISTINCT
+    UPPER(TRIM(CAST(new_Cost_Center AS STRING))) AS center,
+    REGEXP_REPLACE(UPPER(TRIM(CAST(new_Cost_Center AS STRING))), '[^A-Z0-9]', '') AS compact_center
   FROM `finance_dev`.`analytics`.`cost_vis_full`
   WHERE CC_Bus_Unit_Lvl_2 LIKE '%Defense Systems%'
 ),
-s2 AS (
-  SELECT
-    UPPER(TRIM(CAST(RCNTR AS STRING))) AS rcntr,
-    UPPER(TRIM(CAST(SCNTR AS STRING))) AS scntr,
-    UPPER(TRIM(CAST(UKOSTL AS STRING))) AS ukostl,
-    TRY_CAST(KSL AS DOUBLE) AS ksl
+ledger AS (
+  SELECT 'S2' AS source, GJAHR, POPER, RCNTR, RACCT, KSL AS amount
   FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`
+  UNION ALL
+  SELECT 'SX', GJAHR, POPER, RCNTR, RACCT, KSL
+  FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_sx`
+  UNION ALL
+  SELECT 'Raw', GJAHR, POPER, RCNTR, RACCT, DOC_NET_VALUE
+  FROM `finance_dev`.`analytics`.`dev_cv_transaction_details`
+),
+centers AS (
+  SELECT source,
+    UPPER(TRIM(CAST(RCNTR AS STRING))) AS center,
+    COUNT(*) AS transaction_rows,
+    ROUND(SUM(TRY_CAST(amount AS DOUBLE)), 2) AS net_cost,
+    ROUND(SUM(ABS(TRY_CAST(amount AS DOUBLE))), 2) AS absolute_cost
+  FROM ledger
   WHERE TRY_CAST(GJAHR AS INT) = 2025
     AND TRY_CAST(POPER AS INT) = 12
-    AND (
-      TRY_CAST(RACCT AS BIGINT) BETWEEN 4100000 AND 4109999
+    AND NULLIF(TRIM(CAST(RCNTR AS STRING)), '') IS NOT NULL
+    AND TRY_CAST(amount AS DOUBLE) IS NOT NULL
+    AND (TRY_CAST(RACCT AS BIGINT) BETWEEN 4100000 AND 4109999
       OR TRY_CAST(RACCT AS BIGINT) IN (
       8320037,
       4300305, 4300395, 4300591, 4300625, 4300626, 4300628, 4300630,
@@ -22,18 +35,31 @@ s2 AS (
       4300805, 4300807, 4300852, 4300884, 4300887, 4301013, 4301048,
       4301049, 4301050, 4301077, 4301101, 4301102, 4301103, 4301104,
       4301231, 8320479
-      )
-    )
+      ))
+  GROUP BY source, UPPER(TRIM(CAST(RCNTR AS STRING)))
+),
+matched AS (
+  SELECT c.*,
+    REGEXP_REPLACE(c.center, '[^A-Z0-9]', '') AS compact_center,
+    CASE WHEN e.center IS NOT NULL THEN 1 ELSE 0 END AS exact_ds,
+    CASE WHEN n.compact_center IS NOT NULL THEN 1 ELSE 0 END AS compact_ds
+  FROM centers c
+  LEFT JOIN (SELECT DISTINCT center FROM ds_centers) e ON e.center = c.center
+  LEFT JOIN (SELECT DISTINCT compact_center FROM ds_centers) n
+    ON n.compact_center = REGEXP_REPLACE(c.center, '[^A-Z0-9]', '')
+),
+ranked AS (
+  SELECT *,
+    SUM(CASE WHEN exact_ds = 1 THEN transaction_rows ELSE 0 END)
+      OVER (PARTITION BY source) AS exact_ds_rows,
+    SUM(CASE WHEN exact_ds = 0 AND compact_ds = 1 THEN transaction_rows ELSE 0 END)
+      OVER (PARTITION BY source) AS formatting_only_rows,
+    ROW_NUMBER() OVER (PARTITION BY source ORDER BY absolute_cost DESC, center) AS center_rank
+  FROM matched
 )
-SELECT COUNT(*) AS candidate_rows,
-  ROUND(SUM(ksl), 2) AS candidate_ksl,
-  COUNT_IF(r.cost_center IS NOT NULL) AS rcntr_ds_rows,
-  ROUND(SUM(CASE WHEN r.cost_center IS NOT NULL THEN ksl ELSE 0 END), 2) AS rcntr_ds_ksl,
-  COUNT_IF(s.cost_center IS NOT NULL) AS scntr_ds_rows,
-  ROUND(SUM(CASE WHEN s.cost_center IS NOT NULL THEN ksl ELSE 0 END), 2) AS scntr_ds_ksl,
-  COUNT_IF(u.cost_center IS NOT NULL) AS ukostl_ds_rows,
-  ROUND(SUM(CASE WHEN u.cost_center IS NOT NULL THEN ksl ELSE 0 END), 2) AS ukostl_ds_ksl
-FROM s2
-LEFT JOIN defense_centers r ON r.cost_center = s2.rcntr
-LEFT JOIN defense_centers s ON s.cost_center = s2.scntr
-LEFT JOIN defense_centers u ON u.cost_center = s2.ukostl;
+SELECT source, center_rank, center, compact_center, transaction_rows,
+  net_cost, absolute_cost, exact_ds, compact_ds,
+  exact_ds_rows, formatting_only_rows
+FROM ranked
+WHERE center_rank <= 15
+ORDER BY source, center_rank;

@@ -1,55 +1,58 @@
--- Facility coverage for the DBM Labor Utilization card.
--- The card loads costcenterkey.xlsx. Use the SQL copy of the key to check coverage.
-WITH normalized_actuals AS (
-    SELECT
-        NULLIF(UPPER(LTRIM(RTRIM(Cost_Center))), '') AS cost_center,
-        TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS labor_year,
-        TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS labor_month,
-        TRY_CONVERT(decimal(18, 2), Hours) AS hours
-    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
+-- List each labor-actuals My ID and its roster work facility.
+-- Detect My ID column spellings from DBM metadata before running the join.
+DECLARE @actuals_my_id sysname;
+DECLARE @roster_my_id sysname;
+
+SELECT TOP (1) @actuals_my_id = COLUMN_NAME
+FROM [DTO_Business_Management].INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'rpt'
+  AND TABLE_NAME = 'rb_Actuals_RM_Load_Table'
+  AND LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
+      IN ('myid', 'employeemyid', 'empmyid')
+ORDER BY CASE LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
+    WHEN 'myid' THEN 1 WHEN 'employeemyid' THEN 2 ELSE 3 END, ORDINAL_POSITION;
+
+SELECT TOP (1) @roster_my_id = COLUMN_NAME
+FROM [DTO_Business_Management].INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'dbo'
+  AND TABLE_NAME = 'rb_roster_transform'
+  AND LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
+      IN ('myid', 'employeemyid', 'empmyid')
+ORDER BY CASE LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
+    WHEN 'employeemyid' THEN 1 WHEN 'myid' THEN 2 ELSE 3 END, ORDINAL_POSITION;
+
+IF @actuals_my_id IS NULL OR @roster_my_id IS NULL
+BEGIN
+    SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
+    FROM [DTO_Business_Management].INFORMATION_SCHEMA.COLUMNS
+    WHERE (TABLE_SCHEMA = 'rpt' AND TABLE_NAME = 'rb_Actuals_RM_Load_Table')
+       OR (TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'rb_roster_transform')
+    ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;
+
+    THROW 50001, 'Could not identify a My ID column on both DBM sources.', 1;
+END;
+
+DECLARE @sql nvarchar(max) = N'
+WITH actual_people AS (
+    SELECT DISTINCT
+        NULLIF(UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), a.' + QUOTENAME(@actuals_my_id) + N')))), '''') AS my_id
+    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table] AS a
 ),
-actuals AS (
-    SELECT cost_center, COUNT_BIG(*) AS labor_rows, SUM(hours) AS signed_hours
-    FROM normalized_actuals
-    WHERE labor_year >= 2025
-      AND labor_month BETWEEN 1 AND 12
-      AND labor_year * 100 + labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
-      AND hours IS NOT NULL
-    GROUP BY cost_center
-),
-hierarchy AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
-        NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS division,
-        ROW_NUMBER() OVER (
-            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-            ORDER BY last_modified_date DESC, created_date DESC, id DESC
-        ) AS rn
-    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-),
-facility_key AS (
-    SELECT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS cost_center,
-        MAX(NULLIF(LTRIM(RTRIM([City])), '')) AS sample_city,
-        COUNT(DISTINCT NULLIF(LTRIM(RTRIM([City])), '')) AS distinct_cities
-    FROM [ecosystem_source].[qmi].[costcenterkey]
-    GROUP BY UPPER(LTRIM(RTRIM([Cost Center])))
+roster_facilities AS (
+    SELECT DISTINCT
+        NULLIF(UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), r.' + QUOTENAME(@roster_my_id) + N')))), '''') AS my_id,
+        NULLIF(CONCAT_WS('', '',
+            NULLIF(LTRIM(RTRIM(r.Work_Address_1)), ''''),
+            NULLIF(LTRIM(RTRIM(r.NSR_Work_City)), ''''),
+            NULLIF(LTRIM(RTRIM(r.NSR_Work_State)), '''')
+        ), '''') AS facility
+    FROM [DTO_Business_Management].[dbo].[rb_roster_transform] AS r
 )
-SELECT
-    a.cost_center,
-    h.division,
-    k.sample_city,
-    k.distinct_cities,
-    a.labor_rows,
-    a.signed_hours,
-    CASE
-        WHEN k.cost_center IS NULL THEN 'Missing from facility key'
-        WHEN k.distinct_cities = 0 THEN 'Facility key has no city'
-        WHEN k.distinct_cities > 1 THEN 'Facility key has multiple cities'
-        ELSE 'Mapped'
-    END AS mapping_status
-FROM actuals a
-INNER JOIN hierarchy h ON h.cost_center = a.cost_center AND h.rn = 1
-LEFT JOIN facility_key k ON k.cost_center = a.cost_center
-ORDER BY mapping_status, ABS(a.signed_hours) DESC, a.cost_center;
+SELECT a.my_id, r.facility
+FROM actual_people AS a
+LEFT JOIN roster_facilities AS r ON r.my_id = a.my_id
+WHERE a.my_id IS NOT NULL
+ORDER BY a.my_id, r.facility;
+';
+
+EXEC sys.sp_executesql @sql;

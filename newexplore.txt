@@ -1,9 +1,7 @@
--- Compare roster and cost-center facility coverage on the same DBM labor rows.
--- Cost-center coverage uses the SQL copy of the facility key.
+-- Top roster work sites by absolute hours on in-scope DBM labor actuals.
 WITH hierarchy AS (
     SELECT
         UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
-        NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS division,
         ROW_NUMBER() OVER (
             PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
             ORDER BY last_modified_date DESC, created_date DESC, id DESC
@@ -37,46 +35,23 @@ roster_facilities AS (
       AND UPPER(LTRIM(RTRIM(r.Work_City_NSR))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
 ),
 mapped_people AS (
-    SELECT my_id
+    SELECT my_id, MIN(facility) AS facility
     FROM roster_facilities
     GROUP BY my_id
     HAVING COUNT(DISTINCT facility) = 1
-),
-mapped_cost_centers AS (
-    SELECT DISTINCT UPPER(LTRIM(RTRIM([Cost Center]))) AS cost_center
-    FROM [ecosystem_source].[qmi].[costcenterkey]
-    WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
-      AND NULLIF(LTRIM(RTRIM([City])), '') IS NOT NULL
-      AND UPPER(LTRIM(RTRIM([City]))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
-),
-coverage AS (
-    SELECT
-        GROUPING(h.division) AS is_total,
-        h.division,
-        COUNT_BIG(*) AS labor_rows,
-        COUNT_BIG(p.my_id) AS roster_rows,
-        COUNT_BIG(k.cost_center) AS cost_center_rows,
-        SUM(ABS(a.hours)) AS absolute_hours,
-        SUM(CASE WHEN p.my_id IS NOT NULL THEN ABS(a.hours) ELSE 0 END) AS roster_hours,
-        SUM(CASE WHEN k.cost_center IS NOT NULL THEN ABS(a.hours) ELSE 0 END) AS cost_center_hours
-    FROM actuals AS a
-    INNER JOIN hierarchy AS h ON h.cost_center = a.cost_center AND h.rn = 1
-    LEFT JOIN mapped_people AS p ON p.my_id = a.my_id
-    LEFT JOIN mapped_cost_centers AS k ON k.cost_center = a.cost_center
-    WHERE a.cost_center <> ''
-      AND a.labor_year >= 2025
-      AND a.labor_month BETWEEN 1 AND 12
-      AND a.labor_year * 100 + a.labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
-      AND a.hours IS NOT NULL
-    GROUP BY GROUPING SETS ((h.division), ())
 )
-SELECT
-    CASE WHEN is_total = 1 THEN 'All divisions' ELSE COALESCE(division, 'Unmapped division') END AS division,
-    labor_rows,
-    CAST(100.0 * roster_rows / NULLIF(labor_rows, 0) AS decimal(6, 2)) AS roster_row_pct,
-    CAST(100.0 * cost_center_rows / NULLIF(labor_rows, 0) AS decimal(6, 2)) AS cost_center_row_pct,
-    absolute_hours,
-    CAST(100.0 * roster_hours / NULLIF(absolute_hours, 0) AS decimal(6, 2)) AS roster_hours_pct,
-    CAST(100.0 * cost_center_hours / NULLIF(absolute_hours, 0) AS decimal(6, 2)) AS cost_center_hours_pct
-FROM coverage
-ORDER BY is_total DESC, labor_rows DESC, division;
+SELECT TOP (30)
+    p.facility,
+    SUM(ABS(a.hours)) AS absolute_hours,
+    COUNT_BIG(*) AS labor_rows,
+    COUNT(DISTINCT a.my_id) AS employees
+FROM actuals AS a
+INNER JOIN hierarchy AS h ON h.cost_center = a.cost_center AND h.rn = 1
+INNER JOIN mapped_people AS p ON p.my_id = a.my_id
+WHERE a.cost_center <> ''
+  AND a.labor_year >= 2025
+  AND a.labor_month BETWEEN 1 AND 12
+  AND a.labor_year * 100 + a.labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
+  AND a.hours IS NOT NULL
+GROUP BY p.facility
+ORDER BY absolute_hours DESC, p.facility;

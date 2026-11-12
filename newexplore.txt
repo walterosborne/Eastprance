@@ -1,12 +1,30 @@
--- Inspect the available columns before choosing the labor-to-roster join key.
-SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
-FROM [DTO_Business_Management].INFORMATION_SCHEMA.COLUMNS
-WHERE (TABLE_SCHEMA = 'rpt' AND TABLE_NAME IN ('rb_Actuals_RM_Load_Table', 'rb_load_roster'))
-   OR (TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'rb_roster_transform')
-ORDER BY
-    CASE
-        WHEN TABLE_NAME = 'rb_Actuals_RM_Load_Table' THEN 1
-        WHEN TABLE_NAME = 'rb_load_roster' THEN 2
-        ELSE 3
-    END,
-    ORDINAL_POSITION;
+-- List labor actuals My IDs and the work locations recorded in the DBM roster.
+WITH actual_people AS (
+    SELECT DISTINCT UPPER(LTRIM(RTRIM(MYID))) AS my_id
+    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
+    WHERE NULLIF(LTRIM(RTRIM(MYID)), '') IS NOT NULL
+),
+roster_facilities AS (
+    SELECT DISTINCT
+        UPPER(LTRIM(RTRIM(ids.my_id))) AS my_id,
+        NULLIF(LTRIM(RTRIM(r.Location_Code)), '') AS location_code,
+        NULLIF(CONCAT_WS(', ',
+            NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), ''),
+            NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')
+        ), '') AS facility_city_state
+    FROM [DTO_Business_Management].[dbo].[rb_roster_transform] AS r
+    CROSS APPLY (VALUES
+        (r.Employee_MyID_NSR),
+        (r.Employee_MyID_SR),
+        (r.Employee_MyID_DM),
+        (r.Employee_MyID_SAP)
+    ) AS ids(my_id)
+    WHERE NULLIF(LTRIM(RTRIM(ids.my_id)), '') IS NOT NULL
+)
+SELECT
+    a.my_id,
+    r.location_code,
+    r.facility_city_state
+FROM actual_people AS a
+LEFT JOIN roster_facilities AS r ON r.my_id = a.my_id
+ORDER BY a.my_id, r.location_code, r.facility_city_state;

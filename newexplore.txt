@@ -1,54 +1,24 @@
--- Top Defense Systems roster sites by absolute hours for October 2026.
-WITH ds_cost_centers AS (
-    SELECT DISTINCT UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center
-    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-      AND NULLIF(LTRIM(RTRIM(COST_CENTER)), '') IS NOT NULL
-),
-labor_by_person AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(a.MYID))) AS my_id,
-        SUM(ABS(TRY_CONVERT(decimal(18, 2), a.Hours))) AS absolute_hours,
-        COUNT_BIG(*) AS labor_rows
-    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table] AS a
-    INNER JOIN ds_cost_centers AS h ON h.cost_center = UPPER(LTRIM(RTRIM(a.Cost_Center)))
-    WHERE a.[Period] LIKE N'10%2026'
-      AND NULLIF(LTRIM(RTRIM(a.MYID)), '') IS NOT NULL
-      AND TRY_CONVERT(decimal(18, 2), a.Hours) IS NOT NULL
-    GROUP BY UPPER(LTRIM(RTRIM(a.MYID)))
-),
-ds_roster AS (
-    SELECT
-        r.Employee_MyID_NSR,
-        r.Employee_MyID_SR,
-        r.Employee_MyID_DM,
-        r.Employee_MyID_SAP,
-        CONCAT_WS(', ', LTRIM(RTRIM(r.Work_City_NSR)),
-            NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')) AS facility
-    FROM [DTO_Business_Management].[dbo].[rb_roster_transform] AS r
-    WHERE UPPER(LTRIM(RTRIM(r.Sector))) IN ('DS', 'DEFENSE SYSTEMS')
-      AND NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), '') IS NOT NULL
-      AND UPPER(LTRIM(RTRIM(r.Work_City_NSR))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
-),
-roster_by_person AS (
-    SELECT UPPER(LTRIM(RTRIM(ids.my_id))) AS my_id, MIN(r.facility) AS facility
-    FROM ds_roster AS r
-    CROSS APPLY (VALUES
-        (r.Employee_MyID_NSR),
-        (r.Employee_MyID_SR),
-        (r.Employee_MyID_DM),
-        (r.Employee_MyID_SAP)
-    ) AS ids(my_id)
-    WHERE NULLIF(LTRIM(RTRIM(ids.my_id)), '') IS NOT NULL
-    GROUP BY UPPER(LTRIM(RTRIM(ids.my_id)))
-    HAVING MIN(r.facility) = MAX(r.facility)
+WITH labor AS (
+    SELECT LTRIM(RTRIM(MYID)) AS my_id, SUM(Hours) AS total_hours
+    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
+    WHERE [Period] LIKE N'09%2026'
+      AND NULLIF(LTRIM(RTRIM(MYID)), '') IS NOT NULL
+    GROUP BY LTRIM(RTRIM(MYID))
 )
-SELECT TOP (30)
+SELECT
+    a.my_id,
+    r.Sector AS sector,
     r.facility,
-    SUM(a.absolute_hours) AS absolute_hours,
-    SUM(a.labor_rows) AS labor_rows,
-    COUNT_BIG(*) AS employees
-FROM labor_by_person AS a
-INNER JOIN roster_by_person AS r ON r.my_id = a.my_id
-GROUP BY r.facility
-ORDER BY absolute_hours DESC, r.facility;
+    a.total_hours
+FROM labor AS a
+OUTER APPLY (
+    SELECT TOP (1)
+        Sector,
+        NULLIF(CONCAT_WS(', ',
+            NULLIF(LTRIM(RTRIM(Work_City_NSR)), ''),
+            NULLIF(LTRIM(RTRIM(Work_State_NSR)), '')
+        ), '') AS facility
+    FROM [DTO_Business_Management].[dbo].[rb_roster_transform]
+    WHERE Employee_MyID_NSR = a.my_id
+    ORDER BY last_modified_date DESC, created_date DESC, id DESC
+) AS r;

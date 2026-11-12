@@ -1,4 +1,4 @@
--- Top roster sites by absolute hours for October 2026.
+-- Top Defense Systems roster sites by absolute hours for October 2026.
 -- Period starts with the two-digit month and ends with the four-digit year.
 WITH labor_by_person AS (
     SELECT
@@ -36,7 +36,8 @@ matched_people AS (
         CONCAT_WS(', ', LTRIM(RTRIM(r.Work_City_NSR)),
             NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), ''))
     )) AS site(facility)
-    WHERE NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), '') IS NOT NULL
+    WHERE UPPER(LTRIM(RTRIM(r.Sector))) IN ('DS', 'DEFENSE SYSTEMS')
+      AND NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), '') IS NOT NULL
       AND UPPER(LTRIM(RTRIM(r.Work_City_NSR))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
     GROUP BY a.my_id
     HAVING MIN(site.facility) = MAX(site.facility)

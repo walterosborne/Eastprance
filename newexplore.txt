@@ -1,17 +1,29 @@
--- Count distinct labor actuals My IDs by roster work facility.
-WITH actual_people AS (
-    SELECT DISTINCT UPPER(LTRIM(RTRIM(MYID))) AS my_id
+-- Measure roster facility coverage for in-scope DBM labor actuals.
+WITH hierarchy AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
+        NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS division,
+        ROW_NUMBER() OVER (
+            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS rn
+    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+),
+actuals AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(Cost_Center))) AS cost_center,
+        NULLIF(UPPER(LTRIM(RTRIM(MYID))), '') AS my_id,
+        TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS labor_year,
+        TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS labor_month,
+        TRY_CONVERT(decimal(18, 2), Hours) AS hours
     FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
-    WHERE NULLIF(LTRIM(RTRIM(MYID)), '') IS NOT NULL
 ),
 roster_facilities AS (
-    SELECT DISTINCT
+    SELECT
         UPPER(LTRIM(RTRIM(ids.my_id))) AS my_id,
-        NULLIF(LTRIM(RTRIM(r.Location_Code)), '') AS location_code,
-        NULLIF(CONCAT_WS(', ',
-            NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), ''),
-            NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')
-        ), '') AS facility_city_state
+        CONCAT_WS(', ', LTRIM(RTRIM(r.Work_City_NSR)),
+            NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')) AS facility
     FROM [DTO_Business_Management].[dbo].[rb_roster_transform] AS r
     CROSS APPLY (VALUES
         (r.Employee_MyID_NSR),
@@ -20,23 +32,40 @@ roster_facilities AS (
         (r.Employee_MyID_SAP)
     ) AS ids(my_id)
     WHERE NULLIF(LTRIM(RTRIM(ids.my_id)), '') IS NOT NULL
+      AND NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), '') IS NOT NULL
+      AND UPPER(LTRIM(RTRIM(r.Work_City_NSR))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
 ),
-person_facility AS (
+mapped_people AS (
+    SELECT my_id
+    FROM roster_facilities
+    GROUP BY my_id
+    HAVING COUNT(DISTINCT facility) = 1
+),
+coverage AS (
     SELECT
-        a.my_id,
-        CASE
-            WHEN COUNT(DISTINCT r.facility_city_state) > 1 THEN 'Multiple roster facilities'
-            WHEN MAX(r.facility_city_state) IS NOT NULL THEN MAX(r.facility_city_state)
-            WHEN COUNT(DISTINCT r.location_code) > 1 THEN 'Multiple roster location codes'
-            WHEN MAX(r.location_code) IS NOT NULL THEN CONCAT('Location code ', MAX(r.location_code))
-            WHEN COUNT(r.my_id) > 0 THEN 'Roster facility missing'
-            ELSE 'No roster match'
-        END AS facility
-    FROM actual_people AS a
-    LEFT JOIN roster_facilities AS r ON r.my_id = a.my_id
-    GROUP BY a.my_id
+        GROUPING(h.division) AS is_total,
+        h.division,
+        COUNT_BIG(*) AS labor_rows,
+        COUNT_BIG(p.my_id) AS mapped_rows,
+        SUM(ABS(a.hours)) AS absolute_hours,
+        SUM(CASE WHEN p.my_id IS NOT NULL THEN ABS(a.hours) ELSE 0 END) AS mapped_absolute_hours
+    FROM actuals AS a
+    INNER JOIN hierarchy AS h ON h.cost_center = a.cost_center AND h.rn = 1
+    LEFT JOIN mapped_people AS p ON p.my_id = a.my_id
+    WHERE a.cost_center <> ''
+      AND a.labor_year >= 2025
+      AND a.labor_month BETWEEN 1 AND 12
+      AND a.labor_year * 100 + a.labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
+      AND a.hours IS NOT NULL
+    GROUP BY GROUPING SETS ((h.division), ())
 )
-SELECT facility, COUNT_BIG(*) AS employee_count
-FROM person_facility
-GROUP BY facility
-ORDER BY employee_count DESC, facility;
+SELECT
+    CASE WHEN is_total = 1 THEN 'All divisions' ELSE COALESCE(division, 'Unmapped division') END AS division,
+    labor_rows,
+    mapped_rows,
+    CAST(100.0 * mapped_rows / NULLIF(labor_rows, 0) AS decimal(6, 2)) AS row_coverage_pct,
+    absolute_hours,
+    mapped_absolute_hours,
+    CAST(100.0 * mapped_absolute_hours / NULLIF(absolute_hours, 0) AS decimal(6, 2)) AS hours_coverage_pct
+FROM coverage
+ORDER BY is_total DESC, labor_rows DESC, division;

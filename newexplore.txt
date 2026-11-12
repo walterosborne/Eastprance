@@ -51,5 +51,4 @@ SELECT TOP (30)
 FROM labor_by_person AS a
 INNER JOIN roster_by_person AS r ON r.my_id = a.my_id
 GROUP BY r.facility
-ORDER BY absolute_hours DESC, r.facility
-OPTION (HASH JOIN, RECOMPILE);
+ORDER BY absolute_hours DESC, r.facility;

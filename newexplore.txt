@@ -1,42 +1,25 @@
--- S3 ledger only. Rank cost centers across the latest three completed fiscal periods with data.
--- If the table cannot be found, check its name in this schema:
--- SHOW TABLES IN source_systems_dev.sql_central_integration LIKE '*transaction_details_s3*';
+from pyspark.sql import functions as F
 
-WITH ledger AS (
-  SELECT
-    TRY_CAST(GJAHR AS INT) AS fiscal_year,
-    TRY_CAST(POPER AS INT) AS fiscal_month,
-    NULLIF(TRIM(CAST(RCNTR AS STRING)), '') AS cost_center,
-    TRY_CAST(KSL AS DECIMAL(30, 4)) AS cost
-  FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
-), monthly AS (
-  SELECT
-    fiscal_year * 100 + fiscal_month AS period,
-    cost_center,
-    COUNT(*) AS transaction_count,
-    SUM(cost) AS monthly_ksl
-  FROM ledger
-  WHERE fiscal_month BETWEEN 1 AND 12
-    AND fiscal_year * 100 + fiscal_month < YEAR(CURRENT_DATE()) * 100 + MONTH(CURRENT_DATE())
-  GROUP BY fiscal_year, fiscal_month, cost_center
-), latest_periods AS (
-  SELECT DISTINCT period
-  FROM monthly
-  ORDER BY period DESC
-  LIMIT 3
-), recent AS (
-  SELECT monthly.*
-  FROM monthly
-  JOIN latest_periods USING (period)
-  WHERE cost_center IS NOT NULL
-), top_centers AS (
-  SELECT cost_center, SUM(monthly_ksl) AS total_ksl
-  FROM recent
-  GROUP BY cost_center
-  ORDER BY ABS(total_ksl) DESC NULLS LAST, cost_center
-  LIMIT 30
+s3 = spark.table("source_systems_dev.sql_central_integration.lfc_transaction_details_s3")
+labor = s3.where("""
+    CAST(GJAHR AS STRING) = '2026'
+    AND UPPER(TRIM(RUNIT)) = 'H'
+    AND TRIM(CAST(RACCT AS STRING)) LIKE '00041%'
+""")
+
+matches = []
+for field in s3.schema.fields:
+    if field.dataType.typeName() == "string":
+        value = F.trim(F.col(f"`{field.name}`"))
+        matches.append(F.when(
+            value.rlike("(?i)direct"),
+            F.struct(F.lit(field.name).alias("column_name"), value.alias("matched_value"))
+        ))
+
+display(
+    labor.select("RACCT", F.explode(F.array(*matches)).alias("hit"))
+         .where(F.col("hit").isNotNull())
+         .select("RACCT", "hit.*")
+         .groupBy("column_name", "RACCT", "matched_value").count()
+         .orderBy("column_name", F.desc("count"), "RACCT")
 )
-SELECT t.cost_center, r.period, r.transaction_count, r.monthly_ksl, t.total_ksl
-FROM top_centers t
-JOIN recent r ON r.cost_center = t.cost_center
-ORDER BY ABS(t.total_ksl) DESC NULLS LAST, t.cost_center, r.period DESC;

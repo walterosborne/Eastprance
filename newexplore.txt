@@ -1,11 +1,21 @@
+-- NET_MSL is the candidate hours quantity for hour-unit postings.
+WITH labor AS (
+  SELECT
+    TRIM(RACCT) AS account,
+    TRIM(GL_TXT50) AS description,
+    TRY_CAST(NET_MSL AS DECIMAL(24, 4)) AS hours_quantity
+  FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
+  WHERE TRY_CAST(GJAHR AS INT) = 2026
+    AND UPPER(TRIM(RUNIT)) = 'H'
+    AND TRIM(RACCT) LIKE '00041%'
+)
 SELECT
-  TRIM(RACCT) AS account,
-  TRIM(GL_TXT50) AS description,
+  account,
+  description,
   COUNT(*) AS postings,
-  SUM(TRY_CAST(MSL AS DECIMAL(24, 4))) AS signed_hours
-FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
-WHERE TRY_CAST(GJAHR AS INT) = 2026
-  AND UPPER(TRIM(RUNIT)) = 'H'
-  AND TRIM(RACCT) LIKE '00041%'
-GROUP BY TRIM(RACCT), TRIM(GL_TXT50)
-ORDER BY ABS(signed_hours) DESC NULLS LAST;
+  COUNT(hours_quantity) AS postings_with_quantity,
+  COUNT_IF(hours_quantity <> 0) AS nonzero_quantity_postings,
+  SUM(hours_quantity) AS signed_hours
+FROM labor
+GROUP BY account, description
+ORDER BY ABS(signed_hours) DESC NULLS LAST, account, description;

@@ -8,8 +8,8 @@ compact_centers AS (
   FROM defense_centers
 ),
 ledger AS (
-  SELECT 'S2' AS source, GJAHR, POPER, SEGMENT, RCNTR, KSL
-  FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s2`
+  SELECT 'S3' AS source, GJAHR, POPER, SEGMENT, RCNTR, KSL
+  FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s3`
   UNION ALL
   SELECT 'SX', GJAHR, POPER, SEGMENT, RCNTR, KSL
   FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_sx`

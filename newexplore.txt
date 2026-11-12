@@ -1,25 +1,11 @@
-from pyspark.sql import functions as F
-
-s3 = spark.table("source_systems_dev.sql_central_integration.lfc_transaction_details_s3")
-labor = s3.where("""
-    CAST(GJAHR AS STRING) = '2026'
-    AND UPPER(TRIM(RUNIT)) = 'H'
-    AND TRIM(CAST(RACCT AS STRING)) LIKE '00041%'
-""")
-
-matches = []
-for field in s3.schema.fields:
-    if field.dataType.typeName() == "string":
-        value = F.trim(F.col(f"`{field.name}`"))
-        matches.append(F.when(
-            value.rlike("(?i)direct"),
-            F.struct(F.lit(field.name).alias("column_name"), value.alias("matched_value"))
-        ))
-
-display(
-    labor.select("RACCT", F.explode(F.array(*matches)).alias("hit"))
-         .where(F.col("hit").isNotNull())
-         .select("RACCT", "hit.*")
-         .groupBy("column_name", "RACCT", "matched_value").count()
-         .orderBy("column_name", F.desc("count"), "RACCT")
-)
+SELECT
+  TRIM(RACCT) AS account,
+  TRIM(GL_TXT50) AS description,
+  COUNT(*) AS postings,
+  SUM(TRY_CAST(MSL AS DECIMAL(24, 4))) AS signed_hours
+FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
+WHERE TRY_CAST(GJAHR AS INT) = 2026
+  AND UPPER(TRIM(RUNIT)) = 'H'
+  AND TRIM(RACCT) LIKE '00041%'
+GROUP BY TRIM(RACCT), TRIM(GL_TXT50)
+ORDER BY ABS(signed_hours) DESC NULLS LAST;

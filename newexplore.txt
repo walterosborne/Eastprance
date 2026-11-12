@@ -1,22 +1,28 @@
--- Top roster work sites by absolute hours on in-scope DBM labor actuals.
-WITH hierarchy AS (
+-- Top roster sites by absolute hours, with labor aggregated before the roster join.
+WITH labor_by_person AS (
     SELECT
-        UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
-        ROW_NUMBER() OVER (
-            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-            ORDER BY last_modified_date DESC, created_date DESC, id DESC
-        ) AS rn
-    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
-),
-actuals AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(Cost_Center))) AS cost_center,
-        NULLIF(UPPER(LTRIM(RTRIM(MYID))), '') AS my_id,
-        TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS labor_year,
-        TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS labor_month,
-        TRY_CONVERT(decimal(18, 2), Hours) AS hours
-    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
+        UPPER(LTRIM(RTRIM(a.MYID))) AS my_id,
+        SUM(ABS(hours.quantity)) AS absolute_hours,
+        COUNT_BIG(*) AS labor_rows
+    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table] AS a
+    CROSS APPLY (VALUES (
+        TRY_CONVERT(int, RIGHT(LTRIM(RTRIM(a.[Period])), 4)),
+        TRY_CONVERT(int, LEFT(LTRIM(RTRIM(a.[Period])), 2))
+    )) AS period(labor_year, labor_month)
+    CROSS APPLY (VALUES (TRY_CONVERT(decimal(18, 2), a.Hours))) AS hours(quantity)
+    WHERE NULLIF(LTRIM(RTRIM(a.MYID)), '') IS NOT NULL
+      AND NULLIF(LTRIM(RTRIM(a.Cost_Center)), '') IS NOT NULL
+      AND period.labor_year >= 2025
+      AND period.labor_month BETWEEN 1 AND 12
+      AND period.labor_year * 100 + period.labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
+      AND hours.quantity IS NOT NULL
+      AND EXISTS (
+          SELECT 1
+          FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy] AS h
+          WHERE LTRIM(RTRIM(h.LEV02)) = 'NGRBT'
+            AND UPPER(LTRIM(RTRIM(h.COST_CENTER))) = UPPER(LTRIM(RTRIM(a.Cost_Center)))
+      )
+    GROUP BY UPPER(LTRIM(RTRIM(a.MYID)))
 ),
 roster_facilities AS (
     SELECT
@@ -38,20 +44,14 @@ mapped_people AS (
     SELECT my_id, MIN(facility) AS facility
     FROM roster_facilities
     GROUP BY my_id
-    HAVING COUNT(DISTINCT facility) = 1
+    HAVING MIN(facility) = MAX(facility)
 )
 SELECT TOP (30)
     p.facility,
-    SUM(ABS(a.hours)) AS absolute_hours,
-    COUNT_BIG(*) AS labor_rows,
-    COUNT(DISTINCT a.my_id) AS employees
-FROM actuals AS a
-INNER JOIN hierarchy AS h ON h.cost_center = a.cost_center AND h.rn = 1
+    SUM(a.absolute_hours) AS absolute_hours,
+    SUM(a.labor_rows) AS labor_rows,
+    COUNT_BIG(*) AS employees
+FROM labor_by_person AS a
 INNER JOIN mapped_people AS p ON p.my_id = a.my_id
-WHERE a.cost_center <> ''
-  AND a.labor_year >= 2025
-  AND a.labor_month BETWEEN 1 AND 12
-  AND a.labor_year * 100 + a.labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
-  AND a.hours IS NOT NULL
 GROUP BY p.facility
 ORDER BY absolute_hours DESC, p.facility;

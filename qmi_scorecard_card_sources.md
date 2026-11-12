@@ -158,14 +158,15 @@ Labor Category values containing `Labor Direct` are treated as direct, values co
 
 ## Labor Utilization — New Data
 
-The replacement labor utilization data uses actual labor hours directly from DBM instead of the existing Cognos output. Cost center is used to add Division, Business Unit, and facility information before the data is displayed in QMI.
+The replacement labor utilization data uses actual labor hours directly from DBM instead of the existing Cognos output. Cost center supplies Division and Business Unit. My ID supplies the employee's roster work facility.
 
-- **`rpt.rb_Actuals_RM_Load_Table` (SQL Database: `DTO_Business_Management`)** — The labor actuals source. Contains the reporting period, charged cost center, labor category, and entered hours used for the metric.
+- **`rpt.rb_Actuals_RM_Load_Table` (SQL Database: `DTO_Business_Management`)** — The labor actuals source. Contains the reporting period, charged cost center, My ID, labor category, and entered hours used for the metric.
 
 | Field | Column Name in Table | Description |
 | --- | --- | --- |
 | Period | `Period` | Reporting month and year associated with the labor hours. |
-| Cost Center | `Cost_Center` | Cost center charged by the labor actual. Used to identify Division, Business Unit, and facility. |
+| Cost Center | `Cost_Center` | Cost center charged by the labor actual. Used to identify Division and Business Unit. |
+| My ID | `MYID` | Joins to the roster to identify the employee's work facility. |
 | Labor Category | `Labor_Category` | Source labor classification. Values are normalized into direct, indirect, or other labor. |
 | Entered Hours | `Hours` | Actual labor hours summed for labor utilization reporting. |
 
@@ -177,16 +178,9 @@ The replacement labor utilization data uses actual labor hours directly from DBM
 | Division | `LEV03_DESC` | The division associated with the cost center. |
 | Business Unit | `LEV04_DESC` | The business unit associated with the cost center. |
 
-- **`data/costcenterkey.xlsx`** — A hardcoded key between cost centers and facilities, obtained from Rates and Budget. The new labor data joins to this key by cost center to add facility information.
+- **`dbo.rb_roster_transform` (SQL Database: `DTO_Business_Management`)** — Matches the labor My ID to roster My ID fields and uses the work city and state from rows whose sector contains `Defense`. Missing or conflicting facilities and Excel fallback rows are reported as `Unmapped`. The roster supplies the work location for historical labor rows as well.
 
-| Field | Column Name in Table | Description |
-| --- | --- | --- |
-| Cost Center | `Cost Center` | Cost center used to join the labor data to a facility. |
-| Facility Address | `Address` | Address associated with the cost center. |
-| City | `City` | City associated with the facility and used as the facility label. |
-| State | `State` | State associated with the facility. |
-
-The replacement source groups the actual hours by year, month, Division, Business Unit, cost center, and labor category. Labor categories containing `Direct` or `Indirect` are grouped accordingly; unexpected values remain grouped as `Other`.
+The replacement source groups the actual hours by year, month, Division, Business Unit, cost center, facility, and labor category. Labor categories containing `Direct` or `Indirect` are grouped accordingly; unexpected values remain grouped as `Other`.
 
 *Legacy SQL-backed cards can fall back to bundled Excel/JSON data if their database reads fail.*
 

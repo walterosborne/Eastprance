@@ -8,10 +8,7 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
-import {
-  normalizeCostCenter,
-  readCostCenterFacilityKey
-} from './costCenterFacilityKey.js';
+import { normalizeCostCenter } from './costCenterFacilityKey.js';
 import { LABOR_UTILIZATION_NEW_DBM_QUERY } from './dbmQueries/laborUtilizationNewQuery.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
@@ -71,14 +68,13 @@ function classifyLaborCategory(value) {
   return 'other';
 }
 
-export function normalizeLaborUtilizationNewRow(row, facilityKey = null) {
+export function normalizeLaborUtilizationNewRow(row, useRosterFacilities = true) {
   const source = getNormalizedSourceRow(row);
   const year = normalizeNumber(source.year);
   const month = normalizeNumber(source.month);
   const enteredHours = normalizeNumber(source.entered_hours);
   const costCenter = normalizeCostCenter(source.cost_center);
-  const facilityMapping = costCenter ? facilityKey?.lookup?.get(costCenter) : null;
-  const legacyFacility = normalizeText(source.facility);
+  const facility = useRosterFacilities ? normalizeText(source.facility) : '';
 
   if (
     !Number.isInteger(year)
@@ -96,8 +92,8 @@ export function normalizeLaborUtilizationNewRow(row, facilityKey = null) {
     division: normalizeText(source.division),
     business_unit: normalizeText(source.business_unit),
     cost_center: costCenter,
-    facility: facilityMapping?.facility || (!costCenter && legacyFacility) || 'Unmapped',
-    facility_state: facilityMapping?.state || '',
+    facility: facility || 'Unmapped',
+    facility_state: facility ? normalizeText(source.facility_state) : '',
     labor_category: normalizeText(source.labor_category),
     entered_hours: enteredHours
   };
@@ -108,7 +104,7 @@ function validateSourceColumns(sourceRows, sourceLabel, requireCostCenter = fals
     Object.keys(sourceRows[0] ?? {}).map(normalizeHeader)
   );
   const requiredColumns = requireCostCenter
-    ? [...REQUIRED_COLUMNS, 'cost_center']
+    ? [...REQUIRED_COLUMNS, 'cost_center', 'facility', 'facility_state']
     : REQUIRED_COLUMNS;
   const missingColumns = requiredColumns.filter(
     (columnName) => !availableColumns.has(columnName)
@@ -121,20 +117,29 @@ function validateSourceColumns(sourceRows, sourceLabel, requireCostCenter = fals
   }
 }
 
-function buildLaborUtilizationPayload(sourceRows, metadata, facilityKey) {
+function buildLaborUtilizationPayload(sourceRows, metadata) {
   validateSourceColumns(sourceRows, metadata.sourceLabel, metadata.requireCostCenter);
 
+  const useRosterFacilities = metadata.source === 'dbm-sql';
   const rows = sourceRows
-    .map((row) => normalizeLaborUtilizationNewRow(row, facilityKey))
+    .map((row) => normalizeLaborUtilizationNewRow(row, useRosterFacilities))
     .filter(Boolean);
-  const normalizedSourceRows = sourceRows.map(getNormalizedSourceRow);
-  const costCenterRowCount = normalizedSourceRows.filter(
-    (row) => normalizeCostCenter(row.cost_center)
-  ).length;
-  const mappedFacilityRowCount = normalizedSourceRows.filter((row) => {
-    const costCenter = normalizeCostCenter(row.cost_center);
-    return costCenter && facilityKey?.lookup?.has(costCenter);
-  }).length;
+  const mappedRows = rows.filter((row) => row.facility !== 'Unmapped');
+  const statesByCity = new Map();
+
+  for (const { facility, facility_state } of mappedRows) {
+    if (!facility_state) continue;
+    const cityKey = facility.toLowerCase();
+    const states = statesByCity.get(cityKey) ?? new Set();
+    states.add(facility_state.toUpperCase());
+    statesByCity.set(cityKey, states);
+  }
+
+  for (const row of mappedRows) {
+    if (row.facility_state && statesByCity.get(row.facility.toLowerCase())?.size > 1) {
+      row.facility = `${row.facility}, ${row.facility_state}`;
+    }
+  }
   const years = Array.from(new Set(rows.map((row) => row.year))).sort(
     (left, right) => left - right
   );
@@ -162,36 +167,16 @@ function buildLaborUtilizationPayload(sourceRows, metadata, facilityKey) {
     totalEnteredHours,
     laborCategoryCounts: categoryCounts,
     facilityMapping: {
-      source: facilityKey?.fileName ?? null,
-      sheetName: facilityKey?.sheetName ?? null,
-      mappedCostCenterCount: facilityKey?.mappedCostCenterCount ?? 0,
-      eligibleRowCount: costCenterRowCount,
-      mappedRowCount: mappedFacilityRowCount,
-      unmappedRowCount: costCenterRowCount - mappedFacilityRowCount,
-      error: facilityKey?.error ?? null
+      source: useRosterFacilities ? 'dbo.rb_roster_transform' : null,
+      sheetName: null,
+      mappedCostCenterCount: new Set(mappedRows.map((row) => row.cost_center).filter(Boolean)).size,
+      eligibleRowCount: rows.length,
+      mappedRowCount: mappedRows.length,
+      unmappedRowCount: rows.length - mappedRows.length,
+      error: null
     },
     rows
   };
-}
-
-async function readLaborFacilityKey() {
-  try {
-    return await readCostCenterFacilityKey();
-  } catch (error) {
-    logError(
-      'labor-new',
-      'Labor data will use Unmapped where cost centers cannot be resolved.',
-      error
-    );
-
-    return {
-      lookup: new Map(),
-      fileName: null,
-      sheetName: null,
-      mappedCostCenterCount: 0,
-      error: error.message
-    };
-  }
 }
 
 async function readLaborUtilizationNewExcelFallback(fallbackReason) {
@@ -216,14 +201,13 @@ async function readLaborUtilizationNewExcelFallback(fallbackReason) {
       defval: null,
       raw: true
     });
-    const facilityKey = await readLaborFacilityKey();
     const payload = buildLaborUtilizationPayload(sourceRows, {
       source: 'excel-fallback',
       sourceLabel: 'The new labor utilization workbook',
       fileName: path.basename(LABOR_UTILIZATION_NEW_FILE_PATH),
       sheetName,
       fallbackReason
-    }, facilityKey);
+    });
 
     logDebug('labor-new', 'New labor utilization loaded from Excel fallback.', {
       source: payload.source,
@@ -268,12 +252,11 @@ async function readLaborUtilizationNewDbmData(config) {
   });
 
   const result = await pool.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY);
-  const facilityKey = await readLaborFacilityKey();
   const payload = buildLaborUtilizationPayload(result.recordset, {
     source: 'dbm-sql',
     sourceLabel: 'The DBM labor utilization query',
     requireCostCenter: true
-  }, facilityKey);
+  });
 
   logDebug('labor-new', 'New labor utilization loaded from DBM SQL.', {
     source: payload.source,

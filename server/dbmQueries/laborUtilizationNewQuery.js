@@ -15,6 +15,34 @@ WITH CostCenterHierarchy AS (
     WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 ),
 
+DefenseRoster AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(ids.MyID))) AS MyID,
+        location.City,
+        location.[State],
+        CONCAT_WS(', ', location.City, location.[State]) AS Facility
+    FROM dbo.rb_roster_transform AS r
+    CROSS APPLY (VALUES
+        (r.Employee_MyID_NSR),
+        (r.Employee_MyID_SR),
+        (r.Employee_MyID_DM),
+        (r.Employee_MyID_SAP)
+    ) AS ids(MyID)
+    CROSS APPLY (VALUES (
+        NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), ''),
+        NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')
+    )) AS location(City, [State])
+    WHERE UPPER(r.Sector) LIKE '%DEFENSE%'
+      AND NULLIF(LTRIM(RTRIM(ids.MyID)), '') IS NOT NULL
+      AND UPPER(location.City) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
+),
+RosterByPerson AS (
+    SELECT MyID, MIN(City) AS City, MIN([State]) AS [State]
+    FROM DefenseRoster
+    GROUP BY MyID
+    HAVING MIN(Facility) = MAX(Facility)
+),
+
 Actuals AS (
     SELECT
         TRY_CONVERT(
@@ -26,6 +54,7 @@ Actuals AS (
             LEFT(LTRIM(RTRIM([Period])), 2)
         ) AS [month],
         UPPER(LTRIM(RTRIM(Cost_Center))) AS Cost_Center,
+        NULLIF(UPPER(LTRIM(RTRIM(MYID))), '') AS MyID,
         CASE
             WHEN LOWER(LTRIM(RTRIM(Labor_Category))) LIKE '%indirect%'
                 THEN 'Labor Indirect'
@@ -40,7 +69,7 @@ Actuals AS (
         AND TRY_CONVERT(DECIMAL(18,2), Hours) IS NOT NULL
 ),
 
-EnrichedActuals AS (
+LaborByPerson AS (
     SELECT
         a.[year],
         a.[month],
@@ -48,7 +77,8 @@ EnrichedActuals AS (
         COALESCE(h.Business_Unit, 'Unmapped') AS Business_Unit,
         a.Cost_Center,
         a.Labor_Category,
-        a.Entered_Hours
+        a.MyID,
+        SUM(a.Entered_Hours) AS Entered_Hours
     FROM Actuals a
     JOIN CostCenterHierarchy h
         ON a.Cost_Center = h.Cost_Center
@@ -56,29 +86,26 @@ EnrichedActuals AS (
     WHERE
         a.[year] IS NOT NULL
         AND a.[month] BETWEEN 1 AND 12
+    GROUP BY a.[year], a.[month], h.Division, h.Business_Unit,
+        a.Cost_Center, a.Labor_Category, a.MyID
 )
 
 SELECT
-    [year] AS year,
-    [month] AS month,
-    Division AS division,
-    Business_Unit AS business_unit,
-    Cost_Center AS cost_center,
-    Labor_Category AS labor_category,
-    SUM(Entered_Hours) AS entered_hours
-FROM EnrichedActuals
+    a.[year] AS year,
+    a.[month] AS month,
+    a.Division AS division,
+    a.Business_Unit AS business_unit,
+    a.Cost_Center AS cost_center,
+    r.City AS facility,
+    r.[State] AS facility_state,
+    a.Labor_Category AS labor_category,
+    SUM(a.Entered_Hours) AS entered_hours
+FROM LaborByPerson AS a
+LEFT JOIN RosterByPerson AS r ON r.MyID = a.MyID
 GROUP BY
-    [year],
-    [month],
-    Division,
-    Business_Unit,
-    Cost_Center,
-    Labor_Category
+    a.[year], a.[month], a.Division, a.Business_Unit, a.Cost_Center,
+    r.City, r.[State], a.Labor_Category
 ORDER BY
-    [year],
-    [month],
-    Division,
-    Business_Unit,
-    Cost_Center,
-    Labor_Category;
+    a.[year], a.[month], a.Division, a.Business_Unit, a.Cost_Center,
+    a.Labor_Category, r.City, r.[State];
 `;

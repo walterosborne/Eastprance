@@ -1,0 +1,154 @@
+-- Compare roster and cost-center facility coverage on the same DBM labor rows.
+-- Cost-center coverage uses the SQL copy of the facility key.
+WITH hierarchy AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
+        NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS division,
+        ROW_NUMBER() OVER (
+            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS rn
+    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+),
+actuals AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(Cost_Center))) AS cost_center,
+        NULLIF(UPPER(LTRIM(RTRIM(MYID))), '') AS my_id,
+        TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS labor_year,
+        TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS labor_month,
+        TRY_CONVERT(decimal(18, 2), Hours) AS hours
+    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
+),
+roster_facilities AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(ids.my_id))) AS my_id,
+        CONCAT_WS(', ', LTRIM(RTRIM(r.Work_City_NSR)),
+            NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')) AS facility
+    FROM [DTO_Business_Management].[dbo].[rb_roster_transform] AS r
+    CROSS APPLY (VALUES
+        (r.Employee_MyID_NSR),
+        (r.Employee_MyID_SR),
+        (r.Employee_MyID_DM),
+        (r.Employee_MyID_SAP)
+    ) AS ids(my_id)
+    WHERE NULLIF(LTRIM(RTRIM(ids.my_id)), '') IS NOT NULL
+      AND NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), '') IS NOT NULL
+      AND UPPER(LTRIM(RTRIM(r.Work_City_NSR))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
+),
+mapped_people AS (
+    SELECT my_id
+    FROM roster_facilities
+    GROUP BY my_id
+    HAVING COUNT(DISTINCT facility) = 1
+),
+mapped_cost_centers AS (
+    SELECT DISTINCT UPPER(LTRIM(RTRIM([Cost Center]))) AS cost_center
+    FROM [ecosystem_source].[qmi].[costcenterkey]
+    WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
+      AND NULLIF(LTRIM(RTRIM([City])), '') IS NOT NULL
+      AND UPPER(LTRIM(RTRIM([City]))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
+),
+coverage AS (
+    SELECT
+        GROUPING(h.division) AS is_total,
+        h.division,
+        COUNT_BIG(*) AS labor_rows,
+        COUNT_BIG(p.my_id) AS roster_rows,
+        COUNT_BIG(k.cost_center) AS cost_center_rows,
+        SUM(ABS(a.hours)) AS absolute_hours,
+        SUM(CASE WHEN p.my_id IS NOT NULL THEN ABS(a.hours) ELSE 0 END) AS roster_hours,
+        SUM(CASE WHEN k.cost_center IS NOT NULL THEN ABS(a.hours) ELSE 0 END) AS cost_center_hours
+    FROM actuals AS a
+    INNER JOIN hierarchy AS h ON h.cost_center = a.cost_center AND h.rn = 1
+    LEFT JOIN mapped_people AS p ON p.my_id = a.my_id
+    LEFT JOIN mapped_cost_centers AS k ON k.cost_center = a.cost_center
+    WHERE a.cost_center <> ''
+      AND a.labor_year >= 2025
+      AND a.labor_month BETWEEN 1 AND 12
+      AND a.labor_year * 100 + a.labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
+      AND a.hours IS NOT NULL
+    GROUP BY GROUPING SETS ((h.division), ())
+)
+SELECT
+    CASE WHEN is_total = 1 THEN 'All divisions' ELSE COALESCE(division, 'Unmapped division') END AS division,
+    labor_rows,
+    CAST(100.0 * roster_rows / NULLIF(labor_rows, 0) AS decimal(6, 2)) AS roster_row_pct,
+    CAST(100.0 * cost_center_rows / NULLIF(labor_rows, 0) AS decimal(6, 2)) AS cost_center_row_pct,
+    absolute_hours,
+    CAST(100.0 * roster_hours / NULLIF(absolute_hours, 0) AS decimal(6, 2)) AS roster_hours_pct,
+    CAST(100.0 * cost_center_hours / NULLIF(absolute_hours, 0) AS decimal(6, 2)) AS cost_center_hours_pct
+FROM coverage
+ORDER BY is_total DESC, labor_rows DESC, division;
+
+-- Measure roster facility coverage for in-scope DBM labor actuals.
+WITH hierarchy AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
+        NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS division,
+        ROW_NUMBER() OVER (
+            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS rn
+    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+),
+actuals AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(Cost_Center))) AS cost_center,
+        NULLIF(UPPER(LTRIM(RTRIM(MYID))), '') AS my_id,
+        TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS labor_year,
+        TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS labor_month,
+        TRY_CONVERT(decimal(18, 2), Hours) AS hours
+    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
+),
+roster_facilities AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(ids.my_id))) AS my_id,
+        CONCAT_WS(', ', LTRIM(RTRIM(r.Work_City_NSR)),
+            NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')) AS facility
+    FROM [DTO_Business_Management].[dbo].[rb_roster_transform] AS r
+    CROSS APPLY (VALUES
+        (r.Employee_MyID_NSR),
+        (r.Employee_MyID_SR),
+        (r.Employee_MyID_DM),
+        (r.Employee_MyID_SAP)
+    ) AS ids(my_id)
+    WHERE NULLIF(LTRIM(RTRIM(ids.my_id)), '') IS NOT NULL
+      AND NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), '') IS NOT NULL
+      AND UPPER(LTRIM(RTRIM(r.Work_City_NSR))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
+),
+mapped_people AS (
+    SELECT my_id
+    FROM roster_facilities
+    GROUP BY my_id
+    HAVING COUNT(DISTINCT facility) = 1
+),
+coverage AS (
+    SELECT
+        GROUPING(h.division) AS is_total,
+        h.division,
+        COUNT_BIG(*) AS labor_rows,
+        COUNT_BIG(p.my_id) AS mapped_rows,
+        SUM(ABS(a.hours)) AS absolute_hours,
+        SUM(CASE WHEN p.my_id IS NOT NULL THEN ABS(a.hours) ELSE 0 END) AS mapped_absolute_hours
+    FROM actuals AS a
+    INNER JOIN hierarchy AS h ON h.cost_center = a.cost_center AND h.rn = 1
+    LEFT JOIN mapped_people AS p ON p.my_id = a.my_id
+    WHERE a.cost_center <> ''
+      AND a.labor_year >= 2025
+      AND a.labor_month BETWEEN 1 AND 12
+      AND a.labor_year * 100 + a.labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
+      AND a.hours IS NOT NULL
+    GROUP BY GROUPING SETS ((h.division), ())
+)
+SELECT
+    CASE WHEN is_total = 1 THEN 'All divisions' ELSE COALESCE(division, 'Unmapped division') END AS division,
+    labor_rows,
+    mapped_rows,
+    CAST(100.0 * mapped_rows / NULLIF(labor_rows, 0) AS decimal(6, 2)) AS row_coverage_pct,
+    absolute_hours,
+    mapped_absolute_hours,
+    CAST(100.0 * mapped_absolute_hours / NULLIF(absolute_hours, 0) AS decimal(6, 2)) AS hours_coverage_pct
+FROM coverage
+ORDER BY is_total DESC, labor_rows DESC, division;

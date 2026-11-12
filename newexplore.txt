@@ -1,24 +1,57 @@
--- Check charge-field coverage for nonzero Gross Labor Timecard hours.
-WITH gross_labor AS (
-  SELECT
-    NULLIF(TRIM(PACCASTY), '') AS paccasty,
-    CASE
-      WHEN AUFNR IS NULL OR TRIM(AUFNR) RLIKE '^0*$' THEN 'Blank or zero'
-      ELSE 'Populated'
-    END AS aufnr_status,
-    TRY_CAST(NET_MSL AS DECIMAL(24, 4)) AS hours_quantity
-  FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
-  WHERE TRY_CAST(GJAHR AS INT) = 2026
-    AND UPPER(TRIM(RUNIT)) = 'H'
-    AND TRIM(RACCT) = '0004100000'
+-- Facility coverage for the DBM Labor Utilization card.
+-- The card loads costcenterkey.xlsx. Use the SQL copy of the key to check coverage.
+WITH normalized_actuals AS (
+    SELECT
+        NULLIF(UPPER(LTRIM(RTRIM(Cost_Center))), '') AS cost_center,
+        TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS labor_year,
+        TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS labor_month,
+        TRY_CONVERT(decimal(18, 2), Hours) AS hours
+    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
+),
+actuals AS (
+    SELECT cost_center, COUNT_BIG(*) AS labor_rows, SUM(hours) AS signed_hours
+    FROM normalized_actuals
+    WHERE labor_year >= 2025
+      AND labor_month BETWEEN 1 AND 12
+      AND labor_year * 100 + labor_month < YEAR(GETUTCDATE()) * 100 + MONTH(GETUTCDATE())
+      AND hours IS NOT NULL
+    GROUP BY cost_center
+),
+hierarchy AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(COST_CENTER))) AS cost_center,
+        NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS division,
+        ROW_NUMBER() OVER (
+            PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+        ) AS rn
+    FROM [DTO_Business_Management].[rpt].[rb_load_cost_center_hierarchy]
+    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
+),
+facility_key AS (
+    SELECT
+        UPPER(LTRIM(RTRIM([Cost Center]))) AS cost_center,
+        MAX(NULLIF(LTRIM(RTRIM([City])), '')) AS sample_city,
+        COUNT(DISTINCT NULLIF(LTRIM(RTRIM([City])), '')) AS distinct_cities
+    FROM [ecosystem_source].[qmi].[costcenterkey]
+    GROUP BY UPPER(LTRIM(RTRIM([Cost Center])))
 )
 SELECT
-  paccasty,
-  aufnr_status,
-  COUNT(*) AS postings,
-  SUM(hours_quantity) AS signed_hours,
-  SUM(ABS(hours_quantity)) AS absolute_hours
-FROM gross_labor
-WHERE hours_quantity <> 0
-GROUP BY paccasty, aufnr_status
-ORDER BY absolute_hours DESC, paccasty, aufnr_status;
+    a.cost_center,
+    h.division,
+    k.sample_city,
+    k.distinct_cities,
+    a.labor_rows,
+    a.signed_hours,
+    CASE
+        WHEN a.cost_center IS NULL THEN 'Missing labor cost center'
+        WHEN h.cost_center IS NULL THEN 'Excluded by DBM hierarchy join'
+        WHEN k.cost_center IS NULL THEN 'Missing from facility key'
+        WHEN k.distinct_cities = 0 THEN 'Facility key has no city'
+        WHEN k.distinct_cities > 1 THEN 'Facility key has multiple cities'
+        ELSE 'Mapped'
+    END AS mapping_status
+FROM actuals a
+LEFT JOIN hierarchy h ON h.cost_center = a.cost_center AND h.rn = 1
+LEFT JOIN facility_key k ON k.cost_center = a.cost_center
+ORDER BY mapping_status, ABS(a.signed_hours) DESC, a.cost_center;

@@ -1,58 +1,12 @@
--- List each labor-actuals My ID and its roster work facility.
--- Detect My ID column spellings from DBM metadata before running the join.
-DECLARE @actuals_my_id sysname;
-DECLARE @roster_my_id sysname;
-
-SELECT TOP (1) @actuals_my_id = COLUMN_NAME
+-- Inspect the available columns before choosing the labor-to-roster join key.
+SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
 FROM [DTO_Business_Management].INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'rpt'
-  AND TABLE_NAME = 'rb_Actuals_RM_Load_Table'
-  AND LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
-      IN ('myid', 'employeemyid', 'empmyid')
-ORDER BY CASE LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
-    WHEN 'myid' THEN 1 WHEN 'employeemyid' THEN 2 ELSE 3 END, ORDINAL_POSITION;
-
-SELECT TOP (1) @roster_my_id = COLUMN_NAME
-FROM [DTO_Business_Management].INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'dbo'
-  AND TABLE_NAME = 'rb_roster_transform'
-  AND LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
-      IN ('myid', 'employeemyid', 'empmyid')
-ORDER BY CASE LOWER(REPLACE(REPLACE(COLUMN_NAME, '_', ''), ' ', ''))
-    WHEN 'employeemyid' THEN 1 WHEN 'myid' THEN 2 ELSE 3 END, ORDINAL_POSITION;
-
-IF @actuals_my_id IS NULL OR @roster_my_id IS NULL
-BEGIN
-    SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
-    FROM [DTO_Business_Management].INFORMATION_SCHEMA.COLUMNS
-    WHERE (TABLE_SCHEMA = 'rpt' AND TABLE_NAME = 'rb_Actuals_RM_Load_Table')
-       OR (TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'rb_roster_transform')
-    ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;
-
-    THROW 50001, 'Could not identify a My ID column on both DBM sources.', 1;
-END;
-
-DECLARE @sql nvarchar(max) = N'
-WITH actual_people AS (
-    SELECT DISTINCT
-        NULLIF(UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), a.' + QUOTENAME(@actuals_my_id) + N')))), '''') AS my_id
-    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table] AS a
-),
-roster_facilities AS (
-    SELECT DISTINCT
-        NULLIF(UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), r.' + QUOTENAME(@roster_my_id) + N')))), '''') AS my_id,
-        NULLIF(CONCAT_WS('', '',
-            NULLIF(LTRIM(RTRIM(r.Work_Address_1)), ''''),
-            NULLIF(LTRIM(RTRIM(r.NSR_Work_City)), ''''),
-            NULLIF(LTRIM(RTRIM(r.NSR_Work_State)), '''')
-        ), '''') AS facility
-    FROM [DTO_Business_Management].[dbo].[rb_roster_transform] AS r
-)
-SELECT a.my_id, r.facility
-FROM actual_people AS a
-LEFT JOIN roster_facilities AS r ON r.my_id = a.my_id
-WHERE a.my_id IS NOT NULL
-ORDER BY a.my_id, r.facility;
-';
-
-EXEC sys.sp_executesql @sql;
+WHERE (TABLE_SCHEMA = 'rpt' AND TABLE_NAME IN ('rb_Actuals_RM_Load_Table', 'rb_load_roster'))
+   OR (TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'rb_roster_transform')
+ORDER BY
+    CASE
+        WHEN TABLE_NAME = 'rb_Actuals_RM_Load_Table' THEN 1
+        WHEN TABLE_NAME = 'rb_load_roster' THEN 2
+        ELSE 3
+    END,
+    ORDINAL_POSITION;

@@ -1,21 +1,23 @@
--- NET_MSL is the candidate hours quantity for hour-unit postings.
+-- Profile activity types and signed hours on labor and settlement accounts.
 WITH labor AS (
   SELECT
     TRIM(RACCT) AS account,
     TRIM(GL_TXT50) AS description,
+    NULLIF(TRIM(CAST(LSTAR AS STRING)), '') AS activity_type,
     TRY_CAST(NET_MSL AS DECIMAL(24, 4)) AS hours_quantity
   FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
   WHERE TRY_CAST(GJAHR AS INT) = 2026
     AND UPPER(TRIM(RUNIT)) = 'H'
-    AND TRIM(RACCT) LIKE '00041%'
+    AND (TRIM(RACCT) LIKE '00041%' OR TRIM(RACCT) LIKE '0007%')
 )
 SELECT
   account,
   description,
-  COUNT(*) AS postings,
-  COUNT(hours_quantity) AS postings_with_quantity,
-  COUNT_IF(hours_quantity <> 0) AS nonzero_quantity_postings,
-  SUM(hours_quantity) AS signed_hours
+  activity_type,
+  COUNT(*) AS nonzero_quantity_postings,
+  SUM(hours_quantity) AS signed_hours,
+  SUM(ABS(hours_quantity)) AS absolute_hours
 FROM labor
-GROUP BY account, description
-ORDER BY ABS(signed_hours) DESC NULLS LAST, account, description;
+WHERE hours_quantity <> 0
+GROUP BY account, description, activity_type
+ORDER BY account, absolute_hours DESC, activity_type, description;

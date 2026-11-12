@@ -15,7 +15,7 @@ const DATABRICKS_PROCESSED_TABLE_NAME = 'finance_dev.analytics.cost_vis_full';
 const DATABRICKS_PROCESSED_TABLE_SQL = '`finance_dev`.`analytics`.`cost_vis_full`';
 const DATABRICKS_RAW_TABLE_NAME = 'finance_dev.analytics.dev_cv_transaction_details';
 const DATABRICKS_RAW_TABLE_SQL = '`finance_dev`.`analytics`.`dev_cv_transaction_details`';
-const DATABRICKS_NEW_TABLE_NAME = 'source_systems_dev.sql_central_integration.lfc_transaction_details_s3';
+export const DATABRICKS_NEW_TABLE_NAME = 'source_systems_dev.sql_central_integration.lfc_transaction_details_s3';
 const DATABRICKS_NEW_TABLE_SQL = '`source_systems_dev`.`sql_central_integration`.`lfc_transaction_details_s3`';
 const POLL_INTERVAL_MS = 2000;
 const MAX_WAIT_MS = 180000;
@@ -503,7 +503,7 @@ async function executeDatabricksCostQuery({ scope, tableName, query }) {
   return collectStatementRows(connection, response);
 }
 
-async function readDbmDimensionLookups() {
+export async function readDbmDimensionLookups() {
   const { config, missing } = getConnectionConfig('dbm');
 
   if (missing.length > 0) {

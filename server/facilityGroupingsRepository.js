@@ -27,6 +27,7 @@ const FACILITY_FIELDS_BY_SCOPE = {
   'customer-escapes': ['facility'],
   labor: ['forecasted_cc', 'site'],
   'labor-new': ['facility'],
+  'labor-databricks': ['facility'],
   'labor-hana': ['forecasted_cc', 'site']
 };
 

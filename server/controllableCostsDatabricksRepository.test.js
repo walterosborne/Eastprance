@@ -107,6 +107,48 @@ test('new ledger fails explicitly when the source cannot be queried', async (t) 
   await assert.rejects(readControllableCostsDatabricksNewData(), /TABLE_NOT_FOUND/);
 });
 
+test('Databricks labor uses signed hour quantities and the QMI cost-center hierarchy', async (t) => {
+  setConnection(t);
+  const { readLaborDatabricksData } = await import('./laborDatabricksRepository.js');
+  const laborColumns = ['year', 'month', 'cost_center', 'entered_hours'];
+  let statement;
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    statement = JSON.parse(init.body).statement;
+    return Response.json({
+      ...result([
+        ['2025', '1', 'CWI1', '120.50'],
+        ['2025', '2', 'SDS1', '-2.25'],
+        ['2025', '2', 'TDA87FC0', '0'],
+        ['2025', '2', 'UNKNOWN', '5']
+      ]),
+      manifest: { schema: { columns: laborColumns.map((name) => ({ name })) } }
+    });
+  });
+  const payload = await readLaborDatabricksData();
+  assert.ok(statement.includes('FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3'));
+  assert.ok(statement.includes("TRIM(RACCT) LIKE '00041%'"));
+  assert.ok(statement.includes("UPPER(TRIM(RUNIT)) = 'H'"));
+  assert.ok(statement.includes('TRY_CAST(NET_MSL AS DECIMAL(24, 4))'));
+  assert.ok(statement.includes('SUM(hours_quantity) AS entered_hours'));
+  assert.ok(statement.includes('year * 100 + month < YEAR(CURRENT_DATE()) * 100 + MONTH(CURRENT_DATE())'));
+  assert.doesNotMatch(statement, /\bKSL\b|labor_category/);
+  assert.equal(payload.sourceRowCount, 4);
+  assert.deepEqual(payload.rows, [
+    {
+      year: 2025, month: 1, cost_center: 'CWI1', division: cwi,
+      business_unit: 'CWI BU', facility: 'Facility A', entered_hours: 120.5
+    },
+    {
+      year: 2025, month: 2, cost_center: 'SDS1', division: sds,
+      business_unit: 'SDS BU', facility: 'Facility B', entered_hours: -2.25
+    },
+    {
+      year: 2025, month: 2, cost_center: 'TDA87FC0', division: sds,
+      business_unit: 'SDS BU', facility: 'Unmapped', entered_hours: 0
+    }
+  ]);
+});
+
 test('new ledger supports external result links and completed-month scoping', async (t) => {
   setConnection(t);
   const originalFetch = globalThis.fetch;

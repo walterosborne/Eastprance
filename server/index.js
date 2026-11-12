@@ -52,6 +52,7 @@ import {
   readFacilityGroupingHierarchy
 } from './facilityGroupingsRepository.js';
 import { applyBuGroupingsToPayload, readBuGroupingTitles } from './buGroupingsRepository.js';
+import { readLaborDatabricksData } from './laborDatabricksRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
 import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
@@ -84,6 +85,7 @@ const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
 const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
 const CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED = true;
+const DATABRICKS_RAW_COST_DATASET_ENABLED = false;
 const LABOR_HANA_DATASET_ENABLED = false;
 let requestCounter = 0;
 
@@ -116,10 +118,12 @@ if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
 }
 if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
   registerSqlDatasetCache('controllable-costs-databricks', readControllableCostsDatabricksData);
-  registerSqlDatasetCache(
-    'controllable-costs-databricks-raw',
-    readControllableCostsDatabricksRawData
-  );
+  if (DATABRICKS_RAW_COST_DATASET_ENABLED) {
+    registerSqlDatasetCache(
+      'controllable-costs-databricks-raw',
+      readControllableCostsDatabricksRawData
+    );
+  }
   registerSqlDatasetCache(
     'controllable-costs-databricks-new',
     readControllableCostsDatabricksNewData
@@ -128,6 +132,7 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('customer-escapes', readCustomerEscapesData);
 registerSqlDatasetCache('labor', readLaborUtilizationData);
+registerSqlDatasetCache('labor-databricks', readLaborDatabricksData);
 if (LABOR_HANA_DATASET_ENABLED) {
   registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
 }
@@ -578,33 +583,35 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
     );
   });
 
-  // Unlinked diagnostic endpoint for the source comparison page.
-  app.get('/api/cost-test', async (_request, response) => {
-    try {
-      const [sqlDataset, rawDataset] = await Promise.all([
-        readControllableCostsNewData(),
-        getCachedSqlDataset('controllable-costs-databricks-raw')
-      ]);
-      response.json(buildCostTestDiagnostics(sqlDataset, rawDataset));
-    } catch (error) {
-      logError('cost-test', 'Unable to build cost comparison.', error);
-      response.status(500).json({ message: 'Cost comparison failed.', error: error.message });
-    }
-  });
+  if (DATABRICKS_RAW_COST_DATASET_ENABLED) {
+    // Unlinked diagnostic endpoint for the source comparison page.
+    app.get('/api/cost-test', async (_request, response) => {
+      try {
+        const [sqlDataset, rawDataset] = await Promise.all([
+          readControllableCostsNewData(),
+          getCachedSqlDataset('controllable-costs-databricks-raw')
+        ]);
+        response.json(buildCostTestDiagnostics(sqlDataset, rawDataset));
+      } catch (error) {
+        logError('cost-test', 'Unable to build cost comparison.', error);
+        response.status(500).json({ message: 'Cost comparison failed.', error: error.message });
+      }
+    });
 
-  app.get('/api/controllable-costs-databricks-raw', async (request, response) => {
-    await sendDatasetResponse(
-      request,
-      response,
-      'controllable-costs-databricks-raw',
-      async () => {
-        const { accountRows, rawSourceCoverage, rawMappedCoverage, mappingDiagnostics, ...cardDataset } =
-          await getCachedSqlDataset('controllable-costs-databricks-raw');
-        return cardDataset;
-      },
-      'Unable to read raw Databricks controllable costs data.'
-    );
-  });
+    app.get('/api/controllable-costs-databricks-raw', async (request, response) => {
+      await sendDatasetResponse(
+        request,
+        response,
+        'controllable-costs-databricks-raw',
+        async () => {
+          const { accountRows, rawSourceCoverage, rawMappedCoverage, mappingDiagnostics, ...cardDataset } =
+            await getCachedSqlDataset('controllable-costs-databricks-raw');
+          return cardDataset;
+        },
+        'Unable to read raw Databricks controllable costs data.'
+      );
+    });
+  }
 
   app.get('/api/controllable-costs-databricks-new', async (request, response) => {
     await sendDatasetResponse(
@@ -685,6 +692,16 @@ app.get('/api/labor-utilization-new', async (request, response) => {
     'labor-new',
     readLaborUtilizationNewData,
     'Unable to read the new labor utilization dataset.'
+  );
+});
+
+app.get('/api/labor-databricks', async (request, response) => {
+  await sendDatasetResponse(
+    request,
+    response,
+    'labor-databricks',
+    () => getCachedSqlDataset('labor-databricks'),
+    'Unable to read Databricks labor hours.'
   );
 });
 

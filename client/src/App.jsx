@@ -446,6 +446,11 @@ const GLOBAL_FILTER_FIELD_MAP = {
     businessUnit: 'business_unit',
     facility: 'facility'
   },
+  laborDatabricks: {
+    division: 'division',
+    businessUnit: 'business_unit',
+    facility: 'facility'
+  },
   laborHana: {
     division: 'division',
     businessUnit: 'business_unit',
@@ -458,6 +463,7 @@ const LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED = false;
 const LEGACY_LABOR_CARD_ENABLED = false;
 const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = true;
 const DATABRICKS_PROCESSED_CARD_ENABLED = false;
+const DATABRICKS_RAW_COST_CARD_ENABLED = false;
 const LABOR_HANA_CARD_ENABLED = false;
 
 const CARD_CHIP_OPTIONS = [
@@ -471,7 +477,7 @@ const CARD_CHIP_OPTIONS = [
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
         ? [
           ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
-          'controllableCostsDatabricksRaw',
+          ...(DATABRICKS_RAW_COST_CARD_ENABLED ? ['controllableCostsDatabricksRaw'] : []),
           'controllableCostsDatabricksNew'
         ]
         : []),
@@ -482,6 +488,7 @@ const CARD_CHIP_OPTIONS = [
       'customerEscapes',
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
+      'laborDatabricks',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
   },
@@ -495,12 +502,13 @@ const CARD_CHIP_OPTIONS = [
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
         ? [
           ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
-          'controllableCostsDatabricksRaw',
+          ...(DATABRICKS_RAW_COST_CARD_ENABLED ? ['controllableCostsDatabricksRaw'] : []),
           'controllableCostsDatabricksNew'
         ]
         : []),
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
+      'laborDatabricks',
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
   },
@@ -531,6 +539,7 @@ const DEFAULT_CHART_VARIANTS = {
   customerEscapes: 'line',
   labor: 'line',
   laborNew: 'line',
+  laborDatabricks: 'line',
   laborHana: 'line'
 };
 const CARD_VARIANT_OPTIONS_BY_METRIC = {
@@ -546,6 +555,7 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
   customerEscapes: ['line', 'bar', 'palette', 'pareto'],
   labor: ['line', 'bar', 'palette', 'pareto'],
   laborNew: ['line', 'bar', 'palette', 'pareto'],
+  laborDatabricks: ['line', 'bar'],
   laborHana: ['line', 'bar', 'palette', 'pareto']
 };
 const PRESET_SLOT_OPTIONS = [1, 2, 3];
@@ -1762,6 +1772,9 @@ function getCardMonthConfig(metricKey) {
   if (metricKey === 'labor' || metricKey === 'laborHana') {
     return { monthColumns: LABOR_MONTH_COLUMNS, getYear: getLaborRowYear, kind: 'labor', minAbsoluteChange: 0.05 };
   }
+  if (metricKey === 'laborDatabricks') {
+    return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'sum', minAbsoluteChange: 1 };
+  }
   if (metricKey === 'laborNew') {
     return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'laborNew', minAbsoluteChange: 0.05 };
   }
@@ -1881,6 +1894,7 @@ function getAvailableTimelineStamps({
   customerEscapesRows = [],
   laborRows = [],
   laborNewRows = [],
+  laborDatabricksRows = [],
   laborHanaRows = []
 }) {
   const stampSet = new Set();
@@ -1932,12 +1946,14 @@ function getAvailableTimelineStamps({
     });
   });
 
-  laborNewRows.forEach((row) => {
-    const stamp = getLaborNewRowStamp(row);
+  [laborNewRows, laborDatabricksRows].forEach((rows) => {
+    rows.forEach((row) => {
+      const stamp = getLaborNewRowStamp(row);
 
-    if (stamp != null && Number.isFinite(Number(row.entered_hours))) {
-      stampSet.add(stamp);
-    }
+      if (stamp != null && Number.isFinite(Number(row.entered_hours))) {
+        stampSet.add(stamp);
+      }
+    });
   });
 
   return Array.from(stampSet)
@@ -5274,6 +5290,98 @@ function useCalculatedMetricGoalLine({
   return calculation;
 }
 
+function DatabricksLaborHoursCard({
+  state, globalFilters, selectedDateRange, chartVariant, onVariantChange
+}) {
+  const [viewMode, setViewMode] = useState('monthly');
+  const { chartHostRef, chartWidth } = useChartWidth();
+  const scopedRows = useMemo(
+    () => applyGlobalFilters(state.rows, 'laborDatabricks', globalFilters),
+    [state.rows, globalFilters]
+  );
+  const { filteredRows, processingMonth, dateRange } = useCardProcessingRows(
+    scopedRows, scopedRows, 'laborDatabricks', true, selectedDateRange
+  );
+  const monthlyPoints = buildCardMonthlyPoints(filteredRows, 'laborDatabricks');
+  const hoursByMonth = new Map(monthlyPoints.map(({ stamp, value }) => [stamp, value]));
+  const years = monthlyPoints.map(({ stamp }) => new Date(stamp).getUTCFullYear());
+  const buckets = getLaborBuckets(viewMode, dateRange, years);
+  const hoursByPeriod = buckets.map(({ year, monthIndices }) => {
+    const values = monthIndices.map((index) => hoursByMonth.get(getFixedMonthStamp(year, index)))
+      .filter((hours) => hours !== undefined);
+    return values.length ? sumNumericValues(values) : null;
+  });
+  const summaryMonth = getLatestDataMonth(monthlyPoints, ({ stamp }) => stamp);
+  const summaryValue = summaryMonth == null ? '--' : formatNumber(hoursByMonth.get(summaryMonth));
+  const hasChartValues = hoursByPeriod.some(hasKpiValue);
+
+  return (
+    <article className="analytics-card" style={{ order: 5 }}>
+      <CardHeader
+        title="Labor Hours (Databricks)"
+        processingMonth={processingMonth}
+        info="Signed labor hours from Databricks for postings with hour units and GL accounts starting with 00041."
+      />
+      <div className="dashboard-grid">
+        <div className="visual-column">
+          <MetricOverviewBand
+            value={summaryValue}
+            label="Total Labor Hours"
+            sublabel={<KpiMonthLabel stamp={summaryMonth} />}
+            ariaLabel="Databricks labor hours overview"
+          />
+          <div className="chart-host" ref={chartHostRef}>
+            {state.loading && <p className="chart-message">Loading Databricks labor hours...</p>}
+            {state.error && <p className="chart-message chart-message-error">{state.error}</p>}
+            {!state.loading && !state.error && !hasChartValues && (
+              <p className="chart-message">No labor hours were found for the selected filters and date range.</p>
+            )}
+            {hasChartValues && chartWidth > 0 && (
+              <MetricTrendChart
+                variant={chartVariant}
+                width={chartWidth}
+                height={CHART_HEIGHT}
+                margin={LABOR_CHART_MARGIN}
+                selectedDateRange={dateRange}
+                labels={buckets.map(({ label }) => label)}
+                yAxis={LABOR_HOURS_Y_AXIS}
+                series={[{
+                  id: 'total-labor-hours',
+                  label: 'Total Labor Hours',
+                  color: 'var(--chart-line)',
+                  data: hoursByPeriod,
+                  showMark: true,
+                  valueFormatter: (value) => value == null ? null : formatHours(value)
+                }]}
+              />
+            )}
+          </div>
+          <div className="chart-control-row chart-control-row-single">
+            <div className="chart-control-row-toggle">
+              <ChartTypeToggle value={chartVariant} onChange={onVariantChange} />
+            </div>
+          </div>
+          <div className="chart-footer chart-footer-match-labor">
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              fullWidth
+              onChange={(_event, nextMode) => nextMode && setViewMode(nextMode)}
+              sx={timelineToggleGroupSx}
+            >
+              {Object.entries(LABOR_VIEW_CONFIG).map(([mode, config]) => (
+                <ToggleButton key={mode} value={mode} sx={timelineToggleButtonSx}>
+                  {config.label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function App() {
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof window === 'undefined') {
@@ -5302,7 +5410,7 @@ export default function App() {
   });
   const [controllableCostsDatabricksRawState, setControllableCostsDatabricksRawState] = useState({
     rows: [],
-    loading: CONTROLLABLE_COSTS_HANA_CARD_ENABLED,
+    loading: DATABRICKS_RAW_COST_CARD_ENABLED,
     error: ''
   });
   const [controllableCostsDatabricksNewState, setControllableCostsDatabricksNewState] = useState({
@@ -5352,6 +5460,7 @@ export default function App() {
     error: '',
     source: ''
   });
+  const [laborDatabricksState, setLaborDatabricksState] = useState({ rows: [], loading: true, error: '' });
   const [laborHanaState, setLaborHanaState] = useState({
     rows: [],
     loading: LABOR_HANA_CARD_ENABLED,
@@ -5678,7 +5787,7 @@ export default function App() {
         );
         if (!isMounted) return;
         if (payload.tableName !== 'source_systems_dev.sql_central_integration.lfc_transaction_details_s3') {
-          throw new Error(`Databricks New returned ${payload.tableName || 'an unknown source'}. Restart the QMI server to load the current table.`);
+          throw new Error(`Databricks returned ${payload.tableName || 'an unknown source'}. Restart the QMI server to load the current table.`);
         }
         setControllableCostsDatabricksNewState({
           rows: Array.isArray(payload.rows) ? payload.rows : [],
@@ -5987,6 +6096,27 @@ export default function App() {
       }
     }
 
+    async function loadLaborDatabricksData() {
+      try {
+        const payload = await fetchJson('labor-databricks', '/api/labor-databricks');
+        if (isMounted) {
+          setLaborDatabricksState({
+            rows: Array.isArray(payload.rows) ? payload.rows : [],
+            loading: false,
+            error: ''
+          });
+        }
+      } catch (error) {
+        if (isMounted) {
+          setLaborDatabricksState({
+            rows: [],
+            loading: false,
+            error: `Unable to load Databricks labor hours. ${error.message}`
+          });
+        }
+      }
+    }
+
     async function loadLaborHanaData() {
       const startTime = performance.now();
 
@@ -6044,7 +6174,7 @@ export default function App() {
       loadControllableCostsHanaData();
     }
     if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED) {
-      loadDatabricksRawData();
+      if (DATABRICKS_RAW_COST_CARD_ENABLED) loadDatabricksRawData();
       loadDatabricksNewData();
     }
     loadSifData();
@@ -6056,6 +6186,7 @@ export default function App() {
       loadLaborData();
     }
     loadLaborNewData();
+    loadLaborDatabricksData();
     if (LABOR_HANA_CARD_ENABLED) {
       loadLaborHanaData();
     }
@@ -6180,11 +6311,12 @@ export default function App() {
     customerEscapesRows: customerEscapesState.rows,
     laborRows: [],
     laborNewRows: laborNewState.rows,
+    laborDatabricksRows: laborDatabricksState.rows,
     laborHanaRows: laborHanaState.rows
     }),
     [controllableCostsNewState.rows, controllableCostsHanaState.rows,
       controllableCostsDatabricksRawState.rows, controllableCostsDatabricksNewState.rows, sifState.rows, potentialSifState.rows,
-      nmfrState.rows, otdState.rows, customerEscapesState.rows, laborNewState.rows,
+      nmfrState.rows, otdState.rows, customerEscapesState.rows, laborNewState.rows, laborDatabricksState.rows,
       laborHanaState.rows]
   );
   const availableTimelineKey = availableTimelineStamps.join('|');
@@ -6291,10 +6423,11 @@ export default function App() {
     otd: otdState.rows,
     customerEscapes: customerEscapesState.rows,
     laborNew: laborNewState.rows,
+    laborDatabricks: laborDatabricksState.rows,
     laborHana: laborHanaState.rows
   }), [controllableCostsNewState.rows, controllableCostsHanaState.rows,
     controllableCostsDatabricksRawState.rows, controllableCostsDatabricksNewState.rows, sifState.rows, potentialSifState.rows,
-    nmfrState.rows, otdState.rows, customerEscapesState.rows, laborNewState.rows,
+    nmfrState.rows, otdState.rows, customerEscapesState.rows, laborNewState.rows, laborDatabricksState.rows,
     laborHanaState.rows]);
   const globalFilterOptions = useMemo(() => Object.fromEntries(
     GLOBAL_FILTER_DIMENSIONS.map(({ key }) => [
@@ -8337,7 +8470,8 @@ export default function App() {
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && DATABRICKS_PROCESSED_CARD_ENABLED
       && activeCardKeys.has('controllableCostsHana'),
     controllableCostsDatabricksRaw:
-      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsDatabricksRaw'),
+      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && DATABRICKS_RAW_COST_CARD_ENABLED
+      && activeCardKeys.has('controllableCostsDatabricksRaw'),
     controllableCostsDatabricksNew:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsDatabricksNew'),
     sif: activeCardKeys.has('sif'),
@@ -8347,6 +8481,7 @@ export default function App() {
     customerEscapes: activeCardKeys.has('customerEscapes'),
     labor: LEGACY_LABOR_CARD_ENABLED && activeCardKeys.has('labor'),
     laborNew: activeCardKeys.has('laborNew'),
+    laborDatabricks: activeCardKeys.has('laborDatabricks'),
     laborHana: LABOR_HANA_CARD_ENABLED && activeCardKeys.has('laborHana')
   };
   const hasVisibleCards = Object.values(visibleCards).some(Boolean);
@@ -8370,12 +8505,12 @@ export default function App() {
   const allChartsBar = Object.entries(chartVariants).every(
     ([metricKey, variant]) => getGlobalChartMode(metricKey, variant) === 'bar'
   );
-  const allChartsPalette = Object.values(chartVariants).every(
-    (variant) => variant === 'palette'
+  const allChartsUseVariant = (requestedVariant) => Object.entries(chartVariants).every(
+    ([metricKey, variant]) => !CARD_VARIANT_OPTIONS_BY_METRIC[metricKey]?.includes(requestedVariant)
+      || variant === requestedVariant
   );
-  const allChartsPareto = Object.values(chartVariants).every(
-    (variant) => variant === 'pareto'
-  );
+  const allChartsPalette = allChartsUseVariant('palette');
+  const allChartsPareto = allChartsUseVariant('pareto');
   const presetsBySlot = new Map(
     dashboardPresetsState.presets.map((preset) => [preset.slot, preset])
   );
@@ -8456,10 +8591,14 @@ export default function App() {
   };
 
   const setAllChartVariants = (nextVariant) => {
-    Object.keys(DEFAULT_CHART_VARIANTS).forEach(resetCardFilters);
-    setChartVariants(Object.fromEntries(
-      Object.keys(DEFAULT_CHART_VARIANTS).map((metricKey) => [metricKey, nextVariant])
-    ));
+    const supportedMetrics = Object.keys(DEFAULT_CHART_VARIANTS).filter(
+      (metricKey) => CARD_VARIANT_OPTIONS_BY_METRIC[metricKey]?.includes(nextVariant)
+    );
+    supportedMetrics.forEach(resetCardFilters);
+    setChartVariants((current) => ({
+      ...current,
+      ...Object.fromEntries(supportedMetrics.map((metricKey) => [metricKey, nextVariant]))
+    }));
   };
 
   const applyDashboardPresetState = (presetState, presetName) => {
@@ -10004,7 +10143,7 @@ export default function App() {
             {visibleCards.controllableCostsDatabricksNew && (
               <DatabricksRawComparisonCard
                 metricKey="controllableCostsDatabricksNew"
-                sourceLabel="Databricks New"
+                sourceLabel="Databricks"
                 tableName={controllableCostsDatabricksNewState.tableName || 'unavailable'}
                 amountField="KSL"
                 order={4}
@@ -11362,6 +11501,16 @@ export default function App() {
                   </div>
                 </div>
               </article>
+            )}
+
+            {visibleCards.laborDatabricks && (
+              <DatabricksLaborHoursCard
+                state={laborDatabricksState}
+                globalFilters={activeGlobalFilters}
+                selectedDateRange={selectedDateRange}
+                chartVariant={chartVariants.laborDatabricks}
+                onVariantChange={(nextVariant) => changeChartVariant('laborDatabricks', nextVariant)}
+              />
             )}
 
             {visibleCards.laborHana && (

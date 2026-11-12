@@ -23,6 +23,7 @@ const BU_FIELDS_BY_SCOPE = {
   otd: ['business_unit'],
   'customer-escapes': ['business_unit'],
   'labor-new': ['business_unit'],
+  'labor-databricks': ['business_unit'],
   'labor-hana': ['business_unit']
 };
 

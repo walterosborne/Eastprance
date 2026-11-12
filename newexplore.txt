@@ -1,4 +1,4 @@
--- List labor actuals My IDs and the work locations recorded in the DBM roster.
+-- Count distinct labor actuals My IDs by roster work facility.
 WITH actual_people AS (
     SELECT DISTINCT UPPER(LTRIM(RTRIM(MYID))) AS my_id
     FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
@@ -20,11 +20,23 @@ roster_facilities AS (
         (r.Employee_MyID_SAP)
     ) AS ids(my_id)
     WHERE NULLIF(LTRIM(RTRIM(ids.my_id)), '') IS NOT NULL
+),
+person_facility AS (
+    SELECT
+        a.my_id,
+        CASE
+            WHEN COUNT(DISTINCT r.facility_city_state) > 1 THEN 'Multiple roster facilities'
+            WHEN MAX(r.facility_city_state) IS NOT NULL THEN MAX(r.facility_city_state)
+            WHEN COUNT(DISTINCT r.location_code) > 1 THEN 'Multiple roster location codes'
+            WHEN MAX(r.location_code) IS NOT NULL THEN CONCAT('Location code ', MAX(r.location_code))
+            WHEN COUNT(r.my_id) > 0 THEN 'Roster facility missing'
+            ELSE 'No roster match'
+        END AS facility
+    FROM actual_people AS a
+    LEFT JOIN roster_facilities AS r ON r.my_id = a.my_id
+    GROUP BY a.my_id
 )
-SELECT
-    a.my_id,
-    r.location_code,
-    r.facility_city_state
-FROM actual_people AS a
-LEFT JOIN roster_facilities AS r ON r.my_id = a.my_id
-ORDER BY a.my_id, r.location_code, r.facility_city_state;
+SELECT facility, COUNT_BIG(*) AS employee_count
+FROM person_facility
+GROUP BY facility
+ORDER BY employee_count DESC, facility;

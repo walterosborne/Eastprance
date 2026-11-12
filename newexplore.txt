@@ -1,39 +1,42 @@
-WITH defense_centers AS (
-  SELECT DISTINCT UPPER(TRIM(CAST(new_Cost_Center AS STRING))) AS center
-  FROM `finance_dev`.`analytics`.`cost_vis_full`
-  WHERE CC_Bus_Unit_Lvl_2 LIKE '%Defense Systems%'
-),
-compact_centers AS (
-  SELECT DISTINCT REGEXP_REPLACE(center, '[^A-Z0-9]', '') AS center
-  FROM defense_centers
-),
-ledger AS (
-  SELECT 'S3' AS source, GJAHR, POPER, SEGMENT, RCNTR, KSL
-  FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_s3`
-  UNION ALL
-  SELECT 'SX', GJAHR, POPER, SEGMENT, RCNTR, KSL
-  FROM `raw_landing_dev`.`sql_central_integration`.`src_lfc_transaction_details_sx`
-),
-monthly AS (
-  SELECT source,
-    TRY_CAST(GJAHR AS INT) AS year,
-    TRY_CAST(POPER AS INT) AS month,
-    TRIM(CAST(SEGMENT AS STRING)) AS segment,
-    UPPER(TRIM(CAST(RCNTR AS STRING))) AS center,
-    TRY_CAST(KSL AS DOUBLE) AS cost
+-- S3 ledger only. Rank cost centers across the latest three completed fiscal periods with data.
+-- If the table cannot be found, check its name in this schema:
+-- SHOW TABLES IN raw_landing_dev.sql_central_integration LIKE '*transaction_details_s3*';
+
+WITH ledger AS (
+  SELECT
+    TRY_CAST(GJAHR AS INT) AS fiscal_year,
+    TRY_CAST(POPER AS INT) AS fiscal_month,
+    NULLIF(TRIM(CAST(RCNTR AS STRING)), '') AS cost_center,
+    TRY_CAST(KSL AS DECIMAL(30, 4)) AS cost
+  FROM raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s3
+), monthly AS (
+  SELECT
+    fiscal_year * 100 + fiscal_month AS period,
+    cost_center,
+    COUNT(*) AS transaction_count,
+    SUM(cost) AS monthly_ksl
   FROM ledger
+  WHERE fiscal_month BETWEEN 1 AND 12
+    AND fiscal_year * 100 + fiscal_month < YEAR(CURRENT_DATE()) * 100 + MONTH(CURRENT_DATE())
+  GROUP BY fiscal_year, fiscal_month, cost_center
+), latest_periods AS (
+  SELECT DISTINCT period
+  FROM monthly
+  ORDER BY period DESC
+  LIMIT 3
+), recent AS (
+  SELECT monthly.*
+  FROM monthly
+  JOIN latest_periods USING (period)
+  WHERE cost_center IS NOT NULL
+), top_centers AS (
+  SELECT cost_center, SUM(monthly_ksl) AS total_ksl
+  FROM recent
+  GROUP BY cost_center
+  ORDER BY ABS(total_ksl) DESC NULLS LAST, cost_center
+  LIMIT 30
 )
-SELECT m.source, m.year, m.month, m.segment,
-  COUNT(*) AS rows,
-  COUNT_IF(NULLIF(m.center, '') IS NOT NULL) AS rows_with_rcntr,
-  COUNT_IF(d.center IS NOT NULL) AS ds_center_rows,
-  COUNT_IF(d.center IS NULL AND c.center IS NOT NULL) AS formatting_only_rows,
-  ROUND(SUM(m.cost), 2) AS all_ksl,
-  ROUND(SUM(CASE WHEN d.center IS NOT NULL THEN m.cost ELSE 0 END), 2) AS ds_center_ksl
-FROM monthly m
-LEFT JOIN defense_centers d ON d.center = m.center
-LEFT JOIN compact_centers c
-  ON c.center = REGEXP_REPLACE(m.center, '[^A-Z0-9]', '')
-WHERE m.year >= 2025 AND m.month BETWEEN 1 AND 12
-GROUP BY m.source, m.year, m.month, m.segment
-ORDER BY m.source, m.year DESC, m.month DESC, m.segment;
+SELECT t.cost_center, r.period, r.transaction_count, r.monthly_ksl, t.total_ksl
+FROM top_centers t
+JOIN recent r ON r.cost_center = t.cost_center
+ORDER BY ABS(t.total_ksl) DESC NULLS LAST, t.cost_center, r.period DESC;

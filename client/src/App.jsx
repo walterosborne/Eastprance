@@ -671,6 +671,14 @@ const LABOR_HOURS_Y_AXIS = [
   }
 ];
 
+const DATABRICKS_LABOR_HOURS_Y_AXIS = [
+  {
+    width: 52,
+    valueFormatter: formatMillionsHoursAxis,
+    tickLabelStyle: { fontSize: 11 }
+  }
+];
+
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -681,6 +689,10 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 const numberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2
+});
+
+const millionsHoursFormatter = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 6
 });
 
 const wholeNumberFormatter = new Intl.NumberFormat('en-US', {
@@ -1139,6 +1151,10 @@ function formatIncidentCount(value) {
   return Number.isInteger(numericValue)
     ? wholeNumberFormatter.format(numericValue)
     : numberFormatter.format(numericValue);
+}
+
+function formatMillionsHoursAxis(value) {
+  return Number.isFinite(value) ? `${millionsHoursFormatter.format(value / 1_000_000)}M` : '';
 }
 
 function formatCompactHoursAxis(value) {
@@ -5344,13 +5360,12 @@ function DatabricksLaborHoursCard({
                 margin={LABOR_CHART_MARGIN}
                 selectedDateRange={dateRange}
                 labels={buckets.map(({ label }) => label)}
-                yAxis={LABOR_HOURS_Y_AXIS}
+                yAxis={DATABRICKS_LABOR_HOURS_Y_AXIS}
                 series={[{
                   id: 'total-labor-hours',
                   label: 'Total Labor Hours',
                   color: 'var(--chart-line)',
                   data: hoursByPeriod,
-                  showMark: true,
                   valueFormatter: (value) => value == null ? null : formatHours(value)
                 }]}
               />

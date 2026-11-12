@@ -5677,7 +5677,7 @@ export default function App() {
           '/api/controllable-costs-databricks-new'
         );
         if (!isMounted) return;
-        if (payload.tableName !== 'raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s3') {
+        if (payload.tableName !== 'source_systems_dev.sql_central_integration.lfc_transaction_details_s3') {
           throw new Error(`Databricks New returned ${payload.tableName || 'an unknown source'}. Restart the QMI server to load the current table.`);
         }
         setControllableCostsDatabricksNewState({

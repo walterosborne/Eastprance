@@ -1,6 +1,6 @@
 -- S3 ledger only. Rank cost centers across the latest three completed fiscal periods with data.
 -- If the table cannot be found, check its name in this schema:
--- SHOW TABLES IN raw_landing_dev.sql_central_integration LIKE '*transaction_details_s3*';
+-- SHOW TABLES IN source_systems_dev.sql_central_integration LIKE '*transaction_details_s3*';
 
 WITH ledger AS (
   SELECT
@@ -8,7 +8,7 @@ WITH ledger AS (
     TRY_CAST(POPER AS INT) AS fiscal_month,
     NULLIF(TRIM(CAST(RCNTR AS STRING)), '') AS cost_center,
     TRY_CAST(KSL AS DECIMAL(30, 4)) AS cost
-  FROM raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s3
+  FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
 ), monthly AS (
   SELECT
     fiscal_year * 100 + fiscal_month AS period,

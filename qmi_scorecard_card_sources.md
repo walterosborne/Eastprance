@@ -198,7 +198,7 @@ The replacement source groups the actual hours by year, month, Division, Busines
 
 ## Controllable Costs — Databricks New
 
-- Ledger: `raw_landing_dev.sql_central_integration.src_lfc_transaction_details_s3`.
+- Ledger: `source_systems_dev.sql_central_integration.lfc_transaction_details_s3`.
 - Fields: `GJAHR`, `POPER`, `RCNTR`, `RACCT`, `GL_TXT50`, and signed `KSL`.
 - Aggregates costs by year, period, posting cost center, and account before applying QMI hierarchy, facility, division-specific CWI/SDS account, category, and controllability rules.
 - Includes history from January 2025 through the last completed month. Coverage depends on the ledger's current load.

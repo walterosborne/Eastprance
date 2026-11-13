@@ -83,7 +83,10 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
+const LEGACY_COST_DATASET_ENABLED = false;
+const SQL_COST_DATASET_ENABLED = false;
 const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
+const DATABRICKS_PROCESSED_COST_DATASET_ENABLED = false;
 const CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED = true;
 const DATABRICKS_RAW_COST_DATASET_ENABLED = false;
 const LABOR_HANA_DATASET_ENABLED = false;
@@ -112,12 +115,16 @@ function sendAuthenticationAwareError(response, error, fallbackPayload, fallback
   response.status(getResponseErrorStatus(error, fallbackStatus)).json(fallbackPayload);
 }
 
-registerSqlDatasetCache('controllable-costs', readControllableCostsData);
+if (LEGACY_COST_DATASET_ENABLED) {
+  registerSqlDatasetCache('controllable-costs', readControllableCostsData);
+}
 if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
   registerSqlDatasetCache('controllable-costs-hana', readControllableCostsHanaData);
 }
 if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
-  registerSqlDatasetCache('controllable-costs-databricks', readControllableCostsDatabricksData);
+  if (DATABRICKS_PROCESSED_COST_DATASET_ENABLED) {
+    registerSqlDatasetCache('controllable-costs-databricks', readControllableCostsDatabricksData);
+  }
   if (DATABRICKS_RAW_COST_DATASET_ENABLED) {
     registerSqlDatasetCache(
       'controllable-costs-databricks-raw',
@@ -438,45 +445,47 @@ app.get(['/labor-diagnostics', '/api/labor-diagnostics'], async (request, respon
   }
 });
 
-app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response) => {
-  const stopTimer = createTimer();
+if (LEGACY_COST_DATASET_ENABLED && SQL_COST_DATASET_ENABLED) {
+  app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response) => {
+    const stopTimer = createTimer();
 
-  try {
-    const [oldPayload, pipeline] = await Promise.all([
-      getCachedSqlDataset('controllable-costs'),
-      readControllableCostsNewExcelPipelineData()
-    ]);
-    const payload = buildCostDiagnosticsPayload(pipeline, oldPayload);
-    const wantsJson = request.path.startsWith('/api/')
-      || String(request.query.format || '').toLowerCase() === 'json'
-      || String(request.get('accept') || '').includes('application/json');
+    try {
+      const [oldPayload, pipeline] = await Promise.all([
+        getCachedSqlDataset('controllable-costs'),
+        readControllableCostsNewExcelPipelineData()
+      ]);
+      const payload = buildCostDiagnosticsPayload(pipeline, oldPayload);
+      const wantsJson = request.path.startsWith('/api/')
+        || String(request.query.format || '').toLowerCase() === 'json'
+        || String(request.get('accept') || '').includes('application/json');
 
-    logDebug('cost-diagnostics', 'New controllable costs pipeline diagnostics completed.', {
-      sourceRowCount: payload.source.sourceRowCount,
-      includedRowCount: payload.stages.included.rowCount,
-      excludedRowCount: payload.stages.excluded.rowCount,
-      latestRawMonth: payload.stages.raw.latestMonth,
-      overlappingQuarterCount: payload.controllabilityComparison.commonQuarters.length,
-      classificationMismatchCount: payload.controllabilityComparison.mismatchCount,
-      duration: formatDuration(stopTimer())
-    });
+      logDebug('cost-diagnostics', 'New controllable costs pipeline diagnostics completed.', {
+        sourceRowCount: payload.source.sourceRowCount,
+        includedRowCount: payload.stages.included.rowCount,
+        excludedRowCount: payload.stages.excluded.rowCount,
+        latestRawMonth: payload.stages.raw.latestMonth,
+        overlappingQuarterCount: payload.controllabilityComparison.commonQuarters.length,
+        classificationMismatchCount: payload.controllabilityComparison.mismatchCount,
+        duration: formatDuration(stopTimer())
+      });
 
-    if (wantsJson) {
-      response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
-      return;
+      if (wantsJson) {
+        response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+        return;
+      }
+
+      response.type('text/html').send(renderCostDiagnosticsPage(payload));
+    } catch (error) {
+      logError('cost-diagnostics', 'Unable to build cost diagnostics.', error, {
+        duration: formatDuration(stopTimer())
+      });
+      response.status(500).json({
+        message: 'Unable to build cost diagnostics.',
+        error: error.message
+      });
     }
-
-    response.type('text/html').send(renderCostDiagnosticsPage(payload));
-  } catch (error) {
-    logError('cost-diagnostics', 'Unable to build cost diagnostics.', error, {
-      duration: formatDuration(stopTimer())
-    });
-    response.status(500).json({
-      message: 'Unable to build cost diagnostics.',
-      error: error.message
-    });
-  }
-});
+  });
+}
 
 app.get(['/dbm-diagnostics', '/api/dbm-diagnostics'], async (request, response) => {
   try {
@@ -540,25 +549,29 @@ app.get('/api/otd', async (request, response) => {
   );
 });
 
-app.get('/api/controllable-costs', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'controllable-costs',
-    () => getCachedSqlDataset('controllable-costs'),
-    'Unable to read controllable costs data.'
-  );
-});
+if (LEGACY_COST_DATASET_ENABLED) {
+  app.get('/api/controllable-costs', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'controllable-costs',
+      () => getCachedSqlDataset('controllable-costs'),
+      'Unable to read controllable costs data.'
+    );
+  });
+}
 
-app.get('/api/controllable-costs-new', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'controllable-costs-new',
-    readControllableCostsNewData,
-    'Unable to read the new controllable costs dataset.'
-  );
-});
+if (SQL_COST_DATASET_ENABLED) {
+  app.get('/api/controllable-costs-new', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'controllable-costs-new',
+      readControllableCostsNewData,
+      'Unable to read the new controllable costs dataset.'
+    );
+  });
+}
 
 if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
   app.get('/api/controllable-costs-hana', async (request, response) => {
@@ -573,15 +586,17 @@ if (CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
 }
 
 if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
-  app.get('/api/controllable-costs-databricks', async (request, response) => {
-    await sendDatasetResponse(
-      request,
-      response,
-      'controllable-costs-databricks',
-      () => getCachedSqlDataset('controllable-costs-databricks'),
-      'Unable to read processed Databricks controllable costs data.'
-    );
-  });
+  if (DATABRICKS_PROCESSED_COST_DATASET_ENABLED) {
+    app.get('/api/controllable-costs-databricks', async (request, response) => {
+      await sendDatasetResponse(
+        request,
+        response,
+        'controllable-costs-databricks',
+        () => getCachedSqlDataset('controllable-costs-databricks'),
+        'Unable to read processed Databricks controllable costs data.'
+      );
+    });
+  }
 
   if (DATABRICKS_RAW_COST_DATASET_ENABLED) {
     // Unlinked diagnostic endpoint for the source comparison page.
@@ -626,12 +641,12 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
           });
         return cardDataset;
       },
-      'Unable to read new Databricks controllable costs data.'
+      'Unable to read Databricks controllable costs data.'
     );
   });
 
   // Temporary compatibility path for the existing comparison-card frontend.
-  if (!CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
+  if (DATABRICKS_PROCESSED_COST_DATASET_ENABLED && !CONTROLLABLE_COSTS_HANA_DATASET_ENABLED) {
     app.get('/api/controllable-costs-hana', async (request, response) => {
       await sendDatasetResponse(
         request,

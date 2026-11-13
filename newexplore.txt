@@ -1,24 +1,10 @@
-WITH labor AS (
-    SELECT LTRIM(RTRIM(MYID)) AS my_id, SUM(Hours) AS total_hours
-    FROM [DTO_Business_Management].[rpt].[rb_Actuals_RM_Load_Table]
-    WHERE [Period] LIKE N'09%2026'
-      AND NULLIF(LTRIM(RTRIM(MYID)), '') IS NOT NULL
-    GROUP BY LTRIM(RTRIM(MYID))
-)
 SELECT
-    a.my_id,
-    r.Sector AS sector,
-    r.facility,
-    a.total_hours
-FROM labor AS a
-OUTER APPLY (
-    SELECT TOP (1)
-        Sector,
-        NULLIF(CONCAT_WS(', ',
-            NULLIF(LTRIM(RTRIM(Work_City_NSR)), ''),
-            NULLIF(LTRIM(RTRIM(Work_State_NSR)), '')
-        ), '') AS facility
-    FROM [DTO_Business_Management].[dbo].[rb_roster_transform]
-    WHERE Employee_MyID_NSR = a.my_id
-    ORDER BY last_modified_date DESC, created_date DESC, id DESC
-) AS r;
+    GJAHR AS `Fiscal Year`,
+    POPER AS `Posting Period`,
+    RCNTR AS `Cost Center`,
+    RACCT AS `GL Account`,
+    GL_TXT50 AS `GL Account Description`,
+    KSL AS `Cost Amount`,
+    NET_MSL AS `Net Quantity`,
+    RUNIT AS `Unit of Measure`
+FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3;

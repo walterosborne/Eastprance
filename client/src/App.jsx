@@ -461,7 +461,9 @@ const GLOBAL_FILTER_FIELD_MAP = {
 const CONTROLLABLE_PARETO_FILTER_FIELDS = [CONTROLLABLE_CHART_FILTER_FIELDS[0]];
 const LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED = false;
 const LEGACY_LABOR_CARD_ENABLED = false;
-const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = true;
+const CONTROLLABLE_COSTS_HANA_CARD_ENABLED = false;
+const SQL_CONTROLLABLE_COSTS_CARD_ENABLED = false;
+const DATABRICKS_COST_CARD_ENABLED = true;
 const DATABRICKS_PROCESSED_CARD_ENABLED = false;
 const DATABRICKS_RAW_COST_CARD_ENABLED = false;
 const LABOR_HANA_CARD_ENABLED = false;
@@ -473,7 +475,7 @@ const CARD_CHIP_OPTIONS = [
     icon: faAsterisk,
     cardKeys: [
       ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
-      'controllableCostsNew',
+      ...(DATABRICKS_COST_CARD_ENABLED ? ['controllableCostsNew'] : []),
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
         ? [
           ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
@@ -498,7 +500,7 @@ const CARD_CHIP_OPTIONS = [
     icon: faCalculator,
     cardKeys: [
       ...(LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED ? ['controllableCosts'] : []),
-      'controllableCostsNew',
+      ...(DATABRICKS_COST_CARD_ENABLED ? ['controllableCostsNew'] : []),
       ...(CONTROLLABLE_COSTS_HANA_CARD_ENABLED
         ? [
           ...(DATABRICKS_PROCESSED_CARD_ENABLED ? ['controllableCostsHana'] : []),
@@ -558,6 +560,9 @@ const CARD_VARIANT_OPTIONS_BY_METRIC = {
   laborDatabricks: ['line', 'bar'],
   laborHana: ['line', 'bar', 'palette', 'pareto']
 };
+const ENABLED_CHART_KEYS = CARD_CHIP_OPTIONS[0].cardKeys.filter(
+  (key) => Object.hasOwn(DEFAULT_CHART_VARIANTS, key)
+);
 const PRESET_SLOT_OPTIONS = [1, 2, 3];
 const CONTROLLABLE_PALETTE_COLORS = [
   'var(--chart-palette-1)',
@@ -4998,7 +5003,9 @@ function buildDashboardPresetState({
     themeMode,
     selectedCardGroup,
     globalFilters: normalizeGlobalFilters(globalFilters),
-    chartVariants,
+    chartVariants: Object.fromEntries(
+      ENABLED_CHART_KEYS.map((key) => [key, chartVariants[key] ?? DEFAULT_CHART_VARIANTS[key]])
+    ),
     dateRange: {
       hasCustomizedDateRange,
       startStamp: selectedDateRange?.startStamp ?? null,
@@ -5414,7 +5421,7 @@ export default function App() {
   });
   const [controllableCostsNewState, setControllableCostsNewState] = useState({
     rows: [],
-    loading: true,
+    loading: DATABRICKS_COST_CARD_ENABLED,
     error: '',
     source: ''
   });
@@ -5431,7 +5438,7 @@ export default function App() {
   });
   const [controllableCostsDatabricksNewState, setControllableCostsDatabricksNewState] = useState({
     rows: [],
-    loading: CONTROLLABLE_COSTS_HANA_CARD_ENABLED,
+    loading: false,
     error: ''
   });
   const [sifState, setSifState] = useState({
@@ -5805,18 +5812,19 @@ export default function App() {
         if (payload.tableName !== 'source_systems_dev.sql_central_integration.lfc_transaction_details_s3') {
           throw new Error(`Databricks returned ${payload.tableName || 'an unknown source'}. Restart the QMI server to load the current table.`);
         }
-        setControllableCostsDatabricksNewState({
+        setControllableCostsNewState({
           rows: Array.isArray(payload.rows) ? payload.rows : [],
-          tableName: payload.tableName,
           loading: false,
-          error: ''
+          error: '',
+          source: 'Databricks'
         });
       } catch (error) {
         if (!isMounted) return;
-        setControllableCostsDatabricksNewState({
+        setControllableCostsNewState({
           rows: [],
           loading: false,
-          error: error.message || 'Unable to load new Databricks costs.'
+          error: error.message || 'Unable to load controllable costs.',
+          source: ''
         });
       }
     }
@@ -6185,14 +6193,12 @@ export default function App() {
     if (LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED) {
       loadControllableCostsData();
     }
-    loadControllableCostsNewData();
+    if (SQL_CONTROLLABLE_COSTS_CARD_ENABLED) loadControllableCostsNewData();
     if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED && DATABRICKS_PROCESSED_CARD_ENABLED) {
       loadControllableCostsHanaData();
     }
-    if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED) {
-      if (DATABRICKS_RAW_COST_CARD_ENABLED) loadDatabricksRawData();
-      loadDatabricksNewData();
-    }
+    if (CONTROLLABLE_COSTS_HANA_CARD_ENABLED && DATABRICKS_RAW_COST_CARD_ENABLED) loadDatabricksRawData();
+    if (DATABRICKS_COST_CARD_ENABLED) loadDatabricksNewData();
     loadSifData();
     loadPotentialSifData();
     loadNmfrData();
@@ -7937,7 +7943,7 @@ export default function App() {
     ? []
     : isControllableCostsNewPareto
       ? [
-        { label: 'Total SAP cost (net)', color: 'var(--chart-line)' },
+        { label: 'Total cost (net)', color: 'var(--chart-line)' },
         paretoCumulativeLegendItem
       ]
       : [
@@ -8481,15 +8487,14 @@ export default function App() {
   const visibleCards = {
     controllableCosts:
       LEGACY_CONTROLLABLE_COSTS_CARD_ENABLED && activeCardKeys.has('controllableCosts'),
-    controllableCostsNew: activeCardKeys.has('controllableCostsNew'),
+    controllableCostsNew: DATABRICKS_COST_CARD_ENABLED && activeCardKeys.has('controllableCostsNew'),
     controllableCostsHana:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && DATABRICKS_PROCESSED_CARD_ENABLED
       && activeCardKeys.has('controllableCostsHana'),
     controllableCostsDatabricksRaw:
       CONTROLLABLE_COSTS_HANA_CARD_ENABLED && DATABRICKS_RAW_COST_CARD_ENABLED
       && activeCardKeys.has('controllableCostsDatabricksRaw'),
-    controllableCostsDatabricksNew:
-      CONTROLLABLE_COSTS_HANA_CARD_ENABLED && activeCardKeys.has('controllableCostsDatabricksNew'),
+    controllableCostsDatabricksNew: false,
     sif: activeCardKeys.has('sif'),
     potentialSif: activeCardKeys.has('potentialSif'),
     nmfr: activeCardKeys.has('nmfr'),
@@ -8515,15 +8520,15 @@ export default function App() {
 
     return 'special';
   };
-  const allChartsLine = Object.entries(chartVariants).every(
-    ([metricKey, variant]) => getGlobalChartMode(metricKey, variant) === 'line'
+  const allChartsLine = ENABLED_CHART_KEYS.every(
+    (metricKey) => getGlobalChartMode(metricKey, chartVariants[metricKey]) === 'line'
   );
-  const allChartsBar = Object.entries(chartVariants).every(
-    ([metricKey, variant]) => getGlobalChartMode(metricKey, variant) === 'bar'
+  const allChartsBar = ENABLED_CHART_KEYS.every(
+    (metricKey) => getGlobalChartMode(metricKey, chartVariants[metricKey]) === 'bar'
   );
-  const allChartsUseVariant = (requestedVariant) => Object.entries(chartVariants).every(
-    ([metricKey, variant]) => !CARD_VARIANT_OPTIONS_BY_METRIC[metricKey]?.includes(requestedVariant)
-      || variant === requestedVariant
+  const allChartsUseVariant = (requestedVariant) => ENABLED_CHART_KEYS.every(
+    (metricKey) => !CARD_VARIANT_OPTIONS_BY_METRIC[metricKey]?.includes(requestedVariant)
+      || chartVariants[metricKey] === requestedVariant
   );
   const allChartsPalette = allChartsUseVariant('palette');
   const allChartsPareto = allChartsUseVariant('pareto');
@@ -8607,7 +8612,7 @@ export default function App() {
   };
 
   const setAllChartVariants = (nextVariant) => {
-    const supportedMetrics = Object.keys(DEFAULT_CHART_VARIANTS).filter(
+    const supportedMetrics = ENABLED_CHART_KEYS.filter(
       (metricKey) => CARD_VARIANT_OPTIONS_BY_METRIC[metricKey]?.includes(nextVariant)
     );
     supportedMetrics.forEach(resetCardFilters);
@@ -9744,7 +9749,7 @@ export default function App() {
                     />
                     <div ref={controllableCostsNewChartHostRef} className="chart-host">
                       {controllableCostsNewState.loading && (
-                        <p className="chart-message">Loading SAP costs...</p>
+                        <p className="chart-message">Loading controllable costs...</p>
                       )}
 
                       {!controllableCostsNewState.loading && controllableCostsNewState.error && (
@@ -9763,7 +9768,7 @@ export default function App() {
                               : globallyFilteredControllableCostsNewRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsNewState.rows.length === 0
-                              ? 'No SAP transactions matched the selected cost centers and date range.'
+                              ? 'No controllable costs are available for charting.'
                               : filteredControllableCostsNewRows.length === 0
                                 && controllableNewFilterApplies
                                 ? 'No controllable costs were found for the selected filters.'

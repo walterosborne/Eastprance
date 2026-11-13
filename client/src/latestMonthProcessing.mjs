@@ -13,7 +13,8 @@ function median(values) {
 
 export function findLatestMonthOutlier(points, {
   lastCompletedMonth = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1),
-  minAbsoluteChange = 1
+  minAbsoluteChange = 1,
+  minRelativeChange = MIN_RELATIVE_CHANGE
 } = {}) {
   const valid = points.filter(({ stamp, value }) =>
     Number.isFinite(stamp) && stamp <= lastCompletedMonth && Number.isFinite(value)
@@ -28,7 +29,7 @@ export function findLatestMonthOutlier(points, {
   // treating ordinary changes as outliers when MAD is zero.
   const threshold = Math.max(
     ROBUST_SIGMA_MULTIPLIER * 1.4826 * mad,
-    Math.abs(center) * MIN_RELATIVE_CHANGE,
+    Math.abs(center) * minRelativeChange,
     minAbsoluteChange
   );
   return Math.abs(latest.value - center) > threshold ? latest.stamp : null;

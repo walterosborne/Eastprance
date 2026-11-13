@@ -22,6 +22,17 @@ test('normal variation, gradual trends and insufficient history remain visible',
   assert.equal(findLatestMonthOutlier(points([100, 100, 100, 100, 100, 500]), options), null);
 });
 
+test('labor utilization hides a sharp drop that is below the general relative cutoff', () => {
+  const values = [0.75, 0.746, 0.751, 0.749, 0.752, 0.748, 0.76, 0.76, 0.79, 0.567];
+  assert.equal(findLatestMonthOutlier(points(values), { ...options, minAbsoluteChange: 0.05 }), null);
+  assert.equal(findLatestMonthOutlier(points(values), {
+    ...options, minAbsoluteChange: 0.05, minRelativeChange: 0.15
+  }), october);
+  assert.equal(findLatestMonthOutlier(points([...values.slice(0, -1), 0.70]), {
+    ...options, minAbsoluteChange: 0.05, minRelativeChange: 0.15
+  }), null);
+});
+
 test('a historical outlier stays visible and does not cause recursive trimming', () => {
   assert.equal(findLatestMonthOutlier(points([100, 100, 100, 100, 100, 100, 100, 100, 500, 100]), options), null);
   const data = points([100, 100, 100, 100, 100, 100, 100, 100, 500, 600]);

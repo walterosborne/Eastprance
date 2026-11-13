@@ -1792,7 +1792,7 @@ function getCardMonthConfig(metricKey) {
     return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'sum', minAbsoluteChange: 1 };
   }
   if (metricKey === 'laborNew') {
-    return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'laborNew', minAbsoluteChange: 0.05 };
+    return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'laborNew', minAbsoluteChange: 0.05, minRelativeChange: 0.15 };
   }
   return {
     getStamp: getIncidentRowStamp, valueField: 'actual_value',
@@ -1856,7 +1856,8 @@ function useCardProcessingRows(baseRows, scopedRows, metricKey, isTrend, selecte
     // or monthly/quarterly/annual grouping can truncate its baseline.
     const processingMonth = findLatestMonthOutlier(
       buildCardMonthlyPoints(isTrend ? scopedRows : baseRows, metricKey),
-      { lastCompletedMonth: SCORECARD_END_STAMP, minAbsoluteChange: config.minAbsoluteChange }
+      { lastCompletedMonth: SCORECARD_END_STAMP, minAbsoluteChange: config.minAbsoluteChange,
+        minRelativeChange: config.minRelativeChange }
     );
     const exclude = (rows) => excludeProcessingMonth(
       rows, processingMonth, config.getStamp, config.monthColumns, config.getYear

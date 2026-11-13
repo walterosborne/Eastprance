@@ -1792,7 +1792,7 @@ function getCardMonthConfig(metricKey) {
     return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'sum', minAbsoluteChange: 1 };
   }
   if (metricKey === 'laborNew') {
-    return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'laborNew', minAbsoluteChange: 0.05, minRelativeChange: 0.15 };
+    return { getStamp: getLaborNewRowStamp, valueField: 'entered_hours', kind: 'laborNew', minAbsoluteChange: 0.05, minRelativeChange: 0 };
   }
   return {
     getStamp: getIncidentRowStamp, valueField: 'actual_value',

@@ -1,0 +1,38 @@
+SELECT division, business_unit, facility, [month], [year], SUM(cost) AS total_cost
+FROM ecosystem_source.qmi.controllable_costs_new_extract
+WHERE [year] = 2026
+GROUP BY division, business_unit, facility, [month], [year];
+
+WITH hierarchy AS (
+    SELECT UPPER(TRIM(COST_CENTER)) AS cost_center, LEV03_DESC AS division,
+           LEV04_DESC AS business_unit,
+           ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(COST_CENTER))
+                              ORDER BY last_modified_date DESC, created_date DESC, id DESC) AS rn
+    FROM DTO_Business_Management.rpt.rb_load_cost_center_hierarchy
+    WHERE TRIM(LEV02) = 'NGRBT'
+), roster AS (
+    SELECT UPPER(TRIM(i.myid)) AS myid, MIN(f.facility) AS facility
+    FROM DTO_Business_Management.dbo.rb_roster_transform AS r
+    CROSS APPLY (VALUES (r.Employee_MyID_NSR), (r.Employee_MyID_SR),
+                        (r.Employee_MyID_DM), (r.Employee_MyID_SAP)) AS i(myid)
+    CROSS APPLY (VALUES (CONCAT_WS(', ', TRIM(r.Work_City_NSR),
+                                       NULLIF(TRIM(r.Work_State_NSR), '')))) AS f(facility)
+    WHERE UPPER(r.Sector) LIKE '%DEFENSE%' AND TRIM(i.myid) <> ''
+      AND UPPER(TRIM(r.Work_City_NSR)) NOT IN ('', 'UNKNOWN CITY', 'UNKNOWN', 'N/A')
+    GROUP BY UPPER(TRIM(i.myid))
+    HAVING MIN(f.facility) = MAX(f.facility)
+)
+SELECT COALESCE(NULLIF(TRIM(h.division), ''), 'Unmapped') AS division,
+       COALESCE(NULLIF(TRIM(h.business_unit), ''), 'Unmapped') AS business_unit,
+       COALESCE(r.facility, 'Unmapped') AS facility, p.[month], 2026 AS [year],
+       SUM(p.hours) AS total_hours
+FROM DTO_Business_Management.rpt.rb_Actuals_RM_Load_Table AS a
+JOIN hierarchy AS h ON h.cost_center = UPPER(TRIM(a.Cost_Center)) AND h.rn = 1
+LEFT JOIN roster AS r ON r.myid = UPPER(TRIM(a.MYID))
+CROSS APPLY (VALUES (TRY_CONVERT(int, LEFT(TRIM(a.[Period]), 2)),
+                     TRY_CONVERT(decimal(18, 2), a.Hours))) AS p([month], hours)
+WHERE RIGHT(TRIM(a.[Period]), 4) = '2026' AND p.[month] BETWEEN 1 AND 12
+  AND TRIM(a.Cost_Center) <> '' AND p.hours IS NOT NULL
+GROUP BY COALESCE(NULLIF(TRIM(h.division), ''), 'Unmapped'),
+         COALESCE(NULLIF(TRIM(h.business_unit), ''), 'Unmapped'),
+         COALESCE(r.facility, 'Unmapped'), p.[month];

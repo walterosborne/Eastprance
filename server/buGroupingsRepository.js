@@ -4,14 +4,10 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
-import {
-  formatSqlIdentifier,
-  getConnectionConfig,
-  getPool
-} from './sqlConnection.js';
+import { executeDatabricksQuery } from './databricksQuery.js';
 
-const BU_GROUPINGS_TABLE_NAME = 'qmi.bugroupings';
-const BUSINESS_UNITS_TABLE_NAME = 'qmi.businessunits';
+const BU_GROUPINGS_TABLE_NAME = 'integrated_operations_dev.analytics.bugroupings';
+const BUSINESS_UNITS_TABLE_NAME = 'integrated_operations_dev.analytics.businessunits';
 const BU_GROUPINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const BU_FIELDS_BY_SCOPE = {
@@ -65,59 +61,39 @@ function buildHierarchy(entries) {
 
 async function loadBuGroupings() {
   const stopTimer = createTimer();
-  const { config, missing } = getConnectionConfig();
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Cannot load business unit groupings without database configuration: ${missing.join(', ')}`
-    );
-  }
-
-  const pool = await getPool(config);
-  const tableName = formatSqlIdentifier(BU_GROUPINGS_TABLE_NAME, config);
-  const businessUnitsTableName = formatSqlIdentifier(BUSINESS_UNITS_TABLE_NAME, config);
-
   try {
-    const result = await pool.request().query(`
-      SELECT
-        LTRIM(RTRIM(COALESCE(
-          TRY_CONVERT(nvarchar(4000), source.[Original]),
-          ''
-        ))) AS [original],
-        LTRIM(RTRIM(COALESCE(
-          TRY_CONVERT(nvarchar(4000), businessUnit.[Name]),
-          ''
-        ))) AS [group],
-        CAST(0 AS bit) AS [is_canonical]
-      FROM ${tableName} AS source
-      INNER JOIN ${businessUnitsTableName} AS businessUnit
-        ON businessUnit.[Id] = source.[BusinessUnitId]
-      WHERE NULLIF(LTRIM(RTRIM(COALESCE(
-              TRY_CONVERT(nvarchar(4000), source.[Original]),
-              ''
-            ))), '') IS NOT NULL
-        AND NULLIF(LTRIM(RTRIM(COALESCE(
-              TRY_CONVERT(nvarchar(4000), businessUnit.[Name]),
-              ''
-            ))), '') IS NOT NULL
-      UNION ALL
-      SELECT
-        LTRIM(RTRIM(businessUnit.[Name])) AS [original],
-        LTRIM(RTRIM(businessUnit.[Name])) AS [group],
-        CAST(1 AS bit) AS [is_canonical]
-      FROM ${businessUnitsTableName} AS businessUnit
-      WHERE NULLIF(LTRIM(RTRIM(businessUnit.[Name])), '') IS NOT NULL;
-    `);
+    const rows = await executeDatabricksQuery({
+      scope: 'bu-groupings',
+      tableName: BU_GROUPINGS_TABLE_NAME,
+      query: `
+        SELECT
+          TRIM(COALESCE(CAST(source.\`Original\` AS STRING), '')) AS original,
+          TRIM(COALESCE(CAST(businessUnit.\`Name\` AS STRING), '')) AS \`group\`,
+          0 AS is_canonical
+        FROM \`integrated_operations_dev\`.\`analytics\`.\`bugroupings\` AS source
+        INNER JOIN \`integrated_operations_dev\`.\`analytics\`.\`businessunits\` AS businessUnit
+          ON businessUnit.\`Id\` = source.\`BusinessUnitId\`
+        WHERE NULLIF(TRIM(CAST(source.\`Original\` AS STRING)), '') IS NOT NULL
+          AND NULLIF(TRIM(CAST(businessUnit.\`Name\` AS STRING)), '') IS NOT NULL
+        UNION ALL
+        SELECT
+          TRIM(CAST(businessUnit.\`Name\` AS STRING)) AS original,
+          TRIM(CAST(businessUnit.\`Name\` AS STRING)) AS \`group\`,
+          1 AS is_canonical
+        FROM \`integrated_operations_dev\`.\`analytics\`.\`businessunits\` AS businessUnit
+        WHERE NULLIF(TRIM(CAST(businessUnit.\`Name\` AS STRING)), '') IS NOT NULL
+      `
+    });
 
     // Canonical names are valid source values even without an alias mapping.
     const isCanonical = (row) => row.is_canonical === true || Number(row.is_canonical) === 1;
-    const canonicalKeys = new Set(result.recordset.filter(isCanonical)
+    const canonicalKeys = new Set(rows.filter(isCanonical)
       .map((row) => normalizeLookupKey(row.original)));
     const lookup = new Map();
     const entries = [];
     let duplicateCount = 0;
 
-    result.recordset.forEach((row) => {
+    rows.forEach((row) => {
       const original = normalizeText(row.original);
       const group = normalizeText(row.group);
       const key = normalizeLookupKey(original);
@@ -149,7 +125,7 @@ async function loadBuGroupings() {
       lookup,
       entries,
       groups,
-      rowCount: result.recordset.length,
+      rowCount: rows.length,
       mappedBusinessUnitCount: lookup.size,
       groupCount: groups.length,
       duplicateCount,
@@ -203,7 +179,7 @@ export async function readBuGroupingTitles() {
   const payload = await getBuGroupings();
 
   return {
-    source: 'mssql',
+    source: 'databricks',
     tableName: BU_GROUPINGS_TABLE_NAME,
     businessUnitTableName: BUSINESS_UNITS_TABLE_NAME,
     rowCount: payload.rowCount,
@@ -279,3 +255,4 @@ export async function applyBuGroupingsToPayload(payload, scope) {
     rows
   };
 }
+

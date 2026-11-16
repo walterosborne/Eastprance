@@ -1,3 +1,4 @@
+import { COST_ELEMENT_KEY_TABLE, readCostClassificationRows } from './databricksLookupRepository.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,7 +15,6 @@ import {
 } from './costCenterFacilityKey.js';
 import { CONTROLLABLE_COSTS_NEW_DBM_QUERY } from './dbmQueries/controllableCostsNewQuery.js';
 import {
-  formatSqlIdentifier,
   getConnectionConfig,
   getPool
 } from './sqlConnection.js';
@@ -22,7 +22,6 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONTROLLABLE_COSTS_NEW_FILE_PATH = path.resolve(__dirname, '../data/cost.xlsx');
-const COST_ELEMENT_KEY_TABLE_NAME = 'cost_element_key';
 const REQUIRED_COLUMNS = [
   'year',
   'month',
@@ -127,57 +126,18 @@ function resolveCostElementKey(costRow, costElementKeysByIdentifier) {
 }
 
 async function readCostElementKeys() {
-  const { config, missing } = getConnectionConfig();
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Cannot classify new controllable costs without database configuration: ${missing.join(', ')}`
-    );
-  }
-
-  const pool = await getPool(config);
-  const costElementKeyTableName = formatSqlIdentifier(COST_ELEMENT_KEY_TABLE_NAME, config);
-
-  logDebug('controllable-costs-new', 'Loading cost element keys for the new cost dataset.', {
-    tableName: costElementKeyTableName
-  });
-
-  const result = await pool.request().query(`
-    SELECT
-      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Category] AS nvarchar(4000)), '')))
-        AS [Cost Category],
-      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), '')))
-        AS [Cost Element],
-      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element Description] AS nvarchar(4000)), '')))
-        AS [Cost Element Description],
-      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Controllable] AS nvarchar(255)), '')))
-        AS [Controllable]
-    FROM ${costElementKeyTableName} AS source
-    WHERE NULLIF(
-      LTRIM(RTRIM(COALESCE(TRY_CAST(source.[Cost Element] AS nvarchar(4000)), ''))),
-      ''
-    ) IS NOT NULL;
-  `);
-  const rows = result.recordset.map((row) => ({
-    costCategory: normalizeText(row['Cost Category']),
-    costElement: normalizeCostElementIdentifier(row['Cost Element']),
-    costElementDescription: normalizeText(row['Cost Element Description']),
-    controllable: normalizeKeyControllability(row.Controllable)
+  const costElementKeyTableName = COST_ELEMENT_KEY_TABLE;
+  const { elementRows, categoryRows } = await readCostClassificationRows();
+  const rows = elementRows.map((row) => ({
+    costCategory: normalizeText(row.cost_category),
+    costElement: normalizeCostElementIdentifier(row.cost_element),
+    costElementDescription: normalizeText(row.cost_element_description),
+    controllable: normalizeKeyControllability(row.controllable)
   }));
-  // The category key fills classifications where a particular G/L has no element-key row.
-  const categoryKeyTableName = formatSqlIdentifier('cost_category_key', config);
-  const categoryResult = await pool.request().query(`
-    SELECT
-      LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Category] AS nvarchar(4000)), '')))
-        AS [Cost Category],
-      LTRIM(RTRIM(COALESCE(TRY_CAST([Controllable] AS nvarchar(255)), '')))
-        AS [Controllable]
-    FROM ${categoryKeyTableName};
-  `);
   const controllabilityByCategory = new Map(
-    categoryResult.recordset.map((row) => [
-      normalizeMatchText(row['Cost Category']),
-      normalizeKeyControllability(row.Controllable)
+    categoryRows.map((row) => [
+      normalizeMatchText(row.cost_category),
+      normalizeKeyControllability(row.controllable)
     ])
   );
   const valuesByIdentifier = rows.reduce((lookup, row) => {
@@ -534,3 +494,4 @@ export async function readControllableCostsNewData() {
     throw error;
   }
 }
+

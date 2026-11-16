@@ -1,3 +1,4 @@
+import { readCostCenterFacilityRows, readCostClassificationRows } from './databricksLookupRepository.js';
 import { createRawCostTrace } from './costTestDiagnostics.js';
 import {
   createTimer,
@@ -6,7 +7,6 @@ import {
   logError
 } from './debugLogger.js';
 import {
-  formatSqlIdentifier,
   getConnectionConfig,
   getPool
 } from './sqlConnection.js';
@@ -511,7 +511,7 @@ export async function readDbmDimensionLookups() {
   }
 
   const pool = await getPool(config, 'dbm');
-  const [hierarchyResult, facilityResult] = await Promise.all([
+  const [hierarchyResult, facilityRows] = await Promise.all([
     pool.request().query(`
       WITH ranked_hierarchy AS (
         SELECT
@@ -530,16 +530,7 @@ export async function readDbmDimensionLookups() {
       FROM ranked_hierarchy
       WHERE rn = 1;
     `),
-    pool.request().query(`
-      SELECT
-        UPPER(LTRIM(RTRIM([Cost Center]))) AS cost_center,
-        MAX(NULLIF(LTRIM(RTRIM([Address])), '')) AS facility,
-        MAX(NULLIF(LTRIM(RTRIM([City])), '')) AS facility_city,
-        MAX(NULLIF(LTRIM(RTRIM([State])), '')) AS facility_state
-      FROM [ecosystem_source].[qmi].[costcenterkey]
-      WHERE NULLIF(LTRIM(RTRIM([Cost Center])), '') IS NOT NULL
-      GROUP BY UPPER(LTRIM(RTRIM([Cost Center])));
-    `)
+    readCostCenterFacilityRows()
   ]);
 
   return {
@@ -553,7 +544,7 @@ export async function readDbmDimensionLookups() {
       ])
     ),
     facilityByCostCenter: new Map(
-      facilityResult.recordset.map((row) => [
+      facilityRows.map((row) => [
         normalizeCostCenter(row.cost_center),
         {
           facility: normalizeText(row.facility),
@@ -566,39 +557,11 @@ export async function readDbmDimensionLookups() {
 }
 
 async function readControllabilityLookups() {
-  const { config, missing } = getConnectionConfig();
-
-  if (missing.length > 0) {
-    throw new Error(`Missing database environment variables: ${missing.join(', ')}`);
-  }
-
-  const pool = await getPool(config, 'default');
-  const costElementKeyTableName = formatSqlIdentifier('cost_element_key', config);
-  const costCategoryKeyTableName = formatSqlIdentifier('cost_category_key', config);
-  const [elementResult, categoryResult] = await Promise.all([
-    pool.request().query(`
-      SELECT
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Category] AS nvarchar(4000)), ''))) AS cost_category,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Element] AS nvarchar(4000)), ''))) AS cost_element,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Element Description] AS nvarchar(4000)), ''))) AS cost_element_description,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Controllable] AS nvarchar(255)), ''))) AS controllable
-      FROM ${costElementKeyTableName}
-      WHERE NULLIF(
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Element] AS nvarchar(4000)), ''))),
-        ''
-      ) IS NOT NULL;
-    `),
-    pool.request().query(`
-      SELECT
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Cost Category] AS nvarchar(4000)), ''))) AS cost_category,
-        LTRIM(RTRIM(COALESCE(TRY_CAST([Controllable] AS nvarchar(255)), ''))) AS controllable
-      FROM ${costCategoryKeyTableName};
-    `)
-  ]);
+  const { elementRows, categoryRows } = await readCostClassificationRows();
 
   const valuesByIdentifier = new Map();
 
-  elementResult.recordset.forEach((row) => {
+  elementRows.forEach((row) => {
     const normalizedRow = {
       costCategory: normalizeText(row.cost_category),
       costElement: normalizeCostElementIdentifier(row.cost_element),
@@ -614,7 +577,7 @@ async function readControllabilityLookups() {
   return {
     valuesByIdentifier,
     controllabilityByCategory: new Map(
-      categoryResult.recordset.map((row) => [
+      categoryRows.map((row) => [
         normalizeMatchText(row.cost_category),
         normalizeKeyControllability(row.controllable)
       ])
@@ -1002,3 +965,4 @@ export async function readControllableCostsDatabricksNewData() {
     amountField: 'KSL'
   });
 }
+

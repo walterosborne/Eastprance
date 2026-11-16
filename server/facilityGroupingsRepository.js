@@ -4,13 +4,9 @@ import {
   logDebug,
   logError
 } from './debugLogger.js';
-import {
-  formatSqlIdentifier,
-  getConnectionConfig,
-  getPool
-} from './sqlConnection.js';
+import { executeDatabricksQuery } from './databricksQuery.js';
 
-const FACILITY_GROUPINGS_TABLE_NAME = 'qmi.facilitygroupings';
+const FACILITY_GROUPINGS_TABLE_NAME = 'integrated_operations_dev.analytics.facilitygroupings';
 const FACILITY_GROUPINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const FACILITY_FIELDS_BY_SCOPE = {
@@ -69,44 +65,25 @@ function buildHierarchy(entries) {
 
 async function loadFacilityGroupings() {
   const stopTimer = createTimer();
-  const { config, missing } = getConnectionConfig();
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Cannot load facility groupings without database configuration: ${missing.join(', ')}`
-    );
-  }
-
-  const pool = await getPool(config);
-  const tableName = formatSqlIdentifier(FACILITY_GROUPINGS_TABLE_NAME, config);
-
   try {
-    const result = await pool.request().query(`
-      SELECT
-        LTRIM(RTRIM(COALESCE(
-          TRY_CONVERT(nvarchar(4000), source.[Original]),
-          ''
-        ))) AS [original],
-        LTRIM(RTRIM(COALESCE(
-          TRY_CONVERT(nvarchar(4000), source.[Group]),
-          ''
-        ))) AS [group]
-      FROM ${tableName} AS source
-      WHERE NULLIF(LTRIM(RTRIM(COALESCE(
-              TRY_CONVERT(nvarchar(4000), source.[Original]),
-              ''
-            ))), '') IS NOT NULL
-        AND NULLIF(LTRIM(RTRIM(COALESCE(
-              TRY_CONVERT(nvarchar(4000), source.[Group]),
-              ''
-            ))), '') IS NOT NULL;
-    `);
+    const rows = await executeDatabricksQuery({
+      scope: 'facility-groupings',
+      tableName: FACILITY_GROUPINGS_TABLE_NAME,
+      query: `
+        SELECT
+          TRIM(COALESCE(CAST(source.\`Original\` AS STRING), '')) AS original,
+          TRIM(COALESCE(CAST(source.\`Group\` AS STRING), '')) AS \`group\`
+        FROM \`integrated_operations_dev\`.\`analytics\`.\`facilitygroupings\` AS source
+        WHERE NULLIF(TRIM(CAST(source.\`Original\` AS STRING)), '') IS NOT NULL
+          AND NULLIF(TRIM(CAST(source.\`Group\` AS STRING)), '') IS NOT NULL
+      `
+    });
 
     const lookup = new Map();
     const entries = [];
     let duplicateCount = 0;
 
-    result.recordset.forEach((row) => {
+    rows.forEach((row) => {
       const original = normalizeText(row.original);
       const group = normalizeText(row.group);
       const key = normalizeLookupKey(original);
@@ -138,7 +115,7 @@ async function loadFacilityGroupings() {
       lookup,
       entries,
       groups,
-      rowCount: result.recordset.length,
+      rowCount: rows.length,
       mappedFacilityCount: lookup.size,
       groupCount: groups.length,
       duplicateCount,
@@ -190,7 +167,7 @@ export async function readFacilityGroupingHierarchy() {
   const payload = await getFacilityGroupings();
 
   return {
-    source: 'mssql',
+    source: 'databricks',
     tableName: FACILITY_GROUPINGS_TABLE_NAME,
     rowCount: payload.rowCount,
     mappedFacilityCount: payload.mappedFacilityCount,
@@ -262,3 +239,4 @@ export async function applyFacilityGroupingsToPayload(payload, scope) {
     rows
   };
 }
+

@@ -84,6 +84,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
 const LEGACY_COST_DATASET_ENABLED = false;
+const LEGACY_LABOR_DATASET_ENABLED = false;
 const SQL_COST_DATASET_ENABLED = false;
 const CONTROLLABLE_COSTS_HANA_DATASET_ENABLED = false;
 const DATABRICKS_PROCESSED_COST_DATASET_ENABLED = false;
@@ -138,7 +139,9 @@ if (CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED) {
 }
 registerSqlDatasetCache('otd', readOtdData);
 registerSqlDatasetCache('customer-escapes', readCustomerEscapesData);
-registerSqlDatasetCache('labor', readLaborUtilizationData);
+if (LEGACY_LABOR_DATASET_ENABLED) {
+  registerSqlDatasetCache('labor', readLaborUtilizationData);
+}
 registerSqlDatasetCache('labor-databricks', readLaborDatabricksData);
 if (LABOR_HANA_DATASET_ENABLED) {
   registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
@@ -408,42 +411,44 @@ app.get(['/headers', '/api/headers'], async (request, response) => {
   }
 });
 
-app.get(['/labor-diagnostics', '/api/labor-diagnostics'], async (request, response) => {
-  const stopTimer = createTimer();
+if (LEGACY_LABOR_DATASET_ENABLED) {
+  app.get(['/labor-diagnostics', '/api/labor-diagnostics'], async (request, response) => {
+    const stopTimer = createTimer();
 
-  try {
-    const [oldPayload, newPayload] = await Promise.all([
-      getCachedSqlDataset('labor'),
-      readLaborUtilizationNewData()
-    ]);
-    const payload = buildLaborDiagnosticsPayload(oldPayload, newPayload);
-    const wantsJson = request.path.startsWith('/api/')
-      || String(request.query.format || '').toLowerCase() === 'json'
-      || String(request.get('accept') || '').includes('application/json');
+    try {
+      const [oldPayload, newPayload] = await Promise.all([
+        getCachedSqlDataset('labor'),
+        readLaborUtilizationNewData()
+      ]);
+      const payload = buildLaborDiagnosticsPayload(oldPayload, newPayload);
+      const wantsJson = request.path.startsWith('/api/')
+        || String(request.query.format || '').toLowerCase() === 'json'
+        || String(request.get('accept') || '').includes('application/json');
 
-    logDebug('labor-diagnostics', 'Labor source comparison completed.', {
-      oldRowCount: payload.sources.old.rowCount,
-      newRowCount: payload.sources.new.rowCount,
-      commonMonthCount: payload.comparisonWindow.commonMonths.length,
-      duration: formatDuration(stopTimer())
-    });
+      logDebug('labor-diagnostics', 'Labor source comparison completed.', {
+        oldRowCount: payload.sources.old.rowCount,
+        newRowCount: payload.sources.new.rowCount,
+        commonMonthCount: payload.comparisonWindow.commonMonths.length,
+        duration: formatDuration(stopTimer())
+      });
 
-    if (wantsJson) {
-      response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
-      return;
+      if (wantsJson) {
+        response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
+        return;
+      }
+
+      response.type('text/html').send(renderLaborDiagnosticsPage(payload));
+    } catch (error) {
+      logError('labor-diagnostics', 'Unable to build labor diagnostics.', error, {
+        duration: formatDuration(stopTimer())
+      });
+      response.status(500).json({
+        message: 'Unable to build labor diagnostics.',
+        error: error.message
+      });
     }
-
-    response.type('text/html').send(renderLaborDiagnosticsPage(payload));
-  } catch (error) {
-    logError('labor-diagnostics', 'Unable to build labor diagnostics.', error, {
-      duration: formatDuration(stopTimer())
-    });
-    response.status(500).json({
-      message: 'Unable to build labor diagnostics.',
-      error: error.message
-    });
-  }
-});
+  });
+}
 
 if (LEGACY_COST_DATASET_ENABLED && SQL_COST_DATASET_ENABLED) {
   app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response) => {
@@ -690,15 +695,17 @@ app.get('/api/nmfr', async (request, response) => {
   );
 });
 
-app.get('/api/labor-utilization', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'labor',
-    () => getCachedSqlDataset('labor'),
-    'Unable to read labor utilization data.'
-  );
-});
+if (LEGACY_LABOR_DATASET_ENABLED) {
+  app.get('/api/labor-utilization', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'labor',
+      () => getCachedSqlDataset('labor'),
+      'Unable to read labor utilization data.'
+    );
+  });
+}
 
 app.get('/api/labor-utilization-new', async (request, response) => {
   await sendDatasetResponse(
@@ -813,4 +820,5 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
 

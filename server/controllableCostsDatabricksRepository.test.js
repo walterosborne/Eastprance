@@ -5,7 +5,10 @@ const cwi = 'DS C2 & Weapons Integration';
 const sds = 'DS Strategic Deterrent Systems';
 await mock.module('./sqlConnection.js', {
   namedExports: {
-    getConnectionConfig: () => ({ config: {}, missing: [] }),
+    getConnectionConfig: (scope) => {
+      assert.equal(scope, 'dbm', 'lookup tables must not need the default SQL connection');
+      return { config: {}, missing: [] };
+    },
     formatSqlIdentifier: (name) => name,
     getPool: async () => ({
       request: () => ({
@@ -15,14 +18,7 @@ await mock.module('./sqlConnection.js', {
             { cost_center: 'SDS1', division: sds, business_unit: 'SDS BU' },
             { cost_center: 'TDA87FC0', division: sds, business_unit: 'SDS BU' }
           ] };
-          if (sql.includes('costcenterkey')) return { recordset: [
-            { cost_center: 'CWI1', facility: 'Facility A' },
-            { cost_center: 'SDS1', facility: 'Facility B' }
-          ] };
-          if (sql.includes('cost_element_key')) return { recordset: [
-            { cost_element: '4300591', controllable: 'Controllable' }
-          ] };
-          return { recordset: [] };
+          throw new Error(`Unexpected SQL query: ${sql}`);
         }
       })
     })
@@ -43,6 +39,29 @@ const result = (rows, extra = {}) => ({
   result: { data_array: rows, ...extra }
 });
 
+function lookupResponse(init) {
+  if (init?.method !== 'POST') return null;
+  const statement = JSON.parse(init.body).statement;
+  if (!statement.includes('`integrated_operations_dev`.`analytics`')) return null;
+  assert.doesNotMatch(statement, /TRY_CONVERT|nvarchar|\[ecosystem_source\]/);
+  let columns, rows;
+  if (statement.includes('`costcenterkey`')) {
+    columns = ['cost_center', 'facility'];
+    rows = [['CWI1', 'Facility A'], ['SDS1', 'Facility B']];
+  } else if (statement.includes('`cost_element_key`')) {
+    columns = ['cost_element', 'controllable'];
+    rows = [['4300591', 'Controllable']];
+  } else {
+    assert.ok(statement.includes('`cost_category_key`'));
+    columns = ['cost_category', 'controllable'];
+    rows = [];
+  }
+  return Response.json({
+    ...result(rows),
+    manifest: { schema: { columns: columns.map((name) => ({ name })) }, total_row_count: rows.length }
+  });
+}
+
 function setConnection(t) {
   for (const [key, value] of Object.entries({
     DATABRICKS_HOST: 'databricks.example.test',
@@ -59,6 +78,8 @@ test('new ledger preserves credits, QMI scope, central SDS facilities and chunke
   setConnection(t);
   let statement;
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const lookup = lookupResponse(init);
+    if (lookup) return lookup;
     if (init.method === 'POST') {
       statement = JSON.parse(init.body).statement;
       return Response.json(result([
@@ -91,6 +112,8 @@ test('existing raw card retains its original table and amount field', async (t) 
   setConnection(t);
   let statement;
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const lookup = lookupResponse(init);
+    if (lookup) return lookup;
     statement = JSON.parse(init.body).statement;
     return Response.json(result([row('CWI1', '4300591', -12)]));
   });
@@ -113,6 +136,8 @@ test('Databricks labor uses signed hour quantities and the QMI cost-center hiera
   const laborColumns = ['year', 'month', 'cost_center', 'entered_hours'];
   let statement;
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const lookup = lookupResponse(init);
+    if (lookup) return lookup;
     statement = JSON.parse(init.body).statement;
     return Response.json({
       ...result([
@@ -154,6 +179,8 @@ test('new ledger supports external result links and completed-month scoping', as
   const originalFetch = globalThis.fetch;
   let statement;
   globalThis.fetch = async (url, init) => {
+    const lookup = lookupResponse(init);
+    if (lookup) return lookup;
     if (url === 'https://storage.example.test/result') {
       assert.equal(init?.headers?.Authorization, undefined);
       return Response.json([row('CWI1', '4300591', -7)]);
@@ -179,3 +206,4 @@ test('new ledger supports external result links and completed-month scoping', as
   assert.ok(statement.includes(`month <= ${now.getUTCMonth()}`));
   assert.equal(payload.totalCost, -7);
 });
+

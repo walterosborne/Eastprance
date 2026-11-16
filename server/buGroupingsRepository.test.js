@@ -10,32 +10,23 @@ let mappings = [
   { original: 'WS Other Name', group: 'Proper BU' },
   { original: 'SDS BU', group: 'Strategic BU' }
 ];
-await mock.module('./sqlConnection.js', {
+await mock.module('./databricksQuery.js', {
   namedExports: {
-    getConnectionConfig: () => ({ config: {}, missing: [] }),
-    formatSqlIdentifier: (name) => {
-      assert.ok(['qmi.bugroupings', 'qmi.businessunits'].includes(name));
-      return name.split('.').map((part) => `[${part}]`).join('.');
-    },
-    getPool: async () => ({
-      request: () => ({
-        query: async (statement) => {
-          queryCount += 1;
-          assert.match(statement, /FROM \[qmi\]\.\[bugroupings\]/);
-          assert.match(statement, /source\.\[Original\]/);
-          assert.match(statement, /INNER JOIN \[qmi\]\.\[businessunits\] AS businessUnit/);
-          assert.match(statement, /businessUnit\.\[Id\] = source\.\[BusinessUnitId\]/);
-          assert.match(statement, /businessUnit\.\[Name\]/);
-          assert.doesNotMatch(statement, /source\.\[Group\]/);
-          assert.match(statement, /UNION ALL/);
-          assert.match(statement, /CAST\(1 AS bit\) AS \[is_canonical\]/);
-          return { recordset: [
-            ...mappings,
-            ...realBusinessUnits.map((name) => ({ original: name, group: name, is_canonical: true }))
-          ] };
-        }
-      })
-    })
+    executeDatabricksQuery: async ({ tableName, query: statement }) => {
+      queryCount += 1;
+      assert.equal(tableName, 'integrated_operations_dev.analytics.bugroupings');
+      assert.match(statement, /FROM `integrated_operations_dev`\.`analytics`\.`bugroupings`/);
+      assert.match(statement, /INNER JOIN `integrated_operations_dev`\.`analytics`\.`businessunits`/);
+      assert.match(statement, /businessUnit\.`Id` = source\.`BusinessUnitId`/);
+      assert.match(statement, /businessUnit\.`Name`/);
+      assert.doesNotMatch(statement, /source\.`Group`|TRY_CONVERT|nvarchar|\[qmi\]/);
+      assert.match(statement, /UNION ALL/);
+      assert.match(statement, /1 AS is_canonical/);
+      return [
+        ...mappings,
+        ...realBusinessUnits.map((name) => ({ original: name, group: name, is_canonical: '1' }))
+      ];
+    }
   }
 });
 
@@ -52,7 +43,7 @@ test('BU mappings merge names across cards without mutating cached datasets or m
     'controllable-costs-databricks', 'controllable-costs-databricks-raw',
     'controllable-costs-databricks-new', 'labor-new', 'labor-hana'];
   const results = await Promise.all(scopes.map((scope) => applyBuGroupingsToPayload(payload, scope)));
-  assert.equal(queryCount, 1, 'concurrent mappings share one cached SQL read');
+  assert.equal(queryCount, 1, 'concurrent mappings share one cached Databricks read');
   for (const result of results) {
     assert.deepEqual(result.rows.map((r) => r.business_unit), ['Proper BU', 'Proper BU', 'Strategic BU', 'Unlisted']);
     assert.equal(result.rows[0].__business_unit_original, 'ws old NAME');
@@ -64,8 +55,9 @@ test('BU mappings merge names across cards without mutating cached datasets or m
   assert.deepEqual(payload, before);
   assert.equal(await applyBuGroupingsToPayload(payload, 'sif'), payload);
   const titles = await readBuGroupingTitles();
-  assert.equal(titles.tableName, 'qmi.bugroupings');
-  assert.equal(titles.businessUnitTableName, 'qmi.businessunits');
+  assert.equal(titles.source, 'databricks');
+  assert.equal(titles.tableName, 'integrated_operations_dev.analytics.bugroupings');
+  assert.equal(titles.businessUnitTableName, 'integrated_operations_dev.analytics.businessunits');
   assert.deepEqual(titles.groups.map((g) => g.group), ['Native BU', 'Proper BU', 'Strategic BU']);
 });
 
@@ -89,6 +81,7 @@ test('canonical BU values are mapped without alias rows and share the same selec
   ));
   assert.deepEqual(other.map((r) => r.business_unit), ['Unknown']);
   const titles = await readBuGroupingTitles();
+  assert.equal(titles.source, 'databricks');
   assert.ok(titles.groups.find((g) => g.group === 'Native BU').originals.includes('Native BU'));
 });
 
@@ -189,3 +182,4 @@ test('conflicting mappings do not silently select the wrong BU or break source d
   assert.equal(payload.rows, source.rows);
   assert.equal(payload.businessUnitGroupingWarning, 'BU groupings unavailable.');
 });
+

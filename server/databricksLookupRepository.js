@@ -21,31 +21,40 @@ export function readCostCenterFacilityRows() {
   });
 }
 
+function normalizedColumn(row, column, tableName) {
+  const matching = Object.keys(row).filter((key) => key.trim().toLowerCase() === column.toLowerCase());
+  if (matching.length !== 1) {
+    throw new Error(`${tableName} requires exactly one ${column} column; found ${matching.length}.`);
+  }
+  return String(row[matching[0]] ?? '').trim();
+}
+
 export async function readCostClassificationRows() {
-  const [elementRows, categoryRows] = await Promise.all([
+  // These small lookup tables may already have been uploaded with a trailing
+  // space in a column header. Resolve the headers from the result rather than
+  // referencing a misspelled physical column in Databricks SQL.
+  const [rawElements, rawCategories] = await Promise.all([
     executeDatabricksQuery({
       scope: 'cost-element-key',
       tableName: COST_ELEMENT_KEY_TABLE,
-      query: `
-        SELECT
-          TRIM(COALESCE(CAST(\`Cost Category\` AS STRING), '')) AS cost_category,
-          TRIM(COALESCE(CAST(\`Cost Element\` AS STRING), '')) AS cost_element,
-          TRIM(COALESCE(CAST(\`Cost Element Description\` AS STRING), '')) AS cost_element_description,
-          TRIM(COALESCE(CAST(\`Controllable\` AS STRING), '')) AS controllable
-        FROM \`integrated_operations_dev\`.\`analytics\`.\`cost_element_key\`
-        WHERE NULLIF(TRIM(CAST(\`Cost Element\` AS STRING)), '') IS NOT NULL
-      `
+      query: 'SELECT * FROM \`integrated_operations_dev\`.\`analytics\`.\`cost_element_key\`'
     }),
     executeDatabricksQuery({
       scope: 'cost-category-key',
       tableName: COST_CATEGORY_KEY_TABLE,
-      query: `
-        SELECT
-          TRIM(COALESCE(CAST(\`Cost Category\` AS STRING), '')) AS cost_category,
-          TRIM(COALESCE(CAST(\`Controllable\` AS STRING), '')) AS controllable
-        FROM \`integrated_operations_dev\`.\`analytics\`.\`cost_category_key\`
-      `
+      query: 'SELECT * FROM \`integrated_operations_dev\`.\`analytics\`.\`cost_category_key\`'
     })
   ]);
+  const elementRows = rawElements.map((row) => ({
+    cost_category: normalizedColumn(row, 'Cost Category', COST_ELEMENT_KEY_TABLE),
+    cost_element: normalizedColumn(row, 'Cost Element', COST_ELEMENT_KEY_TABLE),
+    cost_element_description: normalizedColumn(row, 'Cost Element Description', COST_ELEMENT_KEY_TABLE),
+    controllable: normalizedColumn(row, 'Controllable', COST_ELEMENT_KEY_TABLE)
+  })).filter((row) => row.cost_element);
+  const categoryRows = rawCategories.map((row) => ({
+    cost_category: normalizedColumn(row, 'Cost Category', COST_CATEGORY_KEY_TABLE),
+    controllable: normalizedColumn(row, 'Controllable', COST_CATEGORY_KEY_TABLE)
+  }));
   return { elementRows, categoryRows };
 }
+

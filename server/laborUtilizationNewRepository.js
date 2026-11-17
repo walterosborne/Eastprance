@@ -1,3 +1,4 @@
+import { getLaborRosterConfig, readLaborRosterLookup, joinLaborFacilities } from './laborRosterDatabricksRepository.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -167,7 +168,7 @@ function buildLaborUtilizationPayload(sourceRows, metadata) {
     totalEnteredHours,
     laborCategoryCounts: categoryCounts,
     facilityMapping: {
-      source: useRosterFacilities ? 'dbo.rb_roster_transform' : null,
+      source: useRosterFacilities ? 'databricks' : null,
       sheetName: null,
       mappedCostCenterCount: new Set(mappedRows.map((row) => row.cost_center).filter(Boolean)).size,
       eligibleRowCount: rows.length,
@@ -241,7 +242,7 @@ async function readLaborUtilizationNewExcelFallback(fallbackReason) {
   }
 }
 
-async function readLaborUtilizationNewDbmData(config) {
+async function readLaborUtilizationNewDbmData(config, rosterConfig) {
   const stopTimer = createTimer();
   const pool = await getPool(config, 'dbm');
 
@@ -251,10 +252,14 @@ async function readLaborUtilizationNewDbmData(config) {
     querySource: 'embedded-server-query'
   });
 
-  const result = await pool.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY);
-  const payload = buildLaborUtilizationPayload(result.recordset, {
+  const [result, rosterLookup] = await Promise.all([
+    pool.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY),
+    readLaborRosterLookup(rosterConfig)
+  ]);
+  const joinedRows = joinLaborFacilities(result.recordset, rosterLookup);
+  const payload = buildLaborUtilizationPayload(joinedRows, {
     source: 'dbm-sql',
-    sourceLabel: 'The DBM labor utilization query',
+    sourceLabel: 'DBM labor joined to the Databricks roster',
     requireCostCenter: true
   });
 
@@ -277,6 +282,7 @@ async function readLaborUtilizationNewDbmData(config) {
 }
 
 export async function readLaborUtilizationNewData() {
+  const rosterConfig = getLaborRosterConfig();
   const { config, missing } = getConnectionConfig('dbm');
 
   if (missing.length > 0) {
@@ -290,8 +296,10 @@ export async function readLaborUtilizationNewData() {
   }
 
   try {
-    return await readLaborUtilizationNewDbmData(config);
+    return await readLaborUtilizationNewDbmData(config, rosterConfig);
   } catch (error) {
+    // A missing/unavailable roster must not silently substitute old facility data.
+    if (error.code === 'LABOR_ROSTER_UNAVAILABLE') throw error;
     const fallbackReason = 'DBM labor utilization query failed; Excel fallback used.';
 
     logError('labor-new', 'DBM labor utilization load failed; using Excel fallback.', error, {
@@ -303,3 +311,4 @@ export async function readLaborUtilizationNewData() {
     return readLaborUtilizationNewExcelFallback(fallbackReason);
   }
 }
+

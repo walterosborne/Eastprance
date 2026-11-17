@@ -1,0 +1,104 @@
+import { executeDatabricksQuery } from './databricksQuery.js';
+
+const MY_ID_FIELDS = ['my_id_nsr', 'my_id_sr', 'my_id_dm', 'my_id_sap'];
+const INVALID_CITIES = new Set(['UNKNOWN CITY', 'UNKNOWN', 'N/A']);
+const normalizeText = (value) => String(value ?? '').trim();
+const normalizeId = (value) => normalizeText(value).toUpperCase();
+
+export function getLaborRosterConfig(env = process.env) {
+  const names = ['DATABRICKS_LABOR_ROSTER_CATALOG', 'DATABRICKS_LABOR_ROSTER_SCHEMA', 'DATABRICKS_LABOR_ROSTER_TABLE'];
+  const values = names.map((name) => normalizeText(env[name]));
+  const missing = names.filter((_name, index) => !values[index]);
+  if (missing.length) {
+    throw new Error(`Missing labor roster environment variables: ${missing.join(', ')}`);
+  }
+  values.forEach((value, index) => {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throw new Error(`Invalid identifier in ${names[index]}.`);
+    }
+  });
+  // Quote each identifier separately; configuration is never interpolated as SQL syntax.
+  return { tableSql: values.map((value) => '`' + value.replace(/`/g, '``') + '`').join('.') };
+}
+
+export function buildLaborRosterLookup(rows) {
+  const lookup = new Map();
+  const conflictingIds = new Set();
+  const required = [...MY_ID_FIELDS, 'city', 'state', 'sector'];
+  for (const row of rows) {
+    if (required.some((field) => !Object.hasOwn(row, field))) {
+      throw new Error('Databricks labor roster is missing required MyID, city, state, or sector columns.');
+    }
+    const city = normalizeText(row.city);
+    const state = normalizeText(row.state);
+    if (!normalizeId(row.sector).includes('DEFENSE') || !city || INVALID_CITIES.has(city.toUpperCase())) {
+      continue;
+    }
+    const facilityKey = JSON.stringify([city.toUpperCase(), state.toUpperCase()]);
+    for (const field of MY_ID_FIELDS) {
+      const id = normalizeId(row[field]);
+      if (!id || conflictingIds.has(id)) continue;
+      const existing = lookup.get(id);
+      if (existing && existing.facilityKey !== facilityKey) {
+        lookup.delete(id);
+        conflictingIds.add(id);
+      } else if (!existing) {
+        lookup.set(id, { city, state, facilityKey });
+      }
+    }
+  }
+  return lookup;
+}
+
+export async function readLaborRosterLookup(config = getLaborRosterConfig()) {
+  try {
+    const rows = await executeDatabricksQuery({
+      scope: 'labor-roster',
+      tableName: 'configured Databricks labor roster',
+      query: `
+        SELECT
+          CAST(\`Employee_MyID_NSR\` AS STRING) AS my_id_nsr,
+          CAST(\`Employee_MyID_SR\` AS STRING) AS my_id_sr,
+          CAST(\`Employee_MyID_DM\` AS STRING) AS my_id_dm,
+          CAST(\`Employee_MyID_SAP\` AS STRING) AS my_id_sap,
+          TRIM(CAST(\`Work_City_NSR\` AS STRING)) AS city,
+          TRIM(CAST(\`Work_State_NSR\` AS STRING)) AS state,
+          CAST(\`Sector\` AS STRING) AS sector
+        FROM ${config.tableSql}
+        WHERE UPPER(CAST(\`Sector\` AS STRING)) LIKE '%DEFENSE%'
+          AND NULLIF(TRIM(CAST(\`Work_City_NSR\` AS STRING)), '') IS NOT NULL
+          AND UPPER(TRIM(CAST(\`Work_City_NSR\` AS STRING))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
+      `
+    });
+    return buildLaborRosterLookup(rows);
+  } catch (error) {
+    const failure = new Error(`Unable to load the configured Databricks labor roster: ${error.message}`, { cause: error });
+    failure.code = 'LABOR_ROSTER_UNAVAILABLE';
+    throw failure;
+  }
+}
+
+export function joinLaborFacilities(laborRows, rosterLookup) {
+  const totals = new Map();
+  for (const row of laborRows) {
+    const facility = rosterLookup.get(normalizeId(row.my_id));
+    const result = {
+      year: row.year,
+      month: row.month,
+      division: row.division,
+      business_unit: row.business_unit,
+      cost_center: row.cost_center,
+      facility: facility?.city ?? '',
+      facility_state: facility?.state ?? '',
+      labor_category: row.labor_category
+    };
+    const key = JSON.stringify(Object.values(result));
+    const hours = row.entered_hours == null ? NaN : Number(row.entered_hours);
+    if (!Number.isFinite(hours)) throw new Error('Invalid labor hours returned by the DBM query.');
+    const existing = totals.get(key);
+    if (existing) existing.entered_hours += hours;
+    else totals.set(key, { ...result, entered_hours: hours });
+  }
+  // Return the original facility-level shape; employee identifiers stay on the server.
+  return [...totals.values()].map((row) => ({ ...row, entered_hours: Number(row.entered_hours.toFixed(2)) }));
+}

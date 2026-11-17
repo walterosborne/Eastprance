@@ -359,3 +359,29 @@ The Excel fallback files are optional for deployment. They are only needed if yo
 ## ODBC note
 
 This app uses the Node `mssql` package and does not require `msodbcsql18` just to connect to SQL Server. If you later add a package that depends on the system ODBC driver, then you can extend the Dockerfile with the repo and driver install steps.
+
+
+
+## Databricks roster for labor facilities
+
+Set these variables on the QMI **application container**, using the same Secret/environment
+configuration as `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and `DATABRICKS_SQL_WAREHOUSE_ID`:
+
+- `DATABRICKS_LABOR_ROSTER_CATALOG`
+- `DATABRICKS_LABOR_ROSTER_SCHEMA`
+- `DATABRICKS_LABOR_ROSTER_TABLE`
+
+In the OpenShift console, add these exact keys to the application Secret and ensure they
+are exposed through the Deployment's environment configuration (`envFrom` or individual
+Secret key references). Restart the app pods after updating environment-backed settings.
+For local runs, put the same keys in `server/.env`. Set each to one identifier component,
+without surrounding SQL quotes; no actual table name belongs in source control.
+
+Labor hours and cost-center hierarchy still come from DBM SQL. The app queries the configured
+Databricks roster separately, matches all four `Employee_MyID_*` fields to labor `MYID`, and
+aggregates back to the existing facility-level response. The roster must expose
+`Employee_MyID_NSR`, `Employee_MyID_SR`, `Employee_MyID_DM`, `Employee_MyID_SAP`,
+`Work_City_NSR`, `Work_State_NSR`, and `Sector`. Only sectors containing `Defense` qualify.
+Blank/unknown cities and conflicting locations remain unmapped; duplicate roster records
+never multiply labor hours. Roster configuration/query errors are surfaced rather than
+falling back to the SQL roster. This setting controls labor facility mapping only.

@@ -15,34 +15,6 @@ WITH CostCenterHierarchy AS (
     WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 ),
 
-DefenseRoster AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(ids.MyID))) AS MyID,
-        location.City,
-        location.[State],
-        CONCAT_WS(', ', location.City, location.[State]) AS Facility
-    FROM dbo.rb_roster_transform AS r
-    CROSS APPLY (VALUES
-        (r.Employee_MyID_NSR),
-        (r.Employee_MyID_SR),
-        (r.Employee_MyID_DM),
-        (r.Employee_MyID_SAP)
-    ) AS ids(MyID)
-    CROSS APPLY (VALUES (
-        NULLIF(LTRIM(RTRIM(r.Work_City_NSR)), ''),
-        NULLIF(LTRIM(RTRIM(r.Work_State_NSR)), '')
-    )) AS location(City, [State])
-    WHERE UPPER(r.Sector) LIKE '%DEFENSE%'
-      AND NULLIF(LTRIM(RTRIM(ids.MyID)), '') IS NOT NULL
-      AND UPPER(location.City) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
-),
-RosterByPerson AS (
-    SELECT MyID, MIN(City) AS City, MIN([State]) AS [State]
-    FROM DefenseRoster
-    GROUP BY MyID
-    HAVING MIN(Facility) = MAX(Facility)
-),
-
 Actuals AS (
     SELECT
         TRY_CONVERT(
@@ -90,22 +62,18 @@ LaborByPerson AS (
         a.Cost_Center, a.Labor_Category, a.MyID
 )
 
+-- Keep MyID until the app joins the configured Databricks roster.
 SELECT
     a.[year] AS year,
     a.[month] AS month,
     a.Division AS division,
     a.Business_Unit AS business_unit,
     a.Cost_Center AS cost_center,
-    r.City AS facility,
-    r.[State] AS facility_state,
+    a.MyID AS my_id,
     a.Labor_Category AS labor_category,
-    SUM(a.Entered_Hours) AS entered_hours
+    a.Entered_Hours AS entered_hours
 FROM LaborByPerson AS a
-LEFT JOIN RosterByPerson AS r ON r.MyID = a.MyID
-GROUP BY
-    a.[year], a.[month], a.Division, a.Business_Unit, a.Cost_Center,
-    r.City, r.[State], a.Labor_Category
 ORDER BY
     a.[year], a.[month], a.Division, a.Business_Unit, a.Cost_Center,
-    a.Labor_Category, r.City, r.[State];
+    a.Labor_Category, a.MyID;
 `;

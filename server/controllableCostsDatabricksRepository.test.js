@@ -49,12 +49,12 @@ function lookupResponse(init) {
     columns = ['cost_center', 'facility'];
     rows = [['CWI1', 'Facility A'], ['SDS1', 'Facility B']];
   } else if (statement.includes('`cost_element_key`')) {
-    columns = ['cost_element', 'controllable'];
-    rows = [['4300591', 'Controllable']];
+    columns = ['Cost Category ', 'Cost Element', 'Cost Element Description', 'Controllable'];
+    rows = [['2 Rent - Land & Building', '4300591', 'Rent', 'Controllable']];
   } else {
     assert.ok(statement.includes('`cost_category_key`'));
-    columns = ['cost_category', 'controllable'];
-    rows = [];
+    columns = ['Cost Category', 'Controllable'];
+    rows = [['2 Rent - Land & Building', 'Controllable']];
   }
   return Response.json({
     ...result(rows),

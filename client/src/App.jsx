@@ -5804,11 +5804,20 @@ export default function App() {
 
     async function loadDatabricksNewData() {
       try {
-        const payload = await fetchJson(
+        let payload = await fetchJson(
           'controllable-costs-databricks-new',
           '/api/controllable-costs-databricks-new'
         );
         if (!isMounted) return;
+        // A successful empty response may be a cached snapshot from before the
+        // lookup upload. Refresh it once so a new upload can appear immediately.
+        if (Array.isArray(payload.rows) && payload.rows.length === 0) {
+          payload = await fetchJson(
+            'controllable-costs-databricks-new-refresh',
+            '/api/controllable-costs-databricks-new?refresh=1'
+          );
+          if (!isMounted) return;
+        }
         if (payload.tableName !== 'source_systems_dev.sql_central_integration.lfc_transaction_details_s3') {
           throw new Error(`Databricks returned ${payload.tableName || 'an unknown source'}. Restart the QMI server to load the current table.`);
         }
@@ -5816,7 +5825,11 @@ export default function App() {
           rows: Array.isArray(payload.rows) ? payload.rows : [],
           loading: false,
           error: '',
-          source: 'Databricks'
+          source: 'Databricks',
+          sourceRowCount: payload.sourceRowCount,
+          hierarchyUnmatchedRowCount: payload.hierarchyUnmatchedRowCount,
+          excludedBySqlScopeRowCount: payload.excludedBySqlScopeRowCount,
+          invalidSourceRowCount: payload.invalidSourceRowCount
         });
       } catch (error) {
         if (!isMounted) return;
@@ -9768,7 +9781,9 @@ export default function App() {
                               : globallyFilteredControllableCostsNewRows.length === 0)) && (
                           <p className="chart-message">
                             {controllableCostsNewState.rows.length === 0
-                              ? 'No controllable costs are available for charting.'
+                              ? Number.isFinite(controllableCostsNewState.sourceRowCount)
+                                ? `No mapped controllable costs. Ledger query returned ${controllableCostsNewState.sourceRowCount} rows; ${controllableCostsNewState.hierarchyUnmatchedRowCount ?? 0} lacked a hierarchy match, ${controllableCostsNewState.excludedBySqlScopeRowCount ?? 0} failed the division/account or facility scope, and ${controllableCostsNewState.invalidSourceRowCount ?? 0} were invalid.`
+                                : 'No controllable costs are available for charting.'
                               : filteredControllableCostsNewRows.length === 0
                                 && controllableNewFilterApplies
                                 ? 'No controllable costs were found for the selected filters.'

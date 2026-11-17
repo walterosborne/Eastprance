@@ -378,10 +378,10 @@ For local runs, put the same keys in `server/.env`. Set each to one identifier c
 without surrounding SQL quotes; no actual table name belongs in source control.
 
 Labor hours and cost-center hierarchy still come from DBM SQL. The app queries the configured
-Databricks roster separately, matches all four `Employee_MyID_*` fields to labor `MYID`, and
+Databricks roster's latest `effective_date` snapshot, matches `myid` to labor `MYID`, and
 aggregates back to the existing facility-level response. The roster must expose
-`Employee_MyID_NSR`, `Employee_MyID_SR`, `Employee_MyID_DM`, `Employee_MyID_SAP`,
-`Work_City_NSR`, `Work_State_NSR`, and `Sector`. Only sectors containing `Defense` qualify.
+`myid`, `work_city`, `work_state_code`, `org_structure_lvl2`, and `effective_date`.
+Only `org_structure_lvl2` values containing `Defense` qualify.
 Blank/unknown cities and conflicting locations remain unmapped; duplicate roster records
 never multiply labor hours. Roster configuration/query errors are surfaced rather than
 falling back to the SQL roster. This setting controls labor facility mapping only.

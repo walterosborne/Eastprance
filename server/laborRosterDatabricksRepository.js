@@ -1,6 +1,5 @@
 import { executeDatabricksQuery } from './databricksQuery.js';
 
-const MY_ID_FIELDS = ['my_id_nsr', 'my_id_sr', 'my_id_dm', 'my_id_sap'];
 const INVALID_CITIES = new Set(['UNKNOWN CITY', 'UNKNOWN', 'N/A']);
 const normalizeText = (value) => String(value ?? '').trim();
 const normalizeId = (value) => normalizeText(value).toUpperCase();
@@ -24,7 +23,7 @@ export function getLaborRosterConfig(env = process.env) {
 export function buildLaborRosterLookup(rows) {
   const lookup = new Map();
   const conflictingIds = new Set();
-  const required = [...MY_ID_FIELDS, 'city', 'state', 'sector'];
+  const required = ['myid', 'city', 'state', 'sector'];
   for (const row of rows) {
     if (required.some((field) => !Object.hasOwn(row, field))) {
       throw new Error('Databricks labor roster is missing required MyID, city, state, or sector columns.');
@@ -35,16 +34,14 @@ export function buildLaborRosterLookup(rows) {
       continue;
     }
     const facilityKey = JSON.stringify([city.toUpperCase(), state.toUpperCase()]);
-    for (const field of MY_ID_FIELDS) {
-      const id = normalizeId(row[field]);
-      if (!id || conflictingIds.has(id)) continue;
-      const existing = lookup.get(id);
-      if (existing && existing.facilityKey !== facilityKey) {
-        lookup.delete(id);
-        conflictingIds.add(id);
-      } else if (!existing) {
-        lookup.set(id, { city, state, facilityKey });
-      }
+    const id = normalizeId(row.myid);
+    if (!id || conflictingIds.has(id)) continue;
+    const existing = lookup.get(id);
+    if (existing && existing.facilityKey !== facilityKey) {
+      lookup.delete(id);
+      conflictingIds.add(id);
+    } else if (!existing) {
+      lookup.set(id, { city, state, facilityKey });
     }
   }
   return lookup;
@@ -57,17 +54,15 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig()) {
       tableName: 'configured Databricks labor roster',
       query: `
         SELECT
-          CAST(\`Employee_MyID_NSR\` AS STRING) AS my_id_nsr,
-          CAST(\`Employee_MyID_SR\` AS STRING) AS my_id_sr,
-          CAST(\`Employee_MyID_DM\` AS STRING) AS my_id_dm,
-          CAST(\`Employee_MyID_SAP\` AS STRING) AS my_id_sap,
-          TRIM(CAST(\`Work_City_NSR\` AS STRING)) AS city,
-          TRIM(CAST(\`Work_State_NSR\` AS STRING)) AS state,
-          CAST(\`Sector\` AS STRING) AS sector
+          CAST(\`myid\` AS STRING) AS myid,
+          TRIM(CAST(\`work_city\` AS STRING)) AS city,
+          TRIM(CAST(\`work_state_code\` AS STRING)) AS state,
+          CAST(\`org_structure_lvl2\` AS STRING) AS sector
         FROM ${config.tableSql}
-        WHERE UPPER(CAST(\`Sector\` AS STRING)) LIKE '%DEFENSE%'
-          AND NULLIF(TRIM(CAST(\`Work_City_NSR\` AS STRING)), '') IS NOT NULL
-          AND UPPER(TRIM(CAST(\`Work_City_NSR\` AS STRING))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
+        WHERE \`effective_date\` = (SELECT MAX(\`effective_date\`) FROM ${config.tableSql})
+          AND UPPER(CAST(\`org_structure_lvl2\` AS STRING)) LIKE '%DEFENSE%'
+          AND NULLIF(TRIM(CAST(\`work_city\` AS STRING)), '') IS NOT NULL
+          AND UPPER(TRIM(CAST(\`work_city\` AS STRING))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
       `
     });
     return buildLaborRosterLookup(rows);

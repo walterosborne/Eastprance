@@ -8,7 +8,7 @@ import { getLaborRosterConfig, buildLaborRosterLookup, joinLaborFacilities, read
 import { LABOR_UTILIZATION_NEW_DBM_QUERY } from './dbmQueries/laborUtilizationNewQuery.js';
 
 const roster = (overrides = {}) => ({
-  my_id_nsr: ' a1 ', my_id_sr: 'B1', my_id_dm: 'C1', my_id_sap: 'D1',
+  myid: ' a1 ',
   city: 'Huntsville', state: 'AL', sector: 'Defense Systems', ...overrides
 });
 const labor = (my_id, entered_hours, overrides = {}) => ({
@@ -26,12 +26,12 @@ test('table identifiers are required, individually quoted, and not hardcoded', (
   assert.equal(config.tableSql, '`test_catalog`.`test_schema`.`name``with.dot;SELECT`');
 });
 
-test('all four MyID aliases match without duplicate hours or employee IDs in the response', () => {
+test('latest roster MyID matches without duplicate hours or employee IDs in the response', () => {
   const lookup = buildLaborRosterLookup([roster(), roster(), roster({ city: 'HUNTSVILLE', state: 'al' })]);
-  const source = [labor(' A1 ', 8.25), labor('b1', -1.25), labor('C1', 2), labor('d1', 0)];
+  const source = [labor(' A1 ', 8.25), labor('a1', -1.25), labor('A1', 2), labor('a1', 0)];
   const before = structuredClone(source);
   const rows = joinLaborFacilities(source, lookup);
-  assert.equal(lookup.size, 4);
+  assert.equal(lookup.size, 1);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].entered_hours, 9);
   assert.equal(rows[0].facility, 'Huntsville');
@@ -42,16 +42,16 @@ test('all four MyID aliases match without duplicate hours or employee IDs in the
 
 test('non-Defense, missing, unknown, and ambiguous roster matches stay unmapped', () => {
   const lookup = buildLaborRosterLookup([
-    roster(), roster({ my_id_nsr: 'A1', my_id_sr: null, my_id_dm: null, my_id_sap: null, city: 'Other City' }),
-    roster({ my_id_nsr: 'X1', my_id_sr: null, my_id_dm: null, my_id_sap: null, sector: 'Aeronautics' }),
-    roster({ my_id_nsr: 'Y1', my_id_sr: null, my_id_dm: null, my_id_sap: null, city: 'UNKNOWN CITY' }),
-    roster({ my_id_nsr: 'Z1', my_id_sr: null, my_id_dm: null, my_id_sap: null, city: '' })
+    roster(), roster({ myid: 'A1', city: 'Other City' }),
+    roster({ myid: 'X1', sector: 'Aeronautics' }),
+    roster({ myid: 'Y1', city: 'UNKNOWN CITY' }),
+    roster({ myid: 'Z1', city: '' })
   ]);
   const rows = joinLaborFacilities(['A1', 'X1', 'Y1', 'Z1', null, 'not found'].map((id) => labor(id, 1)), lookup);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].entered_hours, 6);
   assert.equal(rows[0].facility, '');
-  assert.ok(lookup.has('B1'), 'conflicts affect only the ambiguous ID');
+  assert.equal(lookup.has('A1'), false);
   assert.throws(() => buildLaborRosterLookup([{ city: 'City' }]), /required MyID/);
 });
 
@@ -73,7 +73,12 @@ test('roster reads the configured table, follows chunks, and surfaces Databricks
       const query = JSON.parse(init.body).statement;
       assert.ok(query.includes('FROM `test_catalog`.`test_schema`.`test_roster`'));
       assert.ok(query.includes("LIKE '%DEFENSE%'"));
-      assert.ok(query.includes('`Employee_MyID_SAP`'));
+      assert.ok(query.includes('`myid`'));
+      assert.ok(query.includes('`work_city`'));
+      assert.ok(query.includes('`work_state_code`'));
+      assert.ok(query.includes('`org_structure_lvl2`'));
+      assert.ok(query.includes('`effective_date` = (SELECT MAX(`effective_date`)'));
+      assert.doesNotMatch(query, /Employee_MyID|Work_City_NSR|\`Sector\`/);
       return Response.json({
         status: { state: 'SUCCEEDED' },
         manifest: { schema: { columns: Object.keys(data).map((name) => ({ name })) }, total_row_count: 1 },
@@ -102,7 +107,7 @@ async function repositoryHarness(rosterLoader) {
     readLaborRosterLookup: rosterLoader,
     joinLaborFacilities, LABOR_UTILIZATION_NEW_DBM_QUERY,
     getConnectionConfig: () => ({ config: {}, missing: [] }),
-    getPool: async () => ({ request: () => ({ query: async () => ({ recordset: [labor('A1', 8), labor('B1', -2), labor('missing', 3)] }) }) }),
+    getPool: async () => ({ request: () => ({ query: async () => ({ recordset: [labor('A1', 8), labor('a1', -2), labor('missing', 3)] }) }) }),
     createTimer: () => () => 0, formatDuration: () => '', logDebug() {}, logError() {}
   };
   vm.createContext(context);

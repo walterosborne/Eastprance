@@ -115,7 +115,7 @@ WITH CostCenterHierarchy AS (
       PARTITION BY LTRIM(RTRIM(COST_CENTER))
       ORDER BY last_modified_date DESC, created_date DESC, id DESC
     ) AS rn
-  FROM rpt.rb_load_cost_center_hierarchy
+  FROM rpt.cost_center_load_hierarchy
   WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 )
 SELECT
@@ -225,7 +225,7 @@ WITH Ranked AS (
       PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
       ORDER BY last_modified_date DESC, created_date DESC, id DESC
     ) AS rn
-  FROM rpt.rb_load_cost_center_hierarchy
+  FROM rpt.cost_center_load_hierarchy
   WHERE UPPER(LTRIM(RTRIM(COST_CENTER))) IN (${list})
 )
 SELECT cost_center, division, business_unit FROM Ranked WHERE rn = 1;

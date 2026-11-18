@@ -25,8 +25,8 @@ const DBM_TABLE_CHECKS = [
     transactionTable: true
   },
   {
-    name: 'rpt.rb_load_cost_center_hierarchy',
-    query: 'SELECT TOP (0) 1 AS [accessible] FROM [rpt].[rb_load_cost_center_hierarchy];'
+    name: 'rpt.cost_center_load_hierarchy',
+    query: 'SELECT TOP (0) 1 AS [accessible] FROM [rpt].[cost_center_load_hierarchy];'
   },
   {
     name: 'rpt.rb_archibus',
@@ -113,7 +113,7 @@ WITH CostCenterHierarchy AS (
       PARTITION BY LTRIM(RTRIM(COST_CENTER))
       ORDER BY last_modified_date DESC, created_date DESC, id DESC
     ) AS rn
-  FROM rpt.rb_load_cost_center_hierarchy
+  FROM rpt.cost_center_load_hierarchy
   WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 )
 SELECT
@@ -286,7 +286,7 @@ WITH CostCenterHierarchy AS (
       PARTITION BY LTRIM(RTRIM(COST_CENTER))
       ORDER BY last_modified_date DESC, created_date DESC, id DESC
     ) AS rn
-  FROM rpt.rb_load_cost_center_hierarchy
+  FROM rpt.cost_center_load_hierarchy
   WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 )
 SELECT

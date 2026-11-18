@@ -9,7 +9,7 @@ WITH CostCenterHierarchy AS (
                 created_date DESC,
                 id DESC
         ) AS rn
-    FROM rpt.rb_load_cost_center_hierarchy
+    FROM rpt.cost_center_load_hierarchy
     WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 )
 

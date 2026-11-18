@@ -406,5 +406,5 @@ through the app. The application reads and writes this Databricks table with
 the default SQL connection is no longer used by enabled cards or preset storage.
 
 The configured `dbmserver` and `dbmdatabase` must contain both
-`rpt.rb_Actuals_RM_Load_Table` and `rpt.rb_load_cost_center_hierarchy`.
+`rpt.actuals_load_resource_management` and `rpt.cost_center_load_hierarchy`.
 Labor and cost hierarchy reads resolve these tables against that database.

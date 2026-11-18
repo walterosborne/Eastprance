@@ -11,7 +11,7 @@ WITH CostCenterHierarchy AS (
                 created_date DESC,
                 id DESC
         ) AS rn
-    FROM rpt.rb_load_cost_center_hierarchy
+    FROM rpt.cost_center_load_hierarchy
     WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 ),
 
@@ -35,7 +35,7 @@ Actuals AS (
             ELSE 'Other'
         END AS Labor_Category,
         TRY_CONVERT(DECIMAL(18,2), Hours) AS Entered_Hours
-    FROM rpt.rb_Actuals_RM_Load_Table
+    FROM rpt.actuals_load_resource_management
     WHERE
         NULLIF(LTRIM(RTRIM(Cost_Center)), '') IS NOT NULL
         AND TRY_CONVERT(DECIMAL(18,2), Hours) IS NOT NULL

@@ -91,8 +91,8 @@ test('latest in-month Defense record wins with headcount and worker tie-breakers
 });
 
 test('SQL retains per-person hours and never queries the old roster', () => {
-  assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /FROM rpt\.rb_Actuals_RM_Load_Table/);
-  assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /FROM rpt\.rb_load_cost_center_hierarchy/);
+  assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /FROM rpt\.actuals_load_resource_management/);
+  assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /FROM rpt\.cost_center_load_hierarchy/);
   assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /a\.MyID AS my_id/);
   assert.doesNotMatch(LABOR_UTILIZATION_NEW_DBM_QUERY, /rb_roster_transform|RosterByPerson|DefenseRoster/);
 });

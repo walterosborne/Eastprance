@@ -1,5 +1,6 @@
 SELECT
   CAST(RACCT AS STRING) AS gl_account,
+  CAST(GL_TXT50 AS STRING) AS description,
   COUNT(*) AS rows,
   ROUND(SUM(ABS(TRY_CAST(KSL AS DOUBLE))), 0) AS absolute_ksl
 FROM source_systems_dev.sql_central_integration.lfc_transaction_details_s3
@@ -7,6 +8,6 @@ WHERE TRY_CAST(GJAHR AS INT) = 2026
   AND TRY_CAST(POPER AS INT) = 9
   AND NULLIF(TRIM(CAST(RCNTR AS STRING)), '') IS NOT NULL
   AND TRY_CAST(KSL AS DOUBLE) IS NOT NULL
-GROUP BY 1
+GROUP BY 1, 2
 ORDER BY absolute_ksl DESC
-LIMIT 20;
+LIMIT 30;

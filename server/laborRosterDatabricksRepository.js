@@ -1,5 +1,7 @@
 import { executeDatabricksQuery } from './databricksQuery.js';
 
+// Approved use: this fiscal month-end roster may only assign facilities to labor actuals.
+// Do not import it for safety, headcount, identity, costs, or any other metric.
 const INVALID_CITIES = new Set(['UNKNOWN CITY', 'UNKNOWN', 'N/A']);
 const normalizeText = (value) => String(value ?? '').trim();
 const normalizeId = (value) => normalizeText(value).toUpperCase();
@@ -20,28 +22,53 @@ export function getLaborRosterConfig(env = process.env) {
   return { tableSql: values.map((value) => '`' + value.replace(/`/g, '``') + '`').join('.') };
 }
 
+const monthKey = (myid, year, month) => JSON.stringify([normalizeId(myid), Number(year), Number(month)]);
+
+function snapshotDate(value) {
+  const match = String(value ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) return null;
+  return { year, month, iso: `${match[1]}-${match[2]}-${match[3]}` };
+}
+
+function compareCandidates(left, right) {
+  if (left.date !== right.date) return left.date > right.date ? 1 : -1;
+  if (left.standard !== right.standard) return Number(left.standard) - Number(right.standard);
+  return left.workerId.localeCompare(right.workerId, undefined, { numeric: true });
+}
+
 export function buildLaborRosterLookup(rows) {
-  const lookup = new Map();
-  const conflictingIds = new Set();
-  const required = ['myid', 'city', 'state', 'sector'];
+  const candidates = new Map();
+  const required = ['myid', 'city', 'state', 'sector', 'effective_date', 'is_standard_headcount', 'worker_id'];
   for (const row of rows) {
     if (required.some((field) => !Object.hasOwn(row, field))) {
-      throw new Error('Databricks labor roster is missing required MyID, city, state, or sector columns.');
+      throw new Error('Databricks labor roster is missing required MyID, location, sector, or fiscal snapshot fields.');
     }
+    const id = normalizeId(row.myid);
+    const date = snapshotDate(row.effective_date);
+    if (!id || !date || !normalizeId(row.sector).includes('DEFENSE')) continue;
     const city = normalizeText(row.city);
     const state = normalizeText(row.state);
-    if (!normalizeId(row.sector).includes('DEFENSE') || !city || INVALID_CITIES.has(city.toUpperCase())) {
-      continue;
-    }
-    const facilityKey = JSON.stringify([city.toUpperCase(), state.toUpperCase()]);
-    const id = normalizeId(row.myid);
-    if (!id || conflictingIds.has(id)) continue;
-    const existing = lookup.get(id);
-    if (existing && existing.facilityKey !== facilityKey) {
-      lookup.delete(id);
-      conflictingIds.add(id);
-    } else if (!existing) {
-      lookup.set(id, { city, state, facilityKey });
+    const candidate = {
+      city, state,
+      facilityKey: JSON.stringify([city.toUpperCase(), state.toUpperCase()]),
+      date: date.iso,
+      standard: ['1', 'TRUE', 'Y', 'YES'].includes(normalizeId(row.is_standard_headcount)),
+      workerId: normalizeId(row.worker_id)
+    };
+    const key = monthKey(id, date.year, date.month);
+    const previous = candidates.get(key);
+    const comparison = previous ? compareCandidates(candidate, previous.best) : 1;
+    if (comparison > 0) candidates.set(key, { best: candidate, conflict: false });
+    else if (comparison === 0 && candidate.facilityKey !== previous.best.facilityKey) previous.conflict = true;
+  }
+
+  const lookup = new Map();
+  for (const [key, { best, conflict }] of candidates) {
+    if (!conflict && best.city && !INVALID_CITIES.has(best.city.toUpperCase())) {
+      lookup.set(key, { city: best.city, state: best.state, facilityKey: best.facilityKey });
     }
   }
   return lookup;
@@ -53,16 +80,30 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig()) {
       scope: 'labor-roster',
       tableName: 'configured Databricks labor roster',
       query: `
-        SELECT
-          CAST(\`myid\` AS STRING) AS myid,
-          TRIM(CAST(\`work_city\` AS STRING)) AS city,
-          TRIM(CAST(\`work_state_code\` AS STRING)) AS state,
-          CAST(\`org_structure_lvl2\` AS STRING) AS sector
-        FROM ${config.tableSql}
-        WHERE \`effective_date\` = (SELECT MAX(\`effective_date\`) FROM ${config.tableSql})
-          AND UPPER(CAST(\`org_structure_lvl2\` AS STRING)) LIKE '%DEFENSE%'
-          AND NULLIF(TRIM(CAST(\`work_city\` AS STRING)), '') IS NOT NULL
-          AND UPPER(TRIM(CAST(\`work_city\` AS STRING))) NOT IN ('UNKNOWN CITY', 'UNKNOWN', 'N/A')
+        -- Return only the most relevant Defense snapshot for each MyID/month.
+        -- DENSE_RANK retains tied locations so the app can leave conflicts unmapped.
+        WITH ranked AS (
+          SELECT
+            CAST(\`myid\` AS STRING) AS myid,
+            TRIM(CAST(\`work_city\` AS STRING)) AS city,
+            TRIM(CAST(\`work_state_code\` AS STRING)) AS state,
+            CAST(\`org_structure_lvl2\` AS STRING) AS sector,
+            CAST(\`effective_date\` AS STRING) AS effective_date,
+            CAST(\`is_standard_headcount\` AS STRING) AS is_standard_headcount,
+            CAST(\`worker_id\` AS STRING) AS worker_id,
+            DENSE_RANK() OVER (
+              PARTITION BY UPPER(TRIM(CAST(\`myid\` AS STRING))),
+                YEAR(\`effective_date\`), MONTH(\`effective_date\`)
+              ORDER BY \`effective_date\` DESC,
+                \`is_standard_headcount\` DESC, \`worker_id\` DESC
+            ) AS roster_rank
+          FROM ${config.tableSql}
+          WHERE \`effective_date\` IS NOT NULL
+            AND UPPER(CAST(\`org_structure_lvl2\` AS STRING)) LIKE '%DEFENSE%'
+        )
+        SELECT myid, city, state, sector, effective_date, is_standard_headcount, worker_id
+        FROM ranked
+        WHERE roster_rank = 1
       `
     });
     return buildLaborRosterLookup(rows);
@@ -76,7 +117,9 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig()) {
 export function joinLaborFacilities(laborRows, rosterLookup) {
   const totals = new Map();
   for (const row of laborRows) {
-    const facility = rosterLookup.get(normalizeId(row.my_id));
+    // A fiscal month-end snapshot belongs only to that labor month. Do not carry
+    // today's location backward or substitute an adjacent month's facility.
+    const facility = rosterLookup.get(monthKey(row.my_id, row.year, row.month));
     const result = {
       year: row.year,
       month: row.month,

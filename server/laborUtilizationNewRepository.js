@@ -252,6 +252,8 @@ async function readLaborUtilizationNewDbmData(config, rosterConfig) {
     querySource: 'embedded-server-query'
   });
 
+  // Approved use of the Databricks fiscal roster: labor facility attribution only.
+  // Join after DBM preserves MyID and month, then remove employee IDs from the payload.
   const [result, rosterLookup] = await Promise.all([
     pool.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY),
     readLaborRosterLookup(rosterConfig)

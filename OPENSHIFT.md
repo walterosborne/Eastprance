@@ -378,10 +378,18 @@ For local runs, put the same keys in `server/.env`. Set each to one identifier c
 without surrounding SQL quotes; no actual table name belongs in source control.
 
 Labor hours and cost-center hierarchy still come from DBM SQL. The app queries the configured
-Databricks roster's latest `effective_date` snapshot, matches `myid` to labor `MYID`, and
-aggregates back to the existing facility-level response. The roster must expose
-`myid`, `work_city`, `work_state_code`, `org_structure_lvl2`, and `effective_date`.
-Only `org_structure_lvl2` values containing `Defense` qualify.
-Blank/unknown cities and conflicting locations remain unmapped; duplicate roster records
-never multiply labor hours. Roster configuration/query errors are surfaced rather than
-falling back to the SQL roster. This setting controls labor facility mapping only.
+Databricks fiscal month-end roster by `myid` and the labor row's year/month. Within
+each month it prefers the latest `effective_date` Defense record, then
+`is_standard_headcount`, then `worker_id`; it aggregates back to the existing
+facility-level response. The roster must expose `myid`, `work_city`,
+`work_state_code`, `org_structure_lvl2`, `effective_date`,
+`is_standard_headcount`, and `worker_id`.
+Only `org_structure_lvl2` values containing `Defense` qualify. Months without
+a qualifying snapshot, blank/unknown cities, and unresolved same-rank conflicts
+remain unmapped; a later facility is never carried into a prior labor month.
+Duplicate roster records never multiply labor hours. Roster configuration/query
+errors are surfaced rather than falling back to the SQL roster.
+
+**Approved use:** This Databricks roster table is for labor facility attribution only.
+Do not reuse it for safety, headcount, identity, costs, or another metric. The
+separate SQL `RosterExtractFarm` use described above is unaffected.

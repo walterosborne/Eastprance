@@ -178,7 +178,7 @@ The replacement labor utilization data uses actual labor hours directly from DBM
 | Division | `LEV03_DESC` | The division associated with the cost center. |
 | Business Unit | `LEV04_DESC` | The business unit associated with the cost center. |
 
-- **`dbo.rb_roster_transform` (SQL Database: `DTO_Business_Management`)** — Matches the labor My ID to roster My ID fields and uses the work city and state from rows whose sector contains `Defense`. Missing or conflicting facilities and Excel fallback rows are reported as `Unmapped`. The roster supplies the work location for historical labor rows as well.
+- **Configured Databricks fiscal month-end roster** (`DATABRICKS_LABOR_ROSTER_CATALOG` / `SCHEMA` / `TABLE`) — Approved **only for labor facility attribution**. Join labor `MYID` to `myid` and the labor year/month to the roster's `effective_date` year/month. Within that month prefer the latest Defense Systems record, then `is_standard_headcount`, then `worker_id`. Use `work_city` and `work_state_code` as the facility. Missing snapshots, non-Defense records, blank/unknown cities, and unresolved same-rank conflicting facilities remain `Unmapped`; no later roster location is applied to historical labor. Do not use this table for safety, headcount, identity, costs, or any other metric.
 
 The replacement source groups the actual hours by year, month, Division, Business Unit, cost center, facility, and labor category. Labor categories containing `Direct` or `Indirect` are grouped accordingly; unexpected values remain grouped as `Other`.
 

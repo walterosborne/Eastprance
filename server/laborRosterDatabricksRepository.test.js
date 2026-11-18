@@ -9,7 +9,8 @@ import { LABOR_UTILIZATION_NEW_DBM_QUERY } from './dbmQueries/laborUtilizationNe
 
 const roster = (overrides = {}) => ({
   myid: ' a1 ',
-  city: 'Huntsville', state: 'AL', sector: 'Defense Systems', ...overrides
+  city: 'Huntsville', state: 'AL', sector: 'Defense Systems',
+  effective_date: '2026-09-30', is_standard_headcount: 'true', worker_id: '123', ...overrides
 });
 const labor = (my_id, entered_hours, overrides = {}) => ({
   year: 2026, month: 9, division: 'Weapon Systems', business_unit: 'BU',
@@ -26,7 +27,7 @@ test('table identifiers are required, individually quoted, and not hardcoded', (
   assert.equal(config.tableSql, '`test_catalog`.`test_schema`.`name``with.dot;SELECT`');
 });
 
-test('latest roster MyID matches without duplicate hours or employee IDs in the response', () => {
+test('labor-month roster MyID matches without duplicate hours or employee IDs in the response', () => {
   const lookup = buildLaborRosterLookup([roster(), roster(), roster({ city: 'HUNTSVILLE', state: 'al' })]);
   const source = [labor(' A1 ', 8.25), labor('a1', -1.25), labor('A1', 2), labor('a1', 0)];
   const before = structuredClone(source);
@@ -51,8 +52,42 @@ test('non-Defense, missing, unknown, and ambiguous roster matches stay unmapped'
   assert.equal(rows.length, 1);
   assert.equal(rows[0].entered_hours, 6);
   assert.equal(rows[0].facility, '');
-  assert.equal(lookup.has('A1'), false);
+  assert.equal(lookup.has(JSON.stringify(['A1', 2026, 9])), false);
   assert.throws(() => buildLaborRosterLookup([{ city: 'City' }]), /required MyID/);
+});
+
+test('month-end snapshots follow transfers without leaking locations across months', () => {
+  const lookup = buildLaborRosterLookup([
+    roster({ effective_date: '2026-08-31', city: 'Huntsville' }),
+    roster({ effective_date: '2026-09-30', city: 'Baltimore' }),
+    roster({ effective_date: '2026-10-31', city: 'San Diego', sector: 'Aeronautics' })
+  ]);
+  const rows = joinLaborFacilities([
+    labor('A1', 8, { month: 8 }),
+    labor('A1', 9, { month: 9 }),
+    labor('A1', 10, { month: 10 }),
+    labor('A1', 7, { month: 7 })
+  ], lookup);
+  assert.equal(rows.find((row) => row.month === 8).facility, 'Huntsville');
+  assert.equal(rows.find((row) => row.month === 9).facility, 'Baltimore');
+  assert.equal(rows.find((row) => row.month === 10).facility, '');
+  assert.equal(rows.find((row) => row.month === 7).facility, '');
+});
+
+test('latest in-month Defense record wins with headcount and worker tie-breakers; unresolved ties stay unmapped', () => {
+  const lookup = buildLaborRosterLookup([
+    roster({ myid: 'A1', effective_date: '2026-09-15', city: 'Old City' }),
+    roster({ myid: 'A1', city: 'New City', is_standard_headcount: 'false' }),
+    roster({ myid: 'A1', city: 'Huntsville', worker_id: '2' }),
+    roster({ myid: 'A1', city: 'Baltimore', worker_id: '10' }),
+    roster({ myid: 'B1', city: 'City One' }),
+    roster({ myid: 'B1', city: 'City Two' }),
+    roster({ myid: 'C1', city: 'Valid City', effective_date: '2026-09-15' }),
+    roster({ myid: 'C1', city: 'UNKNOWN CITY' })
+  ]);
+  const rows = joinLaborFacilities([labor('A1', 1), labor('B1', 1), labor('C1', 1)], lookup);
+  assert.equal(rows.find((row) => row.facility === 'Baltimore')?.entered_hours, 1);
+  assert.equal(rows.find((row) => row.facility === '')?.entered_hours, 2);
 });
 
 test('SQL retains per-person hours and never queries the old roster', () => {
@@ -77,7 +112,12 @@ test('roster reads the configured table, follows chunks, and surfaces Databricks
       assert.ok(query.includes('`work_city`'));
       assert.ok(query.includes('`work_state_code`'));
       assert.ok(query.includes('`org_structure_lvl2`'));
-      assert.ok(query.includes('`effective_date` = (SELECT MAX(`effective_date`)'));
+      assert.ok(query.includes('`effective_date` IS NOT NULL'));
+      assert.ok(query.includes('`is_standard_headcount`'));
+      assert.ok(query.includes('`worker_id`'));
+      assert.ok(query.includes('DENSE_RANK() OVER'));
+      assert.ok(query.includes('WHERE roster_rank = 1'));
+      assert.doesNotMatch(query, /MAX\\(`effective_date`\\)/);
       assert.doesNotMatch(query, /Employee_MyID|Work_City_NSR|\`Sector\`/);
       return Response.json({
         status: { state: 'SUCCEEDED' },
@@ -87,7 +127,7 @@ test('roster reads the configured table, follows chunks, and surfaces Databricks
     }
     return Response.json({ data_array: [Object.values(data)] });
   });
-  assert.equal((await readLaborRosterLookup({ tableSql: '`test_catalog`.`test_schema`.`test_roster`' })).get('A1').city, 'Huntsville');
+  assert.equal((await readLaborRosterLookup({ tableSql: '`test_catalog`.`test_schema`.`test_roster`' })).get(JSON.stringify(['A1', 2026, 9])).city, 'Huntsville');
   t.mock.method(globalThis, 'fetch', async () => Response.json({ message: 'not available' }, { status: 403 }));
   await assert.rejects(readLaborRosterLookup({ tableSql: '`test`.`test`.`test`' }), { code: 'LABOR_ROSTER_UNAVAILABLE' });
 });

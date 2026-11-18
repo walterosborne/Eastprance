@@ -1,7 +1,3 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import XLSX from 'xlsx';
 import {
   createTimer,
   formatDuration,
@@ -17,15 +13,6 @@ import {
 const CONTROLLABLE_COSTS_TABLE_NAME = 'controllable_costs';
 const COST_CATEGORY_KEY_TABLE_NAME = 'cost_category_key';
 const COST_ELEMENT_KEY_TABLE_NAME = 'cost_element_key';
-const WORKBOOK_SHEET_NAMES = {
-  costs: 'Controllable Costs',
-  categoryKey: 'Cost Category Key',
-  elementKey: 'Cost Element Key'
-};
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const controllableCostsFilePath = path.resolve(__dirname, '../data/controllable_costs.xlsx');
-
 function normalizeNumber(value) {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -74,84 +61,6 @@ function normalizeControllableCostsRow(row) {
   };
 }
 
-function getElementMatchRank(costRow, elementKeyRow) {
-  if (
-    elementKeyRow['Cost Category'] === costRow['Cost Category'] &&
-    elementKeyRow['Cost Element Description'] === costRow['Cost Element Description']
-  ) {
-    return 0;
-  }
-
-  if (elementKeyRow['Cost Category'] === costRow['Cost Category']) {
-    return 1;
-  }
-
-  if (elementKeyRow['Cost Element Description'] === costRow['Cost Element Description']) {
-    return 2;
-  }
-
-  return 3;
-}
-
-function resolveControllableStatus(costRow, elementKeyRows, categoryKeyRows) {
-  const matchingElementRows = elementKeyRows
-    .filter((row) => row['Cost Element'] === costRow['Cost Element'])
-    .sort((left, right) => getElementMatchRank(costRow, left) - getElementMatchRank(costRow, right));
-
-  if (matchingElementRows.length > 0) {
-    return normalizeControllable(matchingElementRows[0].Controllable);
-  }
-
-  const categoryMatch = categoryKeyRows.find(
-    (row) => row['Cost Category'] === costRow['Cost Category']
-  );
-
-  return normalizeControllable(categoryMatch?.Controllable);
-}
-
-async function readFallbackControllableCostsData(reason) {
-  const stopTimer = createTimer();
-
-  logDebug('controllable-costs', 'Loading controllable costs fallback file.', {
-    filePath: controllableCostsFilePath,
-    reason
-  });
-
-  await fs.access(controllableCostsFilePath);
-
-  const workbook = XLSX.readFile(controllableCostsFilePath, { cellDates: false });
-  const costsWorksheet = workbook.Sheets[WORKBOOK_SHEET_NAMES.costs];
-  const categoryKeyWorksheet = workbook.Sheets[WORKBOOK_SHEET_NAMES.categoryKey];
-  const elementKeyWorksheet = workbook.Sheets[WORKBOOK_SHEET_NAMES.elementKey];
-
-  const costRows = XLSX.utils.sheet_to_json(costsWorksheet, { defval: null, raw: true });
-  const categoryKeyRows = XLSX.utils.sheet_to_json(categoryKeyWorksheet, { defval: null, raw: true });
-  const elementKeyRows = XLSX.utils.sheet_to_json(elementKeyWorksheet, { defval: null, raw: true });
-  // Keep the full legacy facility-report population. Rows without a Cost Element
-  // are classified from the category key instead of being discarded.
-  const rows = costRows.map((row) => normalizeControllableCostsRow({
-    ...row,
-    'Resolved Controllable': resolveControllableStatus(row, elementKeyRows, categoryKeyRows)
-  }));
-
-  const payload = {
-    source: 'excel',
-    fileName: path.basename(controllableCostsFilePath),
-    rowCount: rows.length,
-    fallbackReason: reason,
-    rows
-  };
-
-  logDebug('controllable-costs', 'Controllable costs fallback file loaded.', {
-    source: 'excel',
-    fileName: payload.fileName,
-    rowCount: rows.length,
-    duration: formatDuration(stopTimer())
-  });
-
-  return payload;
-}
-
 export async function readControllableCostsData() {
   const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig();
@@ -162,15 +71,7 @@ export async function readControllableCostsData() {
   });
 
   if (missing.length > 0) {
-    logDebug(
-      'controllable-costs',
-      'Controllable costs data load is missing SQL configuration; using fallback.',
-      { missing }
-    );
-
-    return readFallbackControllableCostsData(
-      `Missing database environment variables: ${missing.join(', ')}`
-    );
+    throw new Error(`Missing database environment variables: ${missing.join(', ')}`);
   }
 
   try {
@@ -261,11 +162,11 @@ export async function readControllableCostsData() {
       rows
     };
   } catch (error) {
-    logError('controllable-costs', 'Controllable costs SQL query failed; using fallback data.', error, {
+    logError('controllable-costs', 'Controllable costs SQL query failed.', error, {
       tableName: CONTROLLABLE_COSTS_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
 
-    return readFallbackControllableCostsData(`Database read failed: ${error.message}`);
+    throw error;
   }
 }

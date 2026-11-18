@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { test } from 'node:test';
 import { getLaborRosterConfig, buildLaborRosterLookup, joinLaborFacilities, readLaborRosterLookup } from './laborRosterDatabricksRepository.js';
@@ -94,6 +92,7 @@ test('SQL retains per-person hours and never queries the old roster', () => {
   assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /FROM rpt\.actuals_load_resource_management/);
   assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /FROM rpt\.cost_center_load_hierarchy/);
   assert.match(LABOR_UTILIZATION_NEW_DBM_QUERY, /a\.MyID AS my_id/);
+  assert.doesNotMatch(LABOR_UTILIZATION_NEW_DBM_QUERY, /last_modified_date/);
   assert.doesNotMatch(LABOR_UTILIZATION_NEW_DBM_QUERY, /rb_roster_transform|RosterByPerson|DefenseRoster/);
 });
 
@@ -163,10 +162,7 @@ async function repositoryHarness(rosterLoader) {
     .replace(/^import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];\n/gm, '')
     .replaceAll('export ', '')
     .replaceAll('import.meta.url', JSON.stringify(url.href));
-  let fallbackReads = 0;
   const context = {
-    path, fileURLToPath,
-    fs: { access: async () => { fallbackReads += 1; throw new Error('unexpected Excel fallback'); } },
     normalizeCostCenter: (value) => String(value ?? '').trim().toUpperCase(),
     getLaborRosterConfig: () => ({ tableSql: '`test`.`test`.`test`' }),
     readLaborRosterLookup: async (config, laborRows) => {
@@ -180,7 +176,7 @@ async function repositoryHarness(rosterLoader) {
   };
   vm.createContext(context);
   vm.runInContext(source, context);
-  return { load: context.readLaborUtilizationNewData, fallbackReads: () => fallbackReads };
+  return { load: context.readLaborUtilizationNewData };
 }
 
 test('repository joins before payload creation and retains signed totals and Unmapped rows', async () => {
@@ -190,11 +186,9 @@ test('repository joins before payload creation and retains signed totals and Unm
   assert.equal(payload.rows.find((row) => row.facility === 'Huntsville').entered_hours, 6);
   assert.equal(payload.rows.find((row) => row.facility === 'Unmapped').entered_hours, 3);
   assert.equal(payload.facilityMapping.source, 'databricks');
-  assert.equal(harness.fallbackReads(), 0);
 });
 
-test('roster failure never triggers a silent Excel fallback', async () => {
+test('roster failure propagates to the card', async () => {
   const harness = await repositoryHarness(async () => { throw Object.assign(new Error('roster unavailable'), { code: 'LABOR_ROSTER_UNAVAILABLE' }); });
   await assert.rejects(harness.load(), /roster unavailable/);
-  assert.equal(harness.fallbackReads(), 0);
 });

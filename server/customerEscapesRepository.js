@@ -1,14 +1,4 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import XLSX from 'xlsx';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
-
-const dataDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
-const requiredColumns = [
-  'data_month', 'program_id', 'division', 'business_unit',
-  'software_escapes', 'hardware_escapes', 'documentation_escapes'
-];
 
 // Match the division labels used by the dashboard hierarchy and other cards.
 function normalizeDivision(value) {
@@ -29,75 +19,13 @@ function normalizeDivision(value) {
   }
 }
 
-function normalizeMonth(value) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  if (typeof value === 'number') {
-    const date = XLSX.SSF.parse_date_code(value);
-    if (date) return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
-  }
-  const match = String(value ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
-  throw new Error(`Invalid customer escapes data_month: ${String(value)}`);
-}
-
-async function readCustomerEscapesWorkbook(reason) {
-  const candidates = ['customer_escapes.xlsx', 'customer_escapes.csv'];
-  let filePath;
-  for (const name of candidates) {
-    const candidate = path.join(dataDirectory, name);
-    try {
-      await fs.access(candidate);
-      filePath = candidate;
-      break;
-    } catch {
-      // Try the next supported export format.
-    }
-  }
-  if (!filePath) throw new Error(
-    `Quality Data Mart unavailable (${reason}). Put customer_escapes.xlsx or customer_escapes.csv in data/.`
-  );
-  const workbook = XLSX.readFile(filePath, { cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const headers = (XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] ?? []).map(String);
-  const missing = requiredColumns.filter(column => !headers.includes(column));
-  if (missing.length) throw new Error(`Customer escapes export missing columns: ${missing.join(', ')}`);
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: null }).map(row => {
-    const month = normalizeMonth(row.data_month);
-    const values = Object.fromEntries(
-      ['software_escapes', 'hardware_escapes', 'documentation_escapes'].map(column => {
-        const value = Number(row[column]);
-        if (row[column] == null || row[column] === '' || !Number.isFinite(value)) {
-          throw new Error(`Invalid ${column} for customer escapes month ${month}`);
-        }
-        return [column, value];
-      })
-    );
-    if (row.program_id == null || row.program_id === '') {
-      throw new Error(`Missing program_id for customer escapes month ${month}`);
-    }
-    return {
-      data_month: month,
-      program_id: String(row.program_id),
-      division: normalizeDivision(row.division),
-      business_unit: String(row.business_unit ?? '').trim(),
-      // Older workbook exports may not include facility; keep them readable.
-      facility: String(row.facility ?? '').trim(),
-      ...values
-    };
-  });
-  return { source: 'excel', fileName: path.basename(filePath), rowCount: rows.length, rows };
-}
-
 // V02 represents all reported defective delivered units. V01 is the
 // significant-defect subset and must not be added to V02.
 export async function readCustomerEscapesData() {
   const { config, missing } = getConnectionConfig('qaf');
   if (missing.length) {
-    return readCustomerEscapesWorkbook(`missing settings: ${missing.join(', ')}`);
+    throw new Error(`Missing Quality Data Mart settings: ${missing.join(', ')}`);
   }
-  try {
   const pool = await getPool(config, 'qaf');
   if (['kerberos', 'kerberos-password'].includes(config.authMode)) {
     const authentication = await pool.request().query(
@@ -148,7 +76,4 @@ export async function readCustomerEscapesData() {
       documentation_escapes: Number(row.documentation_escapes)
     }))
   };
-  } catch (error) {
-    return readCustomerEscapesWorkbook(error.message);
-  }
 }

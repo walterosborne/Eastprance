@@ -7,7 +7,6 @@ WITH CostCenterHierarchy AS (
         ROW_NUMBER() OVER (
             PARTITION BY LTRIM(RTRIM(COST_CENTER))
             ORDER BY
-                last_modified_date DESC,
                 created_date DESC,
                 id DESC
         ) AS rn
@@ -22,7 +21,6 @@ Roster AS (
         ROW_NUMBER() OVER (
             PARTITION BY LTRIM(RTRIM(Employee_MyID))
             ORDER BY
-                last_modified_date DESC,
                 created_date DESC,
                 id DESC
         ) AS rn

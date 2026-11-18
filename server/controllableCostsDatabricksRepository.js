@@ -520,7 +520,7 @@ export async function readDbmDimensionLookups() {
           NULLIF(LTRIM(RTRIM(LEV04_DESC)), '') AS business_unit,
           ROW_NUMBER() OVER (
             PARTITION BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-            ORDER BY last_modified_date DESC, created_date DESC, id DESC
+            ORDER BY created_date DESC, id DESC
           ) AS rn
         FROM [rpt].[cost_center_load_hierarchy]
         WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'

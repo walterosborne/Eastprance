@@ -17,7 +17,7 @@ This app is set up to deploy with a Docker build strategy.
 - `shared/apiHost.mjs`
   - binds to `0.0.0.0` in production so the container is reachable
 - `.gitignore`
-  - allows `data/sif_data.json` to be committed, since that dataset is not coming from SQL
+  - preserves the historical `data/sif_data.json` export; cards now read live sources
 
 ## Dockerfile layout
 
@@ -115,8 +115,7 @@ once a Kerberos handshake is confirmed:
 ~~~
 
 Open /api/customer-escapes and confirm source is "mssql" and rowCount
-looks plausible. source "excel" means the workbook fallback was used,
-not a live connection.
+looks plausible. A Quality Data Mart failure is returned as an error.
 
 The standalone read-only diagnostic can also be run where Linux ODBC,
 Kerberos, DNS, and QAF secrets are available:
@@ -352,9 +351,7 @@ the Service directly to `8080`; route it to the OAuth2 Proxy `oauth2-proxy` port
 
 ## Data note
 
-`data/sif_data.json` must be present in the repo because SIF / Potential SIF / NMFR are loaded from JSON, not SQL.
-
-The Excel fallback files are optional for deployment. They are only needed if you want local-file fallback for OTD, labor, or controllable costs in the deployed environment.
+Cards read their configured SQL Server and Databricks sources. A source or scheduled cache refresh failure is returned as an error; bundled Excel and JSON files and older cached payloads are not substituted for live card data.
 
 ## ODBC note
 
@@ -408,3 +405,4 @@ the default SQL connection is no longer used by enabled cards or preset storage.
 The configured `dbmserver` and `dbmdatabase` must contain both
 `rpt.actuals_load_resource_management` and `rpt.cost_center_load_hierarchy`.
 Labor and cost hierarchy reads resolve these tables against that database.
+The hierarchy ranking uses `created_date` followed by `id`; it does not read the old `last_modified_date` column.

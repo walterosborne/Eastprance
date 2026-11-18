@@ -1,27 +1,17 @@
 import { COST_ELEMENT_KEY_TABLE, readCostClassificationRows } from './databricksLookupRepository.js';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import XLSX from 'xlsx';
 import {
   createTimer,
   formatDuration,
   logDebug,
   logError
 } from './debugLogger.js';
-import {
-  normalizeCostCenter,
-  readCostCenterFacilityKey
-} from './costCenterFacilityKey.js';
+import { normalizeCostCenter } from './costCenterFacilityKey.js';
 import { CONTROLLABLE_COSTS_NEW_DBM_QUERY } from './dbmQueries/controllableCostsNewQuery.js';
 import {
   getConnectionConfig,
   getPool
 } from './sqlConnection.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const CONTROLLABLE_COSTS_NEW_FILE_PATH = path.resolve(__dirname, '../data/cost.xlsx');
 const REQUIRED_COLUMNS = [
   'year',
   'month',
@@ -207,26 +197,6 @@ export function normalizeControllableCostsNewRow(row, facilityKey = null) {
   };
 }
 
-async function readControllableCostsFacilityKey() {
-  try {
-    return await readCostCenterFacilityKey();
-  } catch (error) {
-    logError(
-      'controllable-costs-new',
-      'New controllable costs will use unmapped facility labels where cost centers cannot be resolved.',
-      error
-    );
-
-    return {
-      lookup: new Map(),
-      fileName: null,
-      sheetName: null,
-      mappedCostCenterCount: 0,
-      error: error.message
-    };
-  }
-}
-
 async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
   const availableColumns = new Set(Object.keys(sourceRows[0] ?? {}).map(normalizeHeader));
   const missingColumns = REQUIRED_COLUMNS.filter(
@@ -239,25 +209,22 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
     );
   }
 
-  // SAP already carries the live SQL costcenterkey facility mapping.
-  // Do not override it with a potentially stale local XLSX workbook.
-  const facilityKey = metadata.includeAllSapCosts
-    ? {
-        lookup: new Map(sourceRows.map((row) => {
-          const source = getNormalizedSourceRow(row);
-          return [normalizeCostCenter(source.cost_center), {
-            address: normalizeText(source.facility),
-            city: normalizeText(source.facility_city),
-            state: normalizeText(source.facility_state)
-          }];
-        })),
-        fileName: 'ecosystem_source.qmi.costcenterkey + central SDS',
-        sheetName: null,
-        mappedCostCenterCount: new Set(sourceRows.map((row) =>
-          normalizeCostCenter(getNormalizedSourceRow(row).cost_center)
-        )).size
-      }
-    : await readControllableCostsFacilityKey();
+  // The live SQL extract carries its own facility mapping.
+  const facilityKey = {
+    lookup: new Map(sourceRows.map((row) => {
+      const source = getNormalizedSourceRow(row);
+      return [normalizeCostCenter(source.cost_center), {
+        address: normalizeText(source.facility),
+        city: normalizeText(source.facility_city),
+        state: normalizeText(source.facility_state)
+      }];
+    })),
+    fileName: 'ecosystem_source.qmi.costcenterkey + central SDS',
+    sheetName: null,
+    mappedCostCenterCount: new Set(sourceRows.map((row) =>
+      normalizeCostCenter(getNormalizedSourceRow(row).cost_center)
+    )).size
+  };
   const normalizedRows = sourceRows
     .map((row) => normalizeControllableCostsNewRow(row, facilityKey))
     .filter(Boolean);
@@ -319,29 +286,6 @@ async function buildControllableCostsNewPipelineData(sourceRows, metadata) {
   };
 }
 
-export async function readControllableCostsNewExcelPipelineData() {
-  await fs.access(CONTROLLABLE_COSTS_NEW_FILE_PATH);
-
-  const workbook = XLSX.readFile(CONTROLLABLE_COSTS_NEW_FILE_PATH, { cellDates: false });
-  const sheetName = workbook.SheetNames[0];
-
-  if (!sheetName) {
-    throw new Error('The new controllable costs workbook does not contain a worksheet.');
-  }
-
-  const sourceRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
-    defval: null,
-    raw: true
-  });
-
-  return buildControllableCostsNewPipelineData(sourceRows, {
-    source: 'excel',
-    sourceLabel: 'The new controllable costs workbook',
-    fileName: path.basename(CONTROLLABLE_COSTS_NEW_FILE_PATH),
-    sheetName
-  });
-}
-
 async function readControllableCostsNewDbmPipelineData(config) {
   const pool = await getPool(config, 'dbm');
 
@@ -356,12 +300,11 @@ async function readControllableCostsNewDbmPipelineData(config) {
   return buildControllableCostsNewPipelineData(result.recordset, {
     source: 'sap-sql',
     sourceLabel: 'The precomputed QMI facility-cost extract',
-    tableName: 'ecosystem_source.qmi.controllable_costs_new_extract',
-    includeAllSapCosts: true
+    tableName: 'ecosystem_source.qmi.controllable_costs_new_extract'
   });
 }
 
-function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
+function buildControllableCostsNewPayload(pipeline) {
   const {
     source,
     fileName,
@@ -387,12 +330,11 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
   ).length;
 
   return {
-    source: fallbackReason ? 'excel-fallback' : source,
+    source,
     fileName,
     sheetName,
     queryFile,
     tableName,
-    fallbackReason,
     sourceRowCount: sourceRows.length,
     rowCount: rows.length,
     invalidRowCount: sourceRows.length - normalizedRows.length,
@@ -416,7 +358,6 @@ function buildControllableCostsNewPayload(pipeline, fallbackReason = null) {
 function logControllableCostsNewPayload(payload, stopTimer) {
   logDebug('controllable-costs-new', 'New controllable costs dataset loaded.', {
     source: payload.source,
-    fallbackReason: payload.fallbackReason,
     fileName: payload.fileName,
     sheetName: payload.sheetName,
     queryFile: payload.queryFile,
@@ -437,38 +378,6 @@ function logControllableCostsNewPayload(payload, stopTimer) {
     unclassifiedRowCount: payload.unclassifiedRowCount,
     duration: formatDuration(stopTimer())
   });
-}
-
-async function readControllableCostsNewExcelFallback(fallbackReason, stopTimer) {
-  logDebug('controllable-costs-new', 'Loading Excel fallback for new controllable costs.', {
-    source: 'excel-fallback',
-    filePath: CONTROLLABLE_COSTS_NEW_FILE_PATH,
-    fallbackReason
-  });
-
-  try {
-    const pipeline = await readControllableCostsNewExcelPipelineData();
-    const payload = buildControllableCostsNewPayload(pipeline, fallbackReason);
-
-    logControllableCostsNewPayload(payload, stopTimer);
-    return payload;
-  } catch (error) {
-    const normalizedError = error?.code === 'ENOENT'
-      ? new Error(`New controllable costs workbook not found at ${CONTROLLABLE_COSTS_NEW_FILE_PATH}.`)
-      : error;
-
-    logError(
-      'controllable-costs-new',
-      'Unable to load new controllable costs Excel fallback.',
-      normalizedError,
-      {
-        filePath: CONTROLLABLE_COSTS_NEW_FILE_PATH,
-        fallbackReason,
-        duration: formatDuration(stopTimer())
-      }
-    );
-    throw normalizedError;
-  }
 }
 
 export async function readControllableCostsNewData() {

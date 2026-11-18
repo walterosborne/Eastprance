@@ -182,7 +182,7 @@ The replacement labor utilization data uses actual labor hours directly from DBM
 
 The replacement source groups the actual hours by year, month, Division, Business Unit, cost center, facility, and labor category. Labor categories containing `Direct` or `Indirect` are grouped accordingly; unexpected values remain grouped as `Other`.
 
-*Legacy SQL-backed cards can fall back to bundled Excel/JSON data if their database reads fail.*
+*Card source failures are reported as errors; bundled Excel/JSON files are not used as fallback data.*
 
 
 ## Customer Escapes

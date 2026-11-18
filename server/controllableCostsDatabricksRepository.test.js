@@ -13,11 +13,15 @@ await mock.module('./sqlConnection.js', {
     getPool: async () => ({
       request: () => ({
         query: async (sql) => {
-          if (sql.includes('ranked_hierarchy')) return { recordset: [
-            { cost_center: 'CWI1', division: cwi, business_unit: 'CWI BU' },
-            { cost_center: 'SDS1', division: sds, business_unit: 'SDS BU' },
-            { cost_center: 'TDA87FC0', division: sds, business_unit: 'SDS BU' }
-          ] };
+          if (sql.includes('ranked_hierarchy')) {
+            assert.match(sql, /\[rpt\]\.\[cost_center_load_hierarchy\]/);
+            assert.doesNotMatch(sql, /last_modified_date/);
+            return { recordset: [
+              { cost_center: 'CWI1', division: cwi, business_unit: 'CWI BU' },
+              { cost_center: 'SDS1', division: sds, business_unit: 'SDS BU' },
+              { cost_center: 'TDA87FC0', division: sds, business_unit: 'SDS BU' }
+            ] };
+          }
           throw new Error(`Unexpected SQL query: ${sql}`);
         }
       })

@@ -18,10 +18,6 @@ import {
   renderLaborDiagnosticsPage
 } from './laborDiagnostics.js';
 import {
-  buildCostDiagnosticsPayload,
-  renderCostDiagnosticsPage
-} from './costDiagnostics.js';
-import {
   readDbmDiagnostics,
   renderDbmDiagnosticsPage
 } from './dbmDiagnostics.js';
@@ -38,10 +34,7 @@ import {
   readControllableCostsDatabricksNewData
 } from './controllableCostsDatabricksRepository.js';
 import { readControllableCostsHanaData } from './controllableCostsHanaRepository.js';
-import {
-  readControllableCostsNewData,
-  readControllableCostsNewExcelPipelineData
-} from './controllableCostsNewRepository.js';
+import { readControllableCostsNewData } from './controllableCostsNewRepository.js';
 import { readCurrentUser } from './currentUserRepository.js';
 import {
   readDashboardPresetsOverview,
@@ -202,7 +195,6 @@ async function sendDatasetResponse(request, response, scope, loadDataset, failur
       rowCount: groupedPayload.rowCount,
       tableName: groupedPayload.tableName,
       fileName: groupedPayload.fileName,
-      fallbackReason: groupedPayload.fallbackReason,
       duration: formatDuration(stopTimer())
     });
 
@@ -444,48 +436,6 @@ if (LEGACY_LABOR_DATASET_ENABLED) {
       });
       response.status(500).json({
         message: 'Unable to build labor diagnostics.',
-        error: error.message
-      });
-    }
-  });
-}
-
-if (LEGACY_COST_DATASET_ENABLED && SQL_COST_DATASET_ENABLED) {
-  app.get(['/cost-diagnostics', '/api/cost-diagnostics'], async (request, response) => {
-    const stopTimer = createTimer();
-
-    try {
-      const [oldPayload, pipeline] = await Promise.all([
-        getCachedSqlDataset('controllable-costs'),
-        readControllableCostsNewExcelPipelineData()
-      ]);
-      const payload = buildCostDiagnosticsPayload(pipeline, oldPayload);
-      const wantsJson = request.path.startsWith('/api/')
-        || String(request.query.format || '').toLowerCase() === 'json'
-        || String(request.get('accept') || '').includes('application/json');
-
-      logDebug('cost-diagnostics', 'New controllable costs pipeline diagnostics completed.', {
-        sourceRowCount: payload.source.sourceRowCount,
-        includedRowCount: payload.stages.included.rowCount,
-        excludedRowCount: payload.stages.excluded.rowCount,
-        latestRawMonth: payload.stages.raw.latestMonth,
-        overlappingQuarterCount: payload.controllabilityComparison.commonQuarters.length,
-        classificationMismatchCount: payload.controllabilityComparison.mismatchCount,
-        duration: formatDuration(stopTimer())
-      });
-
-      if (wantsJson) {
-        response.type('application/json').send(`${JSON.stringify(payload, null, 2)}\n`);
-        return;
-      }
-
-      response.type('text/html').send(renderCostDiagnosticsPage(payload));
-    } catch (error) {
-      logError('cost-diagnostics', 'Unable to build cost diagnostics.', error, {
-        duration: formatDuration(stopTimer())
-      });
-      response.status(500).json({
-        message: 'Unable to build cost diagnostics.',
         error: error.message
       });
     }

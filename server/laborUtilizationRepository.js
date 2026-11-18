@@ -1,7 +1,3 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import XLSX from 'xlsx';
 import {
   createTimer,
   formatDuration,
@@ -17,10 +13,6 @@ import {
 const WORKBOOK_MONTH_COLUMNS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const NORMALIZED_MONTH_COLUMNS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const LABOR_UTILIZATION_TABLE_NAME = 'labor_utilization';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const laborUtilizationFilePath = path.resolve(__dirname, '../data/labor_utilization.xlsx');
-
 function normalizeNumber(value) {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -53,43 +45,6 @@ function normalizeLaborUtilizationRow(row) {
   return normalizedRow;
 }
 
-async function readFallbackLaborUtilizationData(reason) {
-  const stopTimer = createTimer();
-
-  logDebug('labor', 'Loading labor utilization fallback file.', {
-    filePath: laborUtilizationFilePath,
-    reason
-  });
-
-  await fs.access(laborUtilizationFilePath);
-
-  const workbook = XLSX.readFile(laborUtilizationFilePath, { cellDates: false });
-  const sheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils
-    .sheet_to_json(worksheet, { defval: null, raw: true })
-    .map(normalizeLaborUtilizationRow);
-
-  const payload = {
-    source: 'excel',
-    fileName: path.basename(laborUtilizationFilePath),
-    sheetName,
-    rowCount: rows.length,
-    fallbackReason: reason,
-    rows
-  };
-
-  logDebug('labor', 'Labor utilization fallback file loaded.', {
-    source: 'excel',
-    fileName: payload.fileName,
-    sheetName,
-    rowCount: rows.length,
-    duration: formatDuration(stopTimer())
-  });
-
-  return payload;
-}
-
 export async function readLaborUtilizationData() {
   const stopTimer = createTimer();
   const { config, missing } = getConnectionConfig();
@@ -100,13 +55,7 @@ export async function readLaborUtilizationData() {
   });
 
   if (missing.length > 0) {
-    logDebug('labor', 'Labor utilization data load is missing SQL configuration; using fallback.', {
-      missing
-    });
-
-    return readFallbackLaborUtilizationData(
-      `Missing database environment variables: ${missing.join(', ')}`
-    );
+    throw new Error(`Missing database environment variables: ${missing.join(', ')}`);
   }
 
   try {
@@ -191,11 +140,11 @@ export async function readLaborUtilizationData() {
       rows
     };
   } catch (error) {
-    logError('labor', 'Labor utilization SQL query failed; using fallback data.', error, {
+    logError('labor', 'Labor utilization SQL query failed.', error, {
       tableName: LABOR_UTILIZATION_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
 
-    return readFallbackLaborUtilizationData(`Database read failed: ${error.message}`);
+    throw error;
   }
 }

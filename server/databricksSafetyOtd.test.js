@@ -1,28 +1,7 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 import { mock, test } from 'node:test';
 
 const rosterCalls = [];
-const fallbackEvents = [
-  { Date: '2026-01-15', Division: 'DS Weapon Systems', Site: 'Local', SIF: 1, pSIF: 1, 'Near Miss': 1 },
-  { Date: '2026-01-16', Division: 'DS Weapon Systems', Site: 'Local', SIF: 0, pSIF: 1, 'Near Miss': 1 },
-  { Date: '2026-01-17', Division: 'DS Weapon Systems', Site: 'Local', SIF: 0, pSIF: 0, 'Near Miss': 1 }
-];
-await mock.module('fs/promises', {
-  defaultExport: {
-    ...fs,
-    access: async () => {},
-    readFile: async (file, ...args) => String(file).endsWith('sif_data.json')
-      ? JSON.stringify(fallbackEvents)
-      : fs.readFile(file, ...args)
-  }
-});
-await mock.module('xlsx', {
-  defaultExport: {
-    readFile: () => ({ SheetNames: ['Data'], Sheets: { Data: {} } }),
-    utils: { sheet_to_json: () => [{ Program: 'Local program', Timeline: 'Contract Commitment', JAN: 5 }] }
-  }
-});
 await mock.module('./sqlConnection.js', {
   namedExports: {
     getConnectionConfig: (scope) => {
@@ -155,20 +134,13 @@ test('NMFR combines Databricks near misses with the existing SQL roster denomina
   assert.equal(nmfr.rows[0].actual_value, 45.45);
 });
 
-test('Databricks failures retain local OTD and safety fallbacks with a visible reason', async (t) => {
+test('Databricks failures propagate instead of showing local file data', async (t) => {
   connect(t);
   t.mock.method(globalThis, 'fetch', async () =>
     Response.json({ message: 'TABLE_NOT_FOUND' }, { status: 404 }));
-  const otd = await readOtdData();
-  assert.equal(otd.source, 'excel');
-  assert.match(otd.fallbackReason, /TABLE_NOT_FOUND/);
-  assert.equal(otd.rows[0].JAN, 5);
-  const safety = await readSafetyEventMetricsData();
-  assert.equal(safety.source, 'json');
-  assert.match(safety.fallbackReason, /TABLE_NOT_FOUND/);
-  // Overlapping event flags retain SIF > pSIF > Near Miss classification.
-  assert.equal(safety.metrics.sif.rows[0].actual_value, 1);
-  assert.equal(safety.metrics.potentialSif.rows[0].actual_value, 1);
+  await assert.rejects(readOtdData(), /TABLE_NOT_FOUND/);
+  await assert.rejects(readSafetyEventMetricsData(), /TABLE_NOT_FOUND/);
+  await assert.rejects(readSafetyNmfrData(), /TABLE_NOT_FOUND/);
 });
 
 test('Databricks transport polls running statements and rejects incomplete or failed results', async (t) => {

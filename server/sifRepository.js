@@ -1,6 +1,3 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import {
   createTimer,
   formatDuration,
@@ -23,11 +20,6 @@ const DEFENSE_SYSTEMS_BUS_UNIT = 'Defense Systems';
 const SAFETY_EVENTS_TABLE_NAME = 'integrated_operations_dev.analytics.safety_events';
 const SAFETY_EVENTS_TABLE_SQL = '`integrated_operations_dev`.`analytics`.`safety_events`';
 const ROSTER_TABLE_NAME = 'RosterExtractFarm';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const sifFilePath = path.resolve(__dirname, '../data/sif_data.json');
-const localRosterFilePath = path.resolve(__dirname, '../data/local_roster.json');
-
 const METRIC_DEFINITIONS = {
   sif: {
     kpiId: SIF_KPI_ID,
@@ -72,29 +64,6 @@ function padMonth(month) {
 
 function formatMonthStartDate(year, month) {
   return `${year}-${padMonth(month)}-01`;
-}
-
-function getYearMonthFromDateValue(value) {
-  if (value === null || value === undefined || value === '') {
-    return {
-      year: null,
-      month: null
-    };
-  }
-
-  const parsedDate = value instanceof Date ? value : new Date(value);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return {
-      year: null,
-      month: null
-    };
-  }
-
-  return {
-    year: parsedDate.getUTCFullYear(),
-    month: parsedDate.getUTCMonth() + 1
-  };
 }
 
 function getWorkingDaysInMonth(year, month) {
@@ -217,225 +186,6 @@ function buildMetricPayloadsFromMonthlyCounts(monthlyCounts, employeeCount = nul
   return metrics;
 }
 
-function normalizeLegacySifRow(row) {
-  return {
-    ...row,
-    kpi_id: normalizeNumber(row.kpi_id),
-    kpi_name: normalizeText(row.kpi_name),
-    kpi_upper: normalizeText(row.kpi_upper),
-    org_unit_type: normalizeText(row.org_unit_type),
-    org_unit_name: normalizeText(row.org_unit_name),
-    division: normalizeText(row.division ?? row.Division),
-    site: normalizeText(row.site ?? row.Site),
-    date: row.date ?? '',
-    actual_value: normalizeNumber(row.actual_value),
-    near_miss_count: normalizeNumber(row.near_miss_count),
-    employee_count: normalizeNumber(row.employee_count),
-    working_days: normalizeNumber(row.working_days)
-  };
-}
-
-function normalizeSafetyEventRow(row) {
-  const dateParts = getYearMonthFromDateValue(row.date ?? row.Date);
-
-  return {
-    year: dateParts.year ?? normalizeInteger(row.year ?? row.Year),
-    month: dateParts.month ?? normalizeInteger(row.month ?? row.Month),
-    division: normalizeText(row.division ?? row.Division),
-    site: normalizeText(row.site ?? row.Site),
-    near_miss: normalizeInteger(row.near_miss ?? row['Near Miss'] ?? row.nearMiss),
-    potential_sif: normalizeInteger(row.potential_sif ?? row.pSIF ?? row.psif),
-    sif: normalizeInteger(row.sif ?? row.SIF)
-  };
-}
-
-function classifySafetyEvent(row) {
-  if (row.sif === 1) {
-    return 'sif';
-  }
-
-  if (row.potential_sif === 1) {
-    return 'potentialSif';
-  }
-
-  if (row.near_miss === 1) {
-    return 'nearMiss';
-  }
-
-  return null;
-}
-
-function aggregateSafetyEventRows(rows) {
-  const monthlyCounts = new Map();
-
-  rows.forEach((row) => {
-    const normalizedRow = normalizeSafetyEventRow(row);
-
-    if (
-      !Number.isInteger(normalizedRow.year) ||
-      !Number.isInteger(normalizedRow.month) ||
-      normalizedRow.month < 1 ||
-      normalizedRow.month > 12
-    ) {
-      return;
-    }
-
-    const metricKey = classifySafetyEvent(normalizedRow);
-
-    if (!metricKey) {
-      return;
-    }
-
-    const bucketKey = [
-      normalizedRow.year,
-      padMonth(normalizedRow.month),
-      normalizedRow.division,
-      normalizedRow.site
-    ].join('|');
-    const bucket = monthlyCounts.get(bucketKey) ?? {
-      year: normalizedRow.year,
-      month: normalizedRow.month,
-      division: normalizedRow.division,
-      site: normalizedRow.site,
-      sif_count: 0,
-      potential_sif_count: 0,
-      near_miss_count: 0
-    };
-
-    if (metricKey === 'sif') {
-      bucket.sif_count += 1;
-    } else if (metricKey === 'potentialSif') {
-      bucket.potential_sif_count += 1;
-    } else if (metricKey === 'nearMiss') {
-      bucket.near_miss_count += 1;
-    }
-
-    monthlyCounts.set(bucketKey, bucket);
-  });
-
-  return [...monthlyCounts.values()];
-}
-
-function normalizeLocalRosterRow(row) {
-  return {
-    my_id: normalizeText(row.my_id ?? row.MyID ?? row.myid ?? row['My ID']),
-    bus_unit_lvl_2_no_code: normalizeText(
-      row.bus_unit_lvl_2_no_code
-      ?? row.BusUnitLvl2NoCode
-      ?? row.busunitlvl2nocode
-    )
-  };
-}
-
-async function readLocalDefenseSystemsEmployeeCount() {
-  try {
-    const fileContents = await fs.readFile(localRosterFilePath, 'utf8');
-    const parsedValue = JSON.parse(fileContents);
-    const rows = Array.isArray(parsedValue) ? parsedValue : parsedValue?.rows;
-
-    if (!Array.isArray(rows)) {
-      return 0;
-    }
-
-    const normalizedRows = rows.map(normalizeLocalRosterRow);
-    const hasBusUnitField = normalizedRows.some((row) => row.bus_unit_lvl_2_no_code);
-    const matchingRows = hasBusUnitField
-      ? normalizedRows.filter(
-        (row) => row.bus_unit_lvl_2_no_code.toLowerCase() === DEFENSE_SYSTEMS_BUS_UNIT.toLowerCase()
-      )
-      : normalizedRows;
-
-    return new Set(matchingRows.map((row) => row.my_id).filter(Boolean)).size;
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return 0;
-    }
-
-    throw error;
-  }
-}
-
-function buildLegacySafetyMetricsPayload(rows, metadata = {}) {
-  const filteredRows = rows.filter(
-    (row) => normalizeText(row.org_unit_name) === INCIDENT_ORG_UNIT_NAME
-  );
-
-  return {
-    ...metadata,
-    rowCount: filteredRows.length,
-    metrics: {
-      sif: {
-        kpiId: SIF_KPI_ID,
-        rowCount: filteredRows.filter((row) => row.kpi_id === SIF_KPI_ID).length,
-        rows: filteredRows.filter((row) => row.kpi_id === SIF_KPI_ID)
-      },
-      potentialSif: {
-        kpiId: POTENTIAL_SIF_KPI_ID,
-        rowCount: filteredRows.filter((row) => row.kpi_id === POTENTIAL_SIF_KPI_ID).length,
-        rows: filteredRows.filter((row) => row.kpi_id === POTENTIAL_SIF_KPI_ID)
-      },
-      nmfr: {
-        kpiId: NMFR_KPI_ID,
-        rowCount: filteredRows.filter((row) => row.kpi_id === NMFR_KPI_ID).length,
-        rows: filteredRows.filter((row) => row.kpi_id === NMFR_KPI_ID)
-      }
-    }
-  };
-}
-
-async function readFallbackSafetyMetricsData(reason, { includeNmfr = true } = {}) {
-  const stopTimer = createTimer();
-
-  logDebug('safety', 'Loading safety fallback file.', {
-    filePath: sifFilePath,
-    reason
-  });
-
-  await fs.access(sifFilePath);
-
-  const rawFile = await fs.readFile(sifFilePath, 'utf8');
-  const parsedValue = JSON.parse(rawFile);
-  const rows = Array.isArray(parsedValue) ? parsedValue : parsedValue?.rows;
-
-  if (!Array.isArray(rows)) {
-    throw new Error('Safety fallback file did not contain an array of rows.');
-  }
-
-  const isLegacyShape = rows.some((row) => row?.kpi_id != null || row?.kpiId != null);
-  let payload;
-
-  if (isLegacyShape) {
-    payload = buildLegacySafetyMetricsPayload(rows.map(normalizeLegacySifRow), {
-      source: 'json',
-      fileName: path.basename(sifFilePath),
-      fallbackReason: reason
-    });
-  } else {
-    const monthlyCounts = aggregateSafetyEventRows(rows);
-    const defenseSystemsEmployeeCount = includeNmfr
-      ? await readLocalDefenseSystemsEmployeeCount()
-      : null;
-
-    payload = {
-      source: 'json',
-      fileName: path.basename(sifFilePath),
-      fallbackReason: reason,
-      ...(includeNmfr ? { defenseSystemsEmployeeCount } : {}),
-      rowCount: monthlyCounts.length,
-      metrics: buildMetricPayloadsFromMonthlyCounts(monthlyCounts, defenseSystemsEmployeeCount)
-    };
-  }
-
-  logDebug('safety', 'Safety fallback data loaded.', {
-    source: payload.source,
-    fileName: payload.fileName,
-    rowCount: payload.rowCount,
-    duration: formatDuration(stopTimer())
-  });
-
-  return payload;
-}
-
 async function readSafetyEmployeeCount(pool) {
   const { config: rosterConfig } = getConnectionConfig('roster');
   const rosterTableName = formatSqlIdentifier(ROSTER_TABLE_NAME, rosterConfig);
@@ -546,13 +296,11 @@ export async function readSafetyEventMetricsData() {
     });
     return payload;
   } catch (error) {
-    logError('safety', 'Safety incident Databricks query failed; using fallback data.', error, {
+    logError('safety', 'Safety incident Databricks query failed.', error, {
       tableName: SAFETY_EVENTS_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
-    return readFallbackSafetyMetricsData(`Databricks read failed: ${error.message}`, {
-      includeNmfr: false
-    });
+    throw error;
   }
 }
 
@@ -572,14 +320,7 @@ export async function readSafetyNmfrData() {
   });
 
   if (rosterMissing.length > 0) {
-    logDebug('safety', 'Safety NMFR data load is missing SQL configuration; using fallback.', {
-      rosterMissing
-    });
-
-    return readFallbackSafetyMetricsData(
-      `Missing database environment variables: ${rosterMissing.join(', ')}`,
-      { includeNmfr: true }
-    );
+    throw new Error(`Missing roster database environment variables: ${rosterMissing.join(', ')}`);
   }
 
   try {
@@ -623,15 +364,13 @@ export async function readSafetyNmfrData() {
 
     return payload;
   } catch (error) {
-    logError('safety', 'Safety NMFR data load failed; using fallback data.', error, {
+    logError('safety', 'Safety NMFR data load failed.', error, {
       tableName: SAFETY_EVENTS_TABLE_NAME,
       rosterTableName: ROSTER_TABLE_NAME,
       duration: formatDuration(stopTimer())
     });
 
-    return readFallbackSafetyMetricsData(`Database read failed: ${error.message}`, {
-      includeNmfr: true
-    });
+    throw error;
   }
 }
 
@@ -646,8 +385,6 @@ export function getSafetyMetricPayload(safetyMetricsPayload, metricKey) {
     source: safetyMetricsPayload.source,
     tableName: safetyMetricsPayload.tableName,
     rosterTableName: safetyMetricsPayload.rosterTableName,
-    fileName: safetyMetricsPayload.fileName,
-    fallbackReason: safetyMetricsPayload.fallbackReason,
     defenseSystemsEmployeeCount: safetyMetricsPayload.defenseSystemsEmployeeCount,
     rowCount: metricPayload.rowCount,
     kpiId: metricPayload.kpiId,

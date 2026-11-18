@@ -169,10 +169,6 @@ async function refreshDataset(scope, reason) {
         duration: formatDuration(stopTimer())
       });
 
-      if (entry.payload) {
-        return entry.payload;
-      }
-
       throw error;
     } finally {
       entry.refreshPromise = null;
@@ -192,7 +188,7 @@ export function registerSqlDatasetCache(scope, loader) {
   });
 }
 
-export async function getCachedSqlDataset(scope, { refresh = false, rejectStale = false } = {}) {
+export async function getCachedSqlDataset(scope, { refresh = false, rejectStale = true } = {}) {
   const entry = getDatasetEntry(scope);
 
   if (refresh) {

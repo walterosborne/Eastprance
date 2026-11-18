@@ -1,8 +1,4 @@
 import { getLaborRosterConfig, readLaborRosterLookup, joinLaborFacilities } from './laborRosterDatabricksRepository.js';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import XLSX from 'xlsx';
 import {
   createTimer,
   formatDuration,
@@ -13,12 +9,6 @@ import { normalizeCostCenter } from './costCenterFacilityKey.js';
 import { LABOR_UTILIZATION_NEW_DBM_QUERY } from './dbmQueries/laborUtilizationNewQuery.js';
 import { getConnectionConfig, getPool } from './sqlConnection.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const LABOR_UTILIZATION_NEW_FILE_PATH = path.resolve(
-  __dirname,
-  '../data/labor_utilization_new.xlsx'
-);
 const REQUIRED_COLUMNS = [
   'year',
   'month',
@@ -160,7 +150,6 @@ function buildLaborUtilizationPayload(sourceRows, metadata) {
     fileName: metadata.fileName ?? null,
     sheetName: metadata.sheetName ?? null,
     queryFile: metadata.queryFile ?? null,
-    fallbackReason: metadata.fallbackReason ?? null,
     sourceRowCount: sourceRows.length,
     rowCount: rows.length,
     invalidRowCount: sourceRows.length - rows.length,
@@ -178,68 +167,6 @@ function buildLaborUtilizationPayload(sourceRows, metadata) {
     },
     rows
   };
-}
-
-async function readLaborUtilizationNewExcelFallback(fallbackReason) {
-  const stopTimer = createTimer();
-
-  logDebug('labor-new', 'Loading Excel fallback for new labor utilization.', {
-    filePath: LABOR_UTILIZATION_NEW_FILE_PATH,
-    fallbackReason
-  });
-
-  try {
-    await fs.access(LABOR_UTILIZATION_NEW_FILE_PATH);
-
-    const workbook = XLSX.readFile(LABOR_UTILIZATION_NEW_FILE_PATH, { cellDates: false });
-    const sheetName = workbook.SheetNames[0];
-
-    if (!sheetName) {
-      throw new Error('The new labor utilization workbook does not contain a worksheet.');
-    }
-
-    const sourceRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
-      defval: null,
-      raw: true
-    });
-    const payload = buildLaborUtilizationPayload(sourceRows, {
-      source: 'excel-fallback',
-      sourceLabel: 'The new labor utilization workbook',
-      fileName: path.basename(LABOR_UTILIZATION_NEW_FILE_PATH),
-      sheetName,
-      fallbackReason
-    });
-
-    logDebug('labor-new', 'New labor utilization loaded from Excel fallback.', {
-      source: payload.source,
-      fallbackReason,
-      fileName: payload.fileName,
-      sheetName,
-      sourceRowCount: payload.sourceRowCount,
-      rowCount: payload.rowCount,
-      invalidRowCount: payload.invalidRowCount,
-      years: payload.years,
-      totalEnteredHours: payload.totalEnteredHours,
-      laborCategoryCounts: payload.laborCategoryCounts,
-      facilityMapping: payload.facilityMapping,
-      duration: formatDuration(stopTimer())
-    });
-
-    return payload;
-  } catch (error) {
-    const normalizedError = error?.code === 'ENOENT'
-      ? new Error(
-        `New labor utilization workbook not found at ${LABOR_UTILIZATION_NEW_FILE_PATH}.`
-      )
-      : error;
-
-    logError('labor-new', 'Unable to load new labor Excel fallback.', normalizedError, {
-      filePath: LABOR_UTILIZATION_NEW_FILE_PATH,
-      fallbackReason,
-      duration: formatDuration(stopTimer())
-    });
-    throw normalizedError;
-  }
 }
 
 async function readLaborUtilizationNewDbmData(config, rosterConfig) {
@@ -286,28 +213,16 @@ export async function readLaborUtilizationNewData() {
   const { config, missing } = getConnectionConfig('dbm');
 
   if (missing.length > 0) {
-    const fallbackReason = `Missing DBM environment variables: ${missing.join(', ')}`;
-
-    logDebug('labor-new', 'DBM configuration is incomplete; using Excel fallback.', {
-      source: 'excel-fallback',
-      fallbackReason
-    });
-    return readLaborUtilizationNewExcelFallback(fallbackReason);
+    throw new Error(`Missing DBM environment variables: ${missing.join(', ')}`);
   }
 
   try {
     return await readLaborUtilizationNewDbmData(config, rosterConfig);
   } catch (error) {
-    // A missing/unavailable roster must not silently substitute old facility data.
-    if (error.code === 'LABOR_ROSTER_UNAVAILABLE') throw error;
-    const fallbackReason = 'DBM labor utilization query failed; Excel fallback used.';
-
-    logError('labor-new', 'DBM labor utilization load failed; using Excel fallback.', error, {
+    logError('labor-new', 'DBM labor utilization load failed.', error, {
       server: config.server,
-      database: config.database,
-      source: 'excel-fallback',
-      fallbackReason
+      database: config.database
     });
-    return readLaborUtilizationNewExcelFallback(fallbackReason);
+    throw error;
   }
 }

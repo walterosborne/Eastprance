@@ -1332,14 +1332,6 @@ function getSourceLabel(source) {
     return 'SQL Server data';
   }
 
-  if (source === 'json') {
-    return 'Local JSON data';
-  }
-
-  if (source === 'excel' || source === 'excel-fallback' || source === 'dummy') {
-    return 'Local fallback data';
-  }
-
   return '';
 }
 
@@ -4807,18 +4799,30 @@ async function fetchJson(scope, url) {
     duration: formatDebugDuration(performance.now() - startTime)
   });
 
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+  const responseText = await response.text();
+  let payload = null;
+
+  try {
+    payload = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    payload = null;
   }
 
-  const payload = await response.json();
+  handleExpiredAuthenticationResponse(response, payload);
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.error || payload?.message || `Request failed with status ${response.status}`
+    );
+  }
+
+  clearAuthenticationRetryAttempt();
 
   logClientDebug(scope, 'Parsed JSON payload.', {
     source: payload.source,
     rowCount: payload.rowCount,
     tableName: payload.tableName,
     fileName: payload.fileName,
-    fallbackReason: payload.fallbackReason,
     totalDuration: formatDebugDuration(performance.now() - startTime)
   });
 
@@ -5696,8 +5700,7 @@ export default function App() {
         logClientDebug('controllable-costs-new', 'New controllable costs state updated.', {
           rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
           source: payload.source,
-          fallbackReason: payload.fallbackReason,
-          queryFile: payload.queryFile,
+                queryFile: payload.queryFile,
           fileName: payload.fileName,
           sourceRowCount: payload.sourceRowCount,
           excludedByCostElementKeyCount: payload.excludedByCostElementKeyCount,
@@ -6106,8 +6109,7 @@ export default function App() {
           totalEnteredHours: payload.totalEnteredHours,
           laborCategoryCounts: payload.laborCategoryCounts,
           source: payload.source,
-          fallbackReason: payload.fallbackReason,
-          queryFile: payload.queryFile,
+                queryFile: payload.queryFile,
           fileName: payload.fileName,
           totalDuration: formatDebugDuration(performance.now() - startTime)
         });

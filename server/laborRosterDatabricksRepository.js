@@ -3,6 +3,9 @@ import { executeDatabricksQuery } from './databricksQuery.js';
 // Approved use: this fiscal month-end roster may only assign facilities to labor actuals.
 // Do not import it for safety, headcount, identity, costs, or any other metric.
 const INVALID_CITIES = new Set(['UNKNOWN CITY', 'UNKNOWN', 'N/A']);
+// A bounded batch keeps each response below Databricks' 26 MB INLINE limit.
+const MYID_BATCH_SIZE = 500;
+const MAX_CONCURRENT_BATCHES = 3;
 const normalizeText = (value) => String(value ?? '').trim();
 const normalizeId = (value) => normalizeText(value).toUpperCase();
 
@@ -74,9 +77,26 @@ export function buildLaborRosterLookup(rows) {
   return lookup;
 }
 
-export async function readLaborRosterLookup(config = getLaborRosterConfig()) {
+export async function readLaborRosterLookup(config = getLaborRosterConfig(), laborRows = []) {
   try {
-    const rows = await executeDatabricksQuery({
+    const ids = [...new Set(laborRows.map((row) => normalizeId(row.my_id)).filter(Boolean))];
+    let firstPeriod = Infinity;
+    let lastPeriod = -Infinity;
+    for (const row of laborRows) {
+      const period = Number(row.year) * 100 + Number(row.month);
+      if (!Number.isInteger(period)) continue;
+      firstPeriod = Math.min(firstPeriod, period);
+      lastPeriod = Math.max(lastPeriod, period);
+    }
+    if (!ids.length || !Number.isFinite(firstPeriod)) return new Map();
+    const batches = [];
+    for (let index = 0; index < ids.length; index += MYID_BATCH_SIZE) {
+      batches.push(ids.slice(index, index + MYID_BATCH_SIZE));
+    }
+    const rows = [];
+    for (let index = 0; index < batches.length; index += MAX_CONCURRENT_BATCHES) {
+      const results = await Promise.all(batches.slice(index, index + MAX_CONCURRENT_BATCHES).map((batch) =>
+        executeDatabricksQuery({
       scope: 'labor-roster',
       tableName: 'configured Databricks labor roster',
       query: `
@@ -100,12 +120,22 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig()) {
           FROM ${config.tableSql}
           WHERE \`effective_date\` IS NOT NULL
             AND UPPER(CAST(\`org_structure_lvl2\` AS STRING)) LIKE '%DEFENSE%'
+            AND UPPER(TRIM(CAST(\`myid\` AS STRING))) IN (
+              ${batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(', ')}
+            )
+            AND YEAR(\`effective_date\`) * 100 + MONTH(\`effective_date\`)
+              BETWEEN ${firstPeriod} AND ${lastPeriod}
         )
         SELECT myid, city, state, sector, effective_date, is_standard_headcount, worker_id
         FROM ranked
         WHERE roster_rank = 1
       `
-    });
+        })
+      ));
+      for (const result of results) {
+        for (const row of result) rows.push(row);
+      }
+    }
     return buildLaborRosterLookup(rows);
   } catch (error) {
     const failure = new Error(`Unable to load the configured Databricks labor roster: ${error.message}`, { cause: error });

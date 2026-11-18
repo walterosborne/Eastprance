@@ -97,7 +97,7 @@ test('SQL retains per-person hours and never queries the old roster', () => {
   assert.doesNotMatch(LABOR_UTILIZATION_NEW_DBM_QUERY, /rb_roster_transform|RosterByPerson|DefenseRoster/);
 });
 
-test('roster reads the configured table, follows chunks, and surfaces Databricks errors', async (t) => {
+test('roster reads only labor MyIDs and months, follows chunks, and surfaces Databricks errors', async (t) => {
   for (const [key, value] of Object.entries({ DATABRICKS_HOST: 'roster.example.test', DATABRICKS_TOKEN: 'test', DATABRICKS_SQL_WAREHOUSE_ID: 'test' })) {
     const before = process.env[key]; process.env[key] = value;
     t.after(() => before === undefined ? delete process.env[key] : process.env[key] = before);
@@ -117,6 +117,8 @@ test('roster reads the configured table, follows chunks, and surfaces Databricks
       assert.ok(query.includes('`worker_id`'));
       assert.ok(query.includes('DENSE_RANK() OVER'));
       assert.ok(query.includes('WHERE roster_rank = 1'));
+      assert.match(query, /IN\s*\(\s*'A1'\s*\)/);
+      assert.ok(query.includes('BETWEEN 202609 AND 202609'));
       assert.doesNotMatch(query, /MAX\\(`effective_date`\\)/);
       assert.doesNotMatch(query, /Employee_MyID|Work_City_NSR|\`Sector\`/);
       return Response.json({
@@ -127,9 +129,32 @@ test('roster reads the configured table, follows chunks, and surfaces Databricks
     }
     return Response.json({ data_array: [Object.values(data)] });
   });
-  assert.equal((await readLaborRosterLookup({ tableSql: '`test_catalog`.`test_schema`.`test_roster`' })).get(JSON.stringify(['A1', 2026, 9])).city, 'Huntsville');
+  assert.equal((await readLaborRosterLookup({ tableSql: '`test_catalog`.`test_schema`.`test_roster`' }, [labor('A1', 1)])).get(JSON.stringify(['A1', 2026, 9])).city, 'Huntsville');
   t.mock.method(globalThis, 'fetch', async () => Response.json({ message: 'not available' }, { status: 403 }));
-  await assert.rejects(readLaborRosterLookup({ tableSql: '`test`.`test`.`test`' }), { code: 'LABOR_ROSTER_UNAVAILABLE' });
+  await assert.rejects(readLaborRosterLookup({ tableSql: '`test`.`test`.`test`' }, [labor('A1', 1)]), { code: 'LABOR_ROSTER_UNAVAILABLE' });
+});
+
+test('roster requests split large labor populations into bounded batches', async (t) => {
+  for (const [key, value] of Object.entries({ DATABRICKS_HOST: 'roster.example.test', DATABRICKS_TOKEN: 'test', DATABRICKS_SQL_WAREHOUSE_ID: 'test' })) {
+    const before = process.env[key]; process.env[key] = value;
+    t.after(() => before === undefined ? delete process.env[key] : process.env[key] = before);
+  }
+  const statements = [];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    statements.push(JSON.parse(init.body).statement);
+    return Response.json({
+      status: { state: 'SUCCEEDED' },
+      manifest: { schema: { columns: [] }, total_row_count: 0 },
+      result: { data_array: [] }
+    });
+  });
+  const laborRows = Array.from({ length: 501 }, (_, index) => labor(`ID${index}`, 1));
+  const lookup = await readLaborRosterLookup({ tableSql: '`test`.`test`.`test`' }, laborRows);
+  assert.equal(lookup.size, 0);
+  assert.equal(statements.length, 2);
+  assert.ok(statements.every((query) => (query.match(/'ID\d+'/g) ?? []).length <= 500));
+  assert.equal((await readLaborRosterLookup({ tableSql: '`test`.`test`.`test`' }, [])).size, 0);
+  assert.equal(statements.length, 2);
 });
 
 async function repositoryHarness(rosterLoader) {
@@ -144,7 +169,10 @@ async function repositoryHarness(rosterLoader) {
     fs: { access: async () => { fallbackReads += 1; throw new Error('unexpected Excel fallback'); } },
     normalizeCostCenter: (value) => String(value ?? '').trim().toUpperCase(),
     getLaborRosterConfig: () => ({ tableSql: '`test`.`test`.`test`' }),
-    readLaborRosterLookup: rosterLoader,
+    readLaborRosterLookup: async (config, laborRows) => {
+      assert.equal(laborRows.length, 3);
+      return rosterLoader(config, laborRows);
+    },
     joinLaborFacilities, LABOR_UTILIZATION_NEW_DBM_QUERY,
     getConnectionConfig: () => ({ config: {}, missing: [] }),
     getPool: async () => ({ request: () => ({ query: async () => ({ recordset: [labor('A1', 8), labor('a1', -2), labor('missing', 3)] }) }) }),

@@ -164,7 +164,7 @@ async function collectStatementRows(connection, response) {
   return formatRows(columns, rows);
 }
 
-export async function executeDatabricksQuery({ scope, tableName, query }) {
+export async function executeDatabricksQuery({ scope, tableName, query, parameters = [] }) {
   const connection = requiredDatabricksEnvironment();
 
   logDebug(scope, 'Executing Databricks query.', {
@@ -177,6 +177,7 @@ export async function executeDatabricksQuery({ scope, tableName, query }) {
     body: JSON.stringify({
       warehouse_id: connection.warehouseId,
       statement: query,
+      ...(parameters.length ? { parameters } : {}),
       disposition: 'INLINE',
       format: 'JSON_ARRAY',
       wait_timeout: '10s',
@@ -197,4 +198,3 @@ export async function executeDatabricksQuery({ scope, tableName, query }) {
 
   return collectStatementRows(connection, response);
 }
-

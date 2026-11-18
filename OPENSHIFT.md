@@ -393,3 +393,18 @@ errors are surfaced rather than falling back to the SQL roster.
 **Approved use:** This Databricks roster table is for labor facility attribution only.
 Do not reuse it for safety, headcount, identity, costs, or another metric. The
 separate SQL `RosterExtractFarm` use described above is unaffected.
+
+## Dashboard presets in Databricks
+
+Run `QMI_Lookups_Upload_Databricks.ipynb` with the existing SQL source settings
+in `Upload.env` before enabling the updated app. It copies the existing
+`dashboard_presets` SQL table (`dbo` by default; set `PRESETS_SCHEMA` if different)
+to `integrated_operations_dev.analytics.dashboard_presets` and merges on
+`MyID` plus `PresetSlot`. Rerunning the upload preserves newer presets saved
+through the app. The application reads and writes this Databricks table with
+`DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and `DATABRICKS_SQL_WAREHOUSE_ID`;
+the default SQL connection is no longer used by enabled cards or preset storage.
+
+The configured `dbmserver` and `dbmdatabase` must contain both
+`rpt.rb_Actuals_RM_Load_Table` and `rpt.rb_load_cost_center_hierarchy`.
+Labor and cost hierarchy reads resolve these tables against that database.

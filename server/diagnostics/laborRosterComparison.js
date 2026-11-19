@@ -82,7 +82,7 @@ const percent = (part, total) => total ? part / total : null;
 function legacyConnectionConfig(config) {
   return {
     ...config,
-    server: process.env.LABOR_TEST_LEGACY_SERVER || config.server,
+    server: process.env.OLD_ROSTER_SERVER || process.env.LABOR_TEST_LEGACY_SERVER || config.server,
     database: process.env.LABOR_TEST_LEGACY_DATABASE || 'DTO_Business_Management',
     user: process.env.LABOR_TEST_LEGACY_USER || config.user,
     password: process.env.LABOR_TEST_LEGACY_PASSWORD || config.password
@@ -204,7 +204,7 @@ export async function renderLaborRosterComparison() {
       failureHint: 'Target: ' + sqlTarget(legacy)
         + '. Login settings: ' + (process.env.LABOR_TEST_LEGACY_USER ? 'LABOR_TEST_LEGACY_USER' : 'dbmuser')
         + ' / ' + (process.env.LABOR_TEST_LEGACY_PASSWORD ? 'LABOR_TEST_LEGACY_PASSWORD' : 'dbmpassword')
-        + '. Check LABOR_TEST_LEGACY_SERVER, LABOR_TEST_LEGACY_DATABASE and access to dbo.rb_roster_transform.'
+        + '. Check OLD_ROSTER_SERVER, LABOR_TEST_LEGACY_DATABASE and access to dbo.rb_roster_transform.'
     },
     {
       label: 'New monthly roster', slug: 'new',

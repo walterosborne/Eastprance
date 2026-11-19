@@ -23,6 +23,10 @@ export default defineConfig(() => {
     server: {
       port: 5173,
       proxy: {
+        '/labor-test': {
+          target: `http://${apiHost}:${apiPort}`,
+          xfwd: true
+        },
         '/dbm-diagnostics': {
           target: `http://${apiHost}:${apiPort}`,
           changeOrigin: true

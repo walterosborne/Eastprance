@@ -144,12 +144,16 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
   }
 }
 
+export function lookupMonthlyLaborFacility(row, rosterLookup) {
+  return rosterLookup.get(monthKey(row.my_id, row.year, row.month));
+}
+
 export function joinLaborFacilities(laborRows, rosterLookup) {
   const totals = new Map();
   for (const row of laborRows) {
     // A fiscal month-end snapshot belongs only to that labor month. Do not carry
     // today's location backward or substitute an adjacent month's facility.
-    const facility = rosterLookup.get(monthKey(row.my_id, row.year, row.month));
+    const facility = lookupMonthlyLaborFacility(row, rosterLookup);
     const result = {
       year: row.year,
       month: row.month,

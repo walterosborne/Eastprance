@@ -142,6 +142,29 @@ if (LABOR_HANA_DATASET_ENABLED) {
 registerSqlDatasetCache('safety-incidents', readSafetyEventMetricsData);
 registerSqlDatasetCache('safety-nmfr', readSafetyNmfrData);
 
+// Local development diagnostic. Reserve the entire path before CORS and the SPA catch-all.
+app.use('/labor-test', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const dev = process.env.NODE_ENV === 'development'
+    || (!process.env.NODE_ENV && process.env.npm_lifecycle_event === 'dev');
+  const loopback = /^(?:127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/i;
+  const forwarded = String(req.get('x-forwarded-for') || '').split(',').map(ip => ip.trim()).filter(Boolean);
+  const localHost = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(req.get('host') || '');
+  if (!dev || !localHost || !loopback.test(req.socket.remoteAddress)
+      || forwarded.some(ip => !loopback.test(ip)) || req.get('sec-fetch-site') === 'cross-site'
+      || req.method !== 'GET' || req.path !== '/') {
+    return res.sendStatus(404);
+  }
+  try {
+    const { renderLaborRosterComparison } = await import('./diagnostics/laborRosterComparison.js');
+    const html = await renderLaborRosterComparison();
+    return res.set('X-Frame-Options', 'DENY').type('html').send(html);
+  } catch (error) {
+    logError('labor-test', 'Labor roster comparison failed.', error);
+    return res.status(500).type('text').send('Labor comparison failed: ' + error.message);
+  }
+});
+
 app.use(cors());
 app.use(express.json());
 app.use((request, response, next) => {
@@ -770,5 +793,3 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-
-

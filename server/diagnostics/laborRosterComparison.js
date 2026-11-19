@@ -89,6 +89,11 @@ function failureCode(error) {
 }
 
 async function readLegacyRoster(config, ids) {
+  if (!config.server || !config.database || !config.user || !config.password) {
+    const error = new Error('Missing old roster connection settings.');
+    error.code = 'OLD_ROSTER_CONFIG_MISSING';
+    throw error;
+  }
   const pool = await getPool(config, 'labor-test-legacy');
   const result = await pool.request().input('laborIds', JSON.stringify(ids)).query(LEGACY_ROSTER_SQL);
   return new Map(result.recordset.map(row => [norm(row.my_id), row]));
@@ -185,14 +190,22 @@ export async function renderLaborRosterComparison() {
     const id = norm(row.my_id);
     if (id) { distinctIds.add(id); withId++; }
   }
+  // Labor actuals and the old roster have independent SQL connections.
+  const oldRosterConfig = {
+    server: process.env.oldrosterserver,
+    database: process.env.oldrosterdatabase,
+    user: process.env.oldrosteruser,
+    password: process.env.oldrosterpassword,
+    requestTimeout: 120000
+  };
   const methods = [
     {
       label: 'Old SQL roster', slug: 'old',
-      load: () => readLegacyRoster(config, [...distinctIds]),
+      load: () => readLegacyRoster(oldRosterConfig, [...distinctIds]),
       resolve: (row, lookup) => lookup.get(norm(row.my_id)),
-      failureHint: 'Target: ' + sqlTarget(config)
-        + '. Connection settings: dbmserver / dbmdatabase / dbmuser / dbmpassword.'
-        + ' Check access to dbo.rb_roster_transform in the configured DBM database.'
+      failureHint: 'Target: ' + sqlTarget(oldRosterConfig)
+        + '. Required connection settings: oldrosterserver / oldrosterdatabase / oldrosteruser / oldrosterpassword.'
+        + ' Check access to dbo.rb_roster_transform in the configured old roster database.'
     },
     {
       label: 'New monthly roster', slug: 'new',

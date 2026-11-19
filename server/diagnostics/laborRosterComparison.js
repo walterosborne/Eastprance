@@ -79,16 +79,27 @@ const norm = value => String(value ?? '').trim().toUpperCase();
 const unknown = '(Unknown)';
 const percent = (part, total) => total ? part / total : null;
 
-async function readLegacyRoster(config, rows) {
-  const ids = [...new Set(rows.map(row => norm(row.my_id)).filter(Boolean))];
-  if (!ids.length) return new Map();
-  const pool = await getPool({
+function legacyConnectionConfig(config) {
+  return {
     ...config,
     server: process.env.LABOR_TEST_LEGACY_SERVER || config.server,
     database: process.env.LABOR_TEST_LEGACY_DATABASE || 'DTO_Business_Management',
     user: process.env.LABOR_TEST_LEGACY_USER || config.user,
     password: process.env.LABOR_TEST_LEGACY_PASSWORD || config.password
-  }, 'labor-test-legacy');
+  };
+}
+
+function sqlTarget(config) {
+  return [config.server, config.database].map(value =>
+    String(value ?? '').replace(/[\r\n\t]/g, ' ').slice(0, 128)).join(' / ');
+}
+
+function failureCode(error) {
+  return /^[A-Z0-9_]{1,40}$/.test(error?.code) ? error.code : 'request failed';
+}
+
+async function readLegacyRoster(config, ids) {
+  const pool = await getPool(config, 'labor-test-legacy');
   const result = await pool.request().input('laborIds', JSON.stringify(ids)).query(LEGACY_ROSTER_SQL);
   return new Map(result.recordset.map(row => [norm(row.my_id), row]));
 }
@@ -169,8 +180,14 @@ const displayPct = (n, d) => d ? (100 * n / d).toFixed(2) + '%' : '—';
 export async function renderLaborRosterComparison() {
   const { config, missing } = getConnectionConfig('dbm');
   if (missing.length) throw new Error('Missing DBM settings: ' + missing.join(', '));
-  const dbm = await getPool(config, 'dbm');
-  const { recordset: rows } = await dbm.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY);
+  let dbm, rows;
+  try {
+    dbm = await getPool(config, 'dbm');
+    ({ recordset: rows } = await dbm.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY));
+  } catch (error) {
+    throw new Error('Shared DBM labor extract failed (' + failureCode(error) + ') at ' + sqlTarget(config)
+      + '. Neither roster lookup ran.');
+  }
   // Approved use of the Databricks fiscal roster is limited to labor facility attribution.
   const distinctIds = new Set();
   let withId = 0;
@@ -178,13 +195,33 @@ export async function renderLaborRosterComparison() {
     const id = norm(row.my_id);
     if (id) { distinctIds.add(id); withId++; }
   }
-  const [oldRoster, monthlyRoster] = distinctIds.size ? await Promise.all([
-    readLegacyRoster(config, rows), readLaborRosterLookup(getLaborRosterConfig(), rows)
-  ]) : [new Map(), new Map()];
+  const legacy = legacyConnectionConfig(config);
   const methods = [
-    ['Old SQL roster', 'old', summarize(rows, row => oldRoster.get(norm(row.my_id)))],
-    ['New monthly roster', 'new', summarize(rows, row => lookupMonthlyLaborFacility(row, monthlyRoster))]
+    {
+      label: 'Old SQL roster', slug: 'old',
+      load: () => readLegacyRoster(legacy, [...distinctIds]),
+      resolve: (row, lookup) => lookup.get(norm(row.my_id)),
+      failureHint: 'Target: ' + sqlTarget(legacy)
+        + '. Login settings: ' + (process.env.LABOR_TEST_LEGACY_USER ? 'LABOR_TEST_LEGACY_USER' : 'dbmuser')
+        + ' / ' + (process.env.LABOR_TEST_LEGACY_PASSWORD ? 'LABOR_TEST_LEGACY_PASSWORD' : 'dbmpassword')
+        + '. Check LABOR_TEST_LEGACY_SERVER, LABOR_TEST_LEGACY_DATABASE and access to dbo.rb_roster_transform.'
+    },
+    {
+      label: 'New monthly roster', slug: 'new',
+      load: () => readLaborRosterLookup(getLaborRosterConfig(), rows),
+      resolve: lookupMonthlyLaborFacility,
+      failureHint: 'Check the Databricks labor roster configuration and warehouse access.'
+    }
   ];
+  const results = await Promise.all(methods.map(async method => {
+    let lookup;
+    try {
+      lookup = withId ? await method.load() : new Map();
+    } catch (error) {
+      return { ...method, failure: failureCode(error) };
+    }
+    return { ...method, size: lookup.size, summary: summarize(rows, row => method.resolve(row, lookup)) };
+  }));
   const report = ['[labor-test] ' + new Date().toISOString(),
     'Shared DBM labor extract: ' + rows.length + ' grouped rows',
     'Rows with MyID: ' + withId + ' / ' + rows.length + ' (' + distinctIds.size + ' distinct IDs)'];
@@ -196,21 +233,31 @@ export async function renderLaborRosterComparison() {
   if (!withId) {
     report.push('Both roster lookups skipped: no labor IDs to match.');
   } else {
-    const months = [...methods[0][2].months.keys()].sort();
-    report.push('Labor months: ' + months[0] + ' through ' + months.at(-1),
-      'Old SQL roster: ' + oldRoster.size + ' labor IDs resolved to one Defense facility',
-      'Monthly roster: ' + monthlyRoster.size + ' usable MyID/month keys in the queried range');
-    for (const [label, , { total }] of methods) {
-      report.push(label + ': ' + total.matchedRows + ' / ' + total.rows + ' labor rows matched');
+    const firstSummary = results.find(result => result.summary)?.summary;
+    if (firstSummary) {
+      const months = [...firstSummary.months.keys()].sort();
+      report.push('Labor months: ' + months[0] + ' through ' + months.at(-1));
     }
-    if (!oldRoster.size) report.push('Old lookup found no requested MyID with one unambiguous eligible city/state.');
-    if (!monthlyRoster.size) report.push('Monthly lookup returned no usable Defense facility for the requested IDs and date range.');
-    else if (!methods[1][2].total.matchedRows) report.push('Monthly facilities exist, but none matches the exact employee and labor month.');
+    for (const result of results) {
+      if (result.failure) {
+        report.push(result.label + ' unavailable (' + result.failure + '). ' + result.failureHint);
+        continue;
+      }
+      const { total } = result.summary;
+      const keys = result.slug === 'old' ? 'unambiguous Defense MyIDs' : 'eligible MyID/month keys';
+      report.push(result.label + ': ' + result.size + ' ' + keys + ', ' + total.matchedRows
+        + ' / ' + total.rows + ' labor rows matched');
+      if (result.slug === 'new' && result.size && !total.matchedRows) {
+        report.push('Monthly facilities exist, but none matches the exact employee and labor month.');
+      }
+    }
   }
-  // Only counts, periods and fixed labels go into the shareable report.
+  // Never include login values, employee IDs or raw driver messages in the shareable summary.
   const debugText = report.join('\n');
   console.info(debugText);
-  const body = methods.map(([label, slug, summary]) => {
+  const escapedDebug = debugText.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const body = results.map(({ label, slug, summary }) => {
+    if (!summary) return `<tr><th scope="row">${label}</th><td colspan="4">Unavailable (see debug summary)</td></tr>`;
     const v = summary.total;
     return `<tr><th scope="row">${label}</th><td>${v.matchedRows.toLocaleString('en-US')} / ${v.rows.toLocaleString('en-US')}</td>
       <td>${displayPct(v.matchedRows, v.rows)}</td><td>${displayPct(v.matchedHours, v.hours)}</td>
@@ -219,7 +266,7 @@ export async function renderLaborRosterComparison() {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Labor facility coverage</title><style>body{font:16px system-ui;margin:4vw;color:#172536}table{border-collapse:collapse}th,td{padding:.8rem;text-align:left;border-bottom:1px solid #ccc}a{display:inline-block;background:#164d75;color:white;padding:.45rem .8rem;border-radius:.3rem}p{max-width:78ch}</style>
     <main><h1>Labor facility coverage</h1><p>Both methods use the same ${rows.length.toLocaleString('en-US')} DBM labor rows, grouped by employee, month, division, business unit, cost center and labor category. Extracted ${new Date().toISOString().slice(0,16).replace('T',' ')} UTC.</p>
-    <section><h2>Debug summary</h2><pre style="white-space:pre-wrap">${debugText}</pre></section>
+    <section><h2>Debug summary</h2><pre style="white-space:pre-wrap">${escapedDebug}</pre></section>
     <table><thead><tr><th>Method</th><th>Matched / total rows</th><th>Rows matched</th><th>Hours matched</th><th>Workbook</th></tr></thead><tbody>${body}</tbody></table>
     <p>Hour percentages weight each grouped row by the absolute value of its entered hours. Facilities are ordered by hours, with (Unknown) last. Every share includes unknowns in its denominator. Blank percentages mean the denominator was zero.</p></main></html>`;
 }

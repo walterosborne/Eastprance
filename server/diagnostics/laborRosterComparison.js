@@ -1,6 +1,6 @@
 import XLSX from 'xlsx';
 import { getConnectionConfig, getPool } from '../sqlConnection.js';
-import { LABOR_UTILIZATION_NEW_DBM_QUERY } from '../dbmQueries/laborUtilizationNewQuery.js';
+import { LABOR_UTILIZATION_NEW_DBM_QUERY, LABOR_PERIOD_SQL } from '../dbmQueries/laborUtilizationNewQuery.js';
 import {
   getLaborRosterConfig, readLaborRosterLookup, lookupMonthlyLaborFacility
 } from '../laborRosterDatabricksRepository.js';
@@ -33,16 +33,16 @@ WITH Hierarchy AS (
 ), Actuals AS (
   SELECT NULLIF(UPPER(LTRIM(RTRIM(Cost_Center))), '') AS center,
          TRY_CONVERT(decimal(18,2), Hours) AS hours,
-         TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS month_no,
-         TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS year_no
+         month_start
   FROM rpt.actuals_load_resource_management
+  ${LABOR_PERIOD_SQL}
 )
 SELECT COUNT_BIG(*) AS raw_rows,
        COUNT_BIG(a.center) AS with_center,
        COUNT_BIG(CASE WHEN a.center IS NOT NULL AND a.hours IS NOT NULL THEN 1 END) AS with_hours,
-       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.center IS NOT NULL AND a.year_no IS NOT NULL AND a.month_no BETWEEN 1 AND 12 THEN 1 END) AS with_period,
-       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.year_no IS NOT NULL AND a.month_no BETWEEN 1 AND 12 AND h.center IS NOT NULL THEN 1 END) AS any_hierarchy,
-       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.year_no IS NOT NULL AND a.month_no BETWEEN 1 AND 12 AND h.in_scope = 1 THEN 1 END) AS scoped
+       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.center IS NOT NULL AND a.month_start IS NOT NULL THEN 1 END) AS with_period,
+       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.month_start IS NOT NULL AND h.center IS NOT NULL THEN 1 END) AS any_hierarchy,
+       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.month_start IS NOT NULL AND h.in_scope = 1 THEN 1 END) AS scoped
 FROM Actuals a LEFT JOIN Hierarchy h ON h.center = a.center;
 
 SELECT COUNT_BIG(*) AS hierarchy_rows,
@@ -58,7 +58,7 @@ async function explainEmptyExtract(dbm) {
       ['raw_rows', 'Source actuals', 'The actuals table returned zero rows.'],
       ['with_center', 'With cost center', 'All actuals have blank cost centers.'],
       ['with_hours', 'With numeric hours', 'No remaining hours convert to decimal.'],
-      ['with_period', 'With valid period', 'Period parsing excluded all remaining rows (first 2 characters = month, last 4 = year).'],
+      ['with_period', 'With valid period', 'Period parsing excluded all remaining rows (expected YYYYMM, e.g. 202601 for January 2026).'],
       ['any_hierarchy', 'Matching any hierarchy center', 'No eligible cost center matches the hierarchy.'],
       ['scoped', 'Matching NGRBT hierarchy center', 'No eligible cost center matches a hierarchy row with LEV02 = NGRBT.']
     ];

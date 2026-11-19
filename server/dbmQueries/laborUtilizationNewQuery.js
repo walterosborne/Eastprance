@@ -1,3 +1,11 @@
+// DBM actuals use a six-digit reporting period (e.g. 202601 = January 2026).
+// Style 112 reads YYYYMMDD independently of SQL Server language settings.
+export const LABOR_PERIOD_SQL = `
+    CROSS APPLY (VALUES (LTRIM(RTRIM(CONVERT(varchar(64), [Period]))))) AS period_value(yyyymm)
+    CROSS APPLY (VALUES (TRY_CONVERT(date,
+        CASE WHEN yyyymm LIKE '[0-9][0-9][0-9][0-9][0-9][0-9]' THEN yyyymm + '01' END, 112
+    ))) AS parsed_period(month_start)`;
+
 export const LABOR_UTILIZATION_NEW_DBM_QUERY = `
 WITH CostCenterHierarchy AS (
     SELECT
@@ -16,14 +24,8 @@ WITH CostCenterHierarchy AS (
 
 Actuals AS (
     SELECT
-        TRY_CONVERT(
-            INT,
-            RIGHT(LTRIM(RTRIM([Period])), 4)
-        ) AS [year],
-        TRY_CONVERT(
-            INT,
-            LEFT(LTRIM(RTRIM([Period])), 2)
-        ) AS [month],
+        YEAR(month_start) AS [year],
+        MONTH(month_start) AS [month],
         UPPER(LTRIM(RTRIM(Cost_Center))) AS Cost_Center,
         NULLIF(UPPER(LTRIM(RTRIM(MYID))), '') AS MyID,
         CASE
@@ -35,6 +37,7 @@ Actuals AS (
         END AS Labor_Category,
         TRY_CONVERT(DECIMAL(18,2), Hours) AS Entered_Hours
     FROM rpt.actuals_load_resource_management
+    ${LABOR_PERIOD_SQL}
     WHERE
         NULLIF(LTRIM(RTRIM(Cost_Center)), '') IS NOT NULL
         AND TRY_CONVERT(DECIMAL(18,2), Hours) IS NOT NULL

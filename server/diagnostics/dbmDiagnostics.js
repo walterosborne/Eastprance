@@ -3,12 +3,12 @@ import {
   formatDuration,
   logDebug,
   logError
-} from './debugLogger.js';
+} from '../debugLogger.js';
 import { readCostClassificationDiagnostics } from './costClassificationDiagnostics.js';
 import { readCostDimensionCoverageDiagnostics } from './costDimensionCoverageDiagnostics.js';
 import { classifyFacilityCost } from './costFacilityClassification.js';
-import { readControllableCostsData } from './controllableCostsRepository.js';
-import { getConnectionConfig, getPool } from './sqlConnection.js';
+import { readControllableCostsData } from '../controllableCostsRepository.js';
+import { getConnectionConfig, getPool } from '../sqlConnection.js';
 
 const DBM_TABLE_CHECKS = [
   {

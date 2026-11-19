@@ -3,9 +3,9 @@ import {
   formatDuration,
   logDebug,
   logError
-} from './debugLogger.js';
-import { COST_CLASSIFICATION_DBM_QUERY } from './dbmQueries/costClassificationQuery.js';
-import { getConnectionConfig, getPool } from './sqlConnection.js';
+} from '../debugLogger.js';
+import { COST_CLASSIFICATION_DBM_QUERY } from './costDiagnosticQueries.js';
+import { getConnectionConfig, getPool } from '../sqlConnection.js';
 
 const COVERAGE_TARGET = 0.95;
 const MIN_VISIBLE_ROWS = 40;

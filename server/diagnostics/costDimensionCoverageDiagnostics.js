@@ -1,6 +1,6 @@
-import { COST_DIMENSION_COVERAGE_DBM_QUERY } from './dbmQueries/costDimensionCoverageQuery.js';
-import { readControllableCostsData } from './controllableCostsRepository.js';
-import { getConnectionConfig, getPool } from './sqlConnection.js';
+import { COST_DIMENSION_COVERAGE_DBM_QUERY } from './costDiagnosticQueries.js';
+import { readControllableCostsData } from '../controllableCostsRepository.js';
+import { getConnectionConfig, getPool } from '../sqlConnection.js';
 
 const FACILITY_MAPPING_METADATA_QUERY = `
 SELECT

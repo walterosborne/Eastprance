@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
-import { buildBuDivisionEntries, canonicalizeBuGroupSelections, makeBuEntryChildToken } from '../client/src/buGroupingUtils.js';
-import { businessUnitFilterMatches, makeBusinessUnitChildToken, makeBusinessUnitDivisionToken, makeBusinessUnitOtherToken } from '../client/src/hierarchyFilterUtils.js';
+import { buildBuDivisionEntries, canonicalizeBuGroupSelections, makeBuEntryChildToken } from '../../client/src/buGroupingUtils.js';
+import { businessUnitFilterMatches, makeBusinessUnitChildToken, makeBusinessUnitDivisionToken, makeBusinessUnitOtherToken } from '../../client/src/hierarchyFilterUtils.js';
 
 let queryCount = 0;
 const realBusinessUnits = ['Proper BU', 'Strategic BU', 'Native BU'];
@@ -10,7 +10,7 @@ let mappings = [
   { original: 'WS Other Name', group: 'Proper BU' },
   { original: 'SDS BU', group: 'Strategic BU' }
 ];
-await mock.module('./databricksQuery.js', {
+await mock.module('../databricksQuery.js', {
   namedExports: {
     executeDatabricksQuery: async ({ tableName, query: statement }) => {
       queryCount += 1;
@@ -31,7 +31,7 @@ await mock.module('./databricksQuery.js', {
 });
 
 test('BU mappings merge names across cards without mutating cached datasets or measures', async () => {
-  const { applyBuGroupingsToPayload, readBuGroupingTitles } = await import('./buGroupingsRepository.js');
+  const { applyBuGroupingsToPayload, readBuGroupingTitles } = await import('../buGroupingsRepository.js');
   const payload = { rows: [
     { division: 'Weapon Systems', business_unit: '  ws old NAME ', value: 10 },
     { division: 'Weapon Systems', business_unit: 'WS Other Name', value: 20 },
@@ -62,7 +62,7 @@ test('BU mappings merge names across cards without mutating cached datasets or m
 });
 
 test('canonical BU values are mapped without alias rows and share the same selection as their aliases', async () => {
-  const { applyBuGroupingsToPayload, readBuGroupingTitles } = await import('./buGroupingsRepository.js');
+  const { applyBuGroupingsToPayload, readBuGroupingTitles } = await import('../buGroupingsRepository.js');
   const payload = await applyBuGroupingsToPayload({ rows: [
     { division: 'Mixed', business_unit: ' proper  bu ', value: 10 },
     { division: 'Mixed', business_unit: 'WS Old Name', value: 20 },
@@ -89,7 +89,7 @@ test('canonical names take precedence over a conflicting alias for that same sou
   const originalMappings = mappings;
   try {
     mappings = [{ original: 'Proper BU', group: 'Strategic BU' }];
-    const { applyBuGroupingsToPayload } = await import('./buGroupingsRepository.js?canonical-priority');
+    const { applyBuGroupingsToPayload } = await import('../buGroupingsRepository.js?canonical-priority');
     const payload = await applyBuGroupingsToPayload({ rows: [{ business_unit: 'Proper BU' }] }, 'otd');
     assert.equal(payload.rows[0].business_unit, 'Proper BU');
     assert.equal(payload.rows[0].__business_unit_mapped, true);
@@ -164,7 +164,7 @@ test('a selected real BU stays selected when another dataset lists the same labe
 });
 
 test('blank BU values are retained and marked as unmapped', async () => {
-  const { applyBuGroupingsToPayload } = await import('./buGroupingsRepository.js');
+  const { applyBuGroupingsToPayload } = await import('../buGroupingsRepository.js');
   const payload = await applyBuGroupingsToPayload({
     rows: [{ business_unit: '' }, { business_unit: null }]
   }, 'otd');
@@ -175,7 +175,7 @@ test('blank BU values are retained and marked as unmapped', async () => {
 test('conflicting mappings do not silently select the wrong BU or break source datasets', async () => {
   mappings = [{ original: 'BU', group: 'One' }, { original: 'bu', group: 'Two' }];
   const { readBuGroupingTitles, applyBuGroupingsToPayload } =
-    await import('./buGroupingsRepository.js?conflict-test');
+    await import('../buGroupingsRepository.js?conflict-test');
   await assert.rejects(readBuGroupingTitles(), /conflicting real BUs/);
   const source = { rows: [{ business_unit: 'BU', value: 10 }] };
   const payload = await applyBuGroupingsToPayload(source, 'otd');

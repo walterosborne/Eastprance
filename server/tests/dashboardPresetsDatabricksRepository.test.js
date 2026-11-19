@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readDashboardPresetsOverview, saveDashboardPreset } from './dashboardPresetsRepository.js';
+import { readDashboardPresetsOverview, saveDashboardPreset } from '../dashboardPresetsRepository.js';
 
 function setConnection(t) {
   for (const [key, value] of Object.entries({

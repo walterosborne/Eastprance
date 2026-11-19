@@ -1,5 +1,5 @@
 import { readCostCenterFacilityRows, readCostClassificationRows } from './databricksLookupRepository.js';
-import { createRawCostTrace } from './costTestDiagnostics.js';
+import { createRawCostTrace } from './diagnostics/costTestDiagnostics.js';
 import {
   createTimer,
   formatDuration,

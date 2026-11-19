@@ -32,7 +32,7 @@ test('Databricks facility grouping preserves aliases, original labels and shared
     });
   });
   const { applyFacilityGroupingsToPayload, readFacilityGroupingHierarchy } =
-    await import('./facilityGroupingsRepository.js');
+    await import('../facilityGroupingsRepository.js');
   const source = { rows: [{ facility: ' old  SITE ', value: 7 }, { facility: 'Unmapped', value: 3 }] };
   const before = structuredClone(source);
   const [mapped, hierarchy] = await Promise.all([
@@ -50,7 +50,7 @@ test('Databricks facility grouping preserves aliases, original labels and shared
 });
 
 test('server setup never registers legacy labor loading or its routes', async () => {
-  const source = await fs.readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const source = await fs.readFile(new URL('../index.js', import.meta.url), 'utf8');
   const imports = [...source.matchAll(/^import\s+([\s\S]*?)\s+from\s+['"][^'"]+['"];\n/gm)];
   const context = {};
   for (const [, binding] of imports) {
@@ -70,7 +70,7 @@ test('server setup never registers legacy labor loading or its routes', async ()
   // Evaluate the real registrations with stubs; never listen or connect to a database.
   const setup = source.slice(0, source.indexOf('const { port, bindHost, connectHost }'))
     .replace(/^import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];\n/gm, '')
-    .replaceAll('import.meta.url', JSON.stringify(new URL('./index.js', import.meta.url).href));
+    .replaceAll('import.meta.url', JSON.stringify(new URL('../index.js', import.meta.url).href));
   vm.runInNewContext(setup, context);
   assert.equal(loaders.has('labor'), false);
   assert.equal(loaders.has('labor-databricks'), true);

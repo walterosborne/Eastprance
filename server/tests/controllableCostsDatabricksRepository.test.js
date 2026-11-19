@@ -3,7 +3,7 @@ import { mock, test } from 'node:test';
 
 const cwi = 'DS C2 & Weapons Integration';
 const sds = 'DS Strategic Deterrent Systems';
-await mock.module('./sqlConnection.js', {
+await mock.module('../sqlConnection.js', {
   namedExports: {
     getConnectionConfig: (scope) => {
       assert.equal(scope, 'dbm', 'lookup tables must not need the default SQL connection');
@@ -32,7 +32,7 @@ await mock.module('./sqlConnection.js', {
 const {
   readControllableCostsDatabricksNewData,
   readControllableCostsDatabricksRawData
-} = await import('./controllableCostsDatabricksRepository.js');
+} = await import('../controllableCostsDatabricksRepository.js');
 
 const columns = ['year', 'month', 'cost_center', 'gl_account_cost_element', 'cost_element_description', 'cost'];
 const row = (center, account, cost) => [2025, 1, center, account, 'Rent', cost];
@@ -136,7 +136,7 @@ test('new ledger fails explicitly when the source cannot be queried', async (t) 
 
 test('Databricks labor uses signed hour quantities and the QMI cost-center hierarchy', async (t) => {
   setConnection(t);
-  const { readLaborDatabricksData } = await import('./laborDatabricksRepository.js');
+  const { readLaborDatabricksData } = await import('../laborDatabricksRepository.js');
   const laborColumns = ['year', 'month', 'cost_center', 'entered_hours'];
   let statement;
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
@@ -202,7 +202,7 @@ test('new ledger supports external result links and completed-month scoping', as
     globalThis.fetch = originalFetch;
     delete globalThis.__qmiDatabricksLargeResultFetchEnabled;
   });
-  const { enableDatabricksExternalLinksForCostResults } = await import('./databricksExternalLinksFetch.js');
+  const { enableDatabricksExternalLinksForCostResults } = await import('../databricksExternalLinksFetch.js');
   enableDatabricksExternalLinksForCostResults();
   const payload = await readControllableCostsDatabricksNewData();
   const now = new Date();

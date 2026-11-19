@@ -4,7 +4,7 @@ import {
   getCachedSqlDataset,
   registerSqlDatasetCache,
   warmAllSqlDatasetCaches
-} from './sqlDatasetCache.js';
+} from '../sqlDatasetCache.js';
 
 test('a failed refresh does not serve an older card payload', async () => {
   let online = true;

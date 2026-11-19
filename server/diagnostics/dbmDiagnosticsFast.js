@@ -1,5 +1,5 @@
-import { readControllableCostsData } from './controllableCostsRepository.js';
-import { getConnectionConfig, getPool } from './sqlConnection.js';
+import { readControllableCostsData } from '../controllableCostsRepository.js';
+import { getConnectionConfig, getPool } from '../sqlConnection.js';
 
 const MAX_ALLOCATION_FOCUS = 450;
 const MAX_ALLOCATION_ROWS = 5000;

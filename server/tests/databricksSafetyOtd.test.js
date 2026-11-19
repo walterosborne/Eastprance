@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 
 const rosterCalls = [];
-await mock.module('./sqlConnection.js', {
+await mock.module('../sqlConnection.js', {
   namedExports: {
     getConnectionConfig: (scope) => {
       assert.equal(scope, 'roster', 'incident and OTD reads must not require the default SQL connection');
@@ -30,9 +30,9 @@ await mock.module('./sqlConnection.js', {
     }
   }
 });
-const { readOtdData } = await import('./otdRepository.js');
-const { readSafetyEventMetricsData, readSafetyNmfrData, getSafetyMetricPayload } = await import('./sifRepository.js');
-const { executeDatabricksQuery } = await import('./databricksQuery.js');
+const { readOtdData } = await import('../otdRepository.js');
+const { readSafetyEventMetricsData, readSafetyNmfrData, getSafetyMetricPayload } = await import('../sifRepository.js');
+const { executeDatabricksQuery } = await import('../databricksQuery.js');
 
 function connect(t) {
   for (const [name, value] of Object.entries({

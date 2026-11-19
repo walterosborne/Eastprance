@@ -12,22 +12,22 @@ import {
 import {
   buildHeadersDebugPayload,
   renderHeadersDebugPage
-} from './headerDiagnostics.js';
+} from './diagnostics/headerDiagnostics.js';
 import {
   buildLaborDiagnosticsPayload,
   renderLaborDiagnosticsPage
-} from './laborDiagnostics.js';
+} from './diagnostics/laborDiagnostics.js';
 import {
   readDbmDiagnostics,
   renderDbmDiagnosticsPage
-} from './dbmDiagnostics.js';
+} from './diagnostics/dbmDiagnostics.js';
 import {
   readDbmDiagnosticsFast,
   renderDbmDiagnosticsFastPage
-} from './dbmDiagnosticsFast.js';
+} from './diagnostics/dbmDiagnosticsFast.js';
 import { resolveApiHostConfig } from '../shared/apiHost.mjs';
 import { readControllableCostsData } from './controllableCostsRepository.js';
-import { buildCostTestDiagnostics } from './costTestDiagnostics.js';
+import { buildCostTestDiagnostics } from './diagnostics/costTestDiagnostics.js';
 import {
   readControllableCostsDatabricksData,
   readControllableCostsDatabricksRawData,

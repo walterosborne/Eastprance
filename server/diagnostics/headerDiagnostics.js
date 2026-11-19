@@ -6,8 +6,8 @@ import {
   getLikelyAuthUser,
   getRequestIdentityDiagnostics,
   normalizePotentialNetworkId
-} from './requestIdentity.js';
-import { readCurrentUser } from './currentUserRepository.js';
+} from '../requestIdentity.js';
+import { readCurrentUser } from '../currentUserRepository.js';
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',

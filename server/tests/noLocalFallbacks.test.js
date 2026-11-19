@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 
 let failureMode = 'missing';
-await mock.module('./sqlConnection.js', {
+await mock.module('../sqlConnection.js', {
   namedExports: {
     getConnectionConfig: () => ({
       config: { authMode: 'sql' },
@@ -13,9 +13,9 @@ await mock.module('./sqlConnection.js', {
   }
 });
 
-const { readCustomerEscapesData } = await import('./customerEscapesRepository.js');
-const { readControllableCostsData } = await import('./controllableCostsRepository.js');
-const { readLaborUtilizationData } = await import('./laborUtilizationRepository.js');
+const { readCustomerEscapesData } = await import('../customerEscapesRepository.js');
+const { readControllableCostsData } = await import('../controllableCostsRepository.js');
+const { readLaborUtilizationData } = await import('../laborUtilizationRepository.js');
 
 test('SQL cards surface missing configuration and live database failures', async () => {
   const readers = [

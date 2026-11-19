@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { test } from 'node:test';
-import { getLaborRosterConfig, buildLaborRosterLookup, joinLaborFacilities, readLaborRosterLookup } from './laborRosterDatabricksRepository.js';
-import { LABOR_UTILIZATION_NEW_DBM_QUERY } from './dbmQueries/laborUtilizationNewQuery.js';
+import { getLaborRosterConfig, buildLaborRosterLookup, joinLaborFacilities, readLaborRosterLookup } from '../laborRosterDatabricksRepository.js';
+import { LABOR_UTILIZATION_NEW_DBM_QUERY } from '../dbmQueries/laborUtilizationNewQuery.js';
 
 const roster = (overrides = {}) => ({
   myid: ' a1 ',
@@ -157,7 +157,7 @@ test('roster requests split large labor populations into bounded batches', async
 });
 
 async function repositoryHarness(rosterLoader) {
-  const url = new URL('./laborUtilizationNewRepository.js', import.meta.url);
+  const url = new URL('../laborUtilizationNewRepository.js', import.meta.url);
   const source = (await fs.readFile(url, 'utf8'))
     .replace(/^import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];\n/gm, '')
     .replaceAll('export ', '')

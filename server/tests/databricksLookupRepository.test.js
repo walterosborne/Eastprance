@@ -4,7 +4,7 @@ import { mock, test } from 'node:test';
 let elementRows = [];
 let categoryRows = [];
 const queries = [];
-await mock.module('./databricksQuery.js', {
+await mock.module('../databricksQuery.js', {
   namedExports: {
     executeDatabricksQuery: async ({ tableName, query }) => {
       queries.push({ tableName, query });
@@ -13,7 +13,7 @@ await mock.module('./databricksQuery.js', {
   }
 });
 
-const { readCostClassificationRows } = await import('./databricksLookupRepository.js');
+const { readCostClassificationRows } = await import('../databricksLookupRepository.js');
 
 test('cost classifications read existing trailing-space headers without SQL errors', async () => {
   elementRows = [

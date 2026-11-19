@@ -79,16 +79,6 @@ const norm = value => String(value ?? '').trim().toUpperCase();
 const unknown = '(Unknown)';
 const percent = (part, total) => total ? part / total : null;
 
-function legacyConnectionConfig(config) {
-  return {
-    ...config,
-    server: process.env.OLD_ROSTER_SERVER || process.env.LABOR_TEST_LEGACY_SERVER || config.server,
-    database: process.env.LABOR_TEST_LEGACY_DATABASE || 'DTO_Business_Management',
-    user: process.env.LABOR_TEST_LEGACY_USER || config.user,
-    password: process.env.LABOR_TEST_LEGACY_PASSWORD || config.password
-  };
-}
-
 function sqlTarget(config) {
   return [config.server, config.database].map(value =>
     String(value ?? '').replace(/[\r\n\t]/g, ' ').slice(0, 128)).join(' / ');
@@ -195,16 +185,14 @@ export async function renderLaborRosterComparison() {
     const id = norm(row.my_id);
     if (id) { distinctIds.add(id); withId++; }
   }
-  const legacy = legacyConnectionConfig(config);
   const methods = [
     {
       label: 'Old SQL roster', slug: 'old',
-      load: () => readLegacyRoster(legacy, [...distinctIds]),
+      load: () => readLegacyRoster(config, [...distinctIds]),
       resolve: (row, lookup) => lookup.get(norm(row.my_id)),
-      failureHint: 'Target: ' + sqlTarget(legacy)
-        + '. Login settings: ' + (process.env.LABOR_TEST_LEGACY_USER ? 'LABOR_TEST_LEGACY_USER' : 'dbmuser')
-        + ' / ' + (process.env.LABOR_TEST_LEGACY_PASSWORD ? 'LABOR_TEST_LEGACY_PASSWORD' : 'dbmpassword')
-        + '. Check OLD_ROSTER_SERVER, LABOR_TEST_LEGACY_DATABASE and access to dbo.rb_roster_transform.'
+      failureHint: 'Target: ' + sqlTarget(config)
+        + '. Connection settings: dbmserver / dbmdatabase / dbmuser / dbmpassword.'
+        + ' Check access to dbo.rb_roster_transform in the configured DBM database.'
     },
     {
       label: 'New monthly roster', slug: 'new',

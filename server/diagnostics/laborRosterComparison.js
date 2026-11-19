@@ -23,6 +23,58 @@ WITH DefenseRoster AS (
 SELECT MyID AS my_id, MIN(City) AS city, MIN(State) AS state
 FROM DefenseRoster GROUP BY MyID HAVING MIN(Facility) = MAX(Facility);`;
 
+// Run only when the normal extract is empty. Count original actuals before
+// grouping, with the same conversions and hierarchy key used by the labor query.
+const EMPTY_EXTRACT_COUNTS = `
+WITH Hierarchy AS (
+  SELECT UPPER(LTRIM(RTRIM(COST_CENTER))) AS center,
+         MAX(CASE WHEN LTRIM(RTRIM(LEV02)) = 'NGRBT' THEN 1 ELSE 0 END) AS in_scope
+  FROM rpt.cost_center_load_hierarchy GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
+), Actuals AS (
+  SELECT NULLIF(UPPER(LTRIM(RTRIM(Cost_Center))), '') AS center,
+         TRY_CONVERT(decimal(18,2), Hours) AS hours,
+         TRY_CONVERT(int, LEFT(LTRIM(RTRIM([Period])), 2)) AS month_no,
+         TRY_CONVERT(int, RIGHT(LTRIM(RTRIM([Period])), 4)) AS year_no
+  FROM rpt.actuals_load_resource_management
+)
+SELECT COUNT_BIG(*) AS raw_rows,
+       COUNT_BIG(a.center) AS with_center,
+       COUNT_BIG(CASE WHEN a.center IS NOT NULL AND a.hours IS NOT NULL THEN 1 END) AS with_hours,
+       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.center IS NOT NULL AND a.year_no IS NOT NULL AND a.month_no BETWEEN 1 AND 12 THEN 1 END) AS with_period,
+       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.year_no IS NOT NULL AND a.month_no BETWEEN 1 AND 12 AND h.center IS NOT NULL THEN 1 END) AS any_hierarchy,
+       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.year_no IS NOT NULL AND a.month_no BETWEEN 1 AND 12 AND h.in_scope = 1 THEN 1 END) AS scoped
+FROM Actuals a LEFT JOIN Hierarchy h ON h.center = a.center;
+
+SELECT COUNT_BIG(*) AS hierarchy_rows,
+       COUNT_BIG(CASE WHEN LTRIM(RTRIM(LEV02)) = 'NGRBT' THEN 1 END) AS scoped_hierarchy_rows
+FROM rpt.cost_center_load_hierarchy;`;
+
+async function explainEmptyExtract(dbm) {
+  try {
+    const { recordsets } = await dbm.request().query(EMPTY_EXTRACT_COUNTS);
+    const [counts] = recordsets[0];
+    const [hierarchy] = recordsets[1];
+    const stages = [
+      ['raw_rows', 'Source actuals', 'The actuals table returned zero rows.'],
+      ['with_center', 'With cost center', 'All actuals have blank cost centers.'],
+      ['with_hours', 'With numeric hours', 'No remaining hours convert to decimal.'],
+      ['with_period', 'With valid period', 'Period parsing excluded all remaining rows (first 2 characters = month, last 4 = year).'],
+      ['any_hierarchy', 'Matching any hierarchy center', 'No eligible cost center matches the hierarchy.'],
+      ['scoped', 'Matching NGRBT hierarchy center', 'No eligible cost center matches a hierarchy row with LEV02 = NGRBT.']
+    ];
+    const firstZero = stages.find(([key]) => Number(counts[key]) === 0);
+    return [
+      'Finding: ' + (firstZero?.[2] ?? 'Eligible actuals exist on recheck. The extract and diagnostics were separate reads.'),
+      'Actuals funnel (raw rows remaining):',
+      ...stages.map(([key, label]) => '  ' + label + ': ' + counts[key]),
+      'Hierarchy rows: ' + hierarchy.hierarchy_rows + ' total, ' + hierarchy.scoped_hierarchy_rows + ' in NGRBT.'
+    ];
+  } catch (error) {
+    const code = String(error.code || 'unknown').replace(/[^A-Za-z0-9_-]/g, '').slice(0,30);
+    return ['Finding: The common labor extract returned zero rows. The follow-up count query failed (' + code + ').'];
+  }
+}
+
 const norm = value => String(value ?? '').trim().toUpperCase();
 const unknown = '(Unknown)';
 const percent = (part, total) => total ? part / total : null;
@@ -120,13 +172,44 @@ export async function renderLaborRosterComparison() {
   const dbm = await getPool(config, 'dbm');
   const { recordset: rows } = await dbm.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY);
   // Approved use of the Databricks fiscal roster is limited to labor facility attribution.
-  const [oldRoster, monthlyRoster] = await Promise.all([
+  const distinctIds = new Set();
+  let withId = 0;
+  for (const row of rows) {
+    const id = norm(row.my_id);
+    if (id) { distinctIds.add(id); withId++; }
+  }
+  const [oldRoster, monthlyRoster] = distinctIds.size ? await Promise.all([
     readLegacyRoster(config, rows), readLaborRosterLookup(getLaborRosterConfig(), rows)
-  ]);
+  ]) : [new Map(), new Map()];
   const methods = [
     ['Old SQL roster', 'old', summarize(rows, row => oldRoster.get(norm(row.my_id)))],
     ['New monthly roster', 'new', summarize(rows, row => lookupMonthlyLaborFacility(row, monthlyRoster))]
   ];
+  const report = ['[labor-test] ' + new Date().toISOString(),
+    'Shared DBM labor extract: ' + rows.length + ' grouped rows',
+    'Rows with MyID: ' + withId + ' / ' + rows.length + ' (' + distinctIds.size + ' distinct IDs)'];
+  if (!rows.length) {
+    report.push(...await explainEmptyExtract(dbm));
+  } else if (!withId) {
+    report.push('Finding: Every grouped row has a blank MyID.');
+  }
+  if (!withId) {
+    report.push('Both roster lookups skipped: no labor IDs to match.');
+  } else {
+    const months = [...methods[0][2].months.keys()].sort();
+    report.push('Labor months: ' + months[0] + ' through ' + months.at(-1),
+      'Old SQL roster: ' + oldRoster.size + ' labor IDs resolved to one Defense facility',
+      'Monthly roster: ' + monthlyRoster.size + ' usable MyID/month keys in the queried range');
+    for (const [label, , { total }] of methods) {
+      report.push(label + ': ' + total.matchedRows + ' / ' + total.rows + ' labor rows matched');
+    }
+    if (!oldRoster.size) report.push('Old lookup found no requested MyID with one unambiguous eligible city/state.');
+    if (!monthlyRoster.size) report.push('Monthly lookup returned no usable Defense facility for the requested IDs and date range.');
+    else if (!methods[1][2].total.matchedRows) report.push('Monthly facilities exist, but none matches the exact employee and labor month.');
+  }
+  // Only counts, periods and fixed labels go into the shareable report.
+  const debugText = report.join('\n');
+  console.info(debugText);
   const body = methods.map(([label, slug, summary]) => {
     const v = summary.total;
     return `<tr><th scope="row">${label}</th><td>${v.matchedRows.toLocaleString('en-US')} / ${v.rows.toLocaleString('en-US')}</td>
@@ -136,6 +219,7 @@ export async function renderLaborRosterComparison() {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Labor facility coverage</title><style>body{font:16px system-ui;margin:4vw;color:#172536}table{border-collapse:collapse}th,td{padding:.8rem;text-align:left;border-bottom:1px solid #ccc}a{display:inline-block;background:#164d75;color:white;padding:.45rem .8rem;border-radius:.3rem}p{max-width:78ch}</style>
     <main><h1>Labor facility coverage</h1><p>Both methods use the same ${rows.length.toLocaleString('en-US')} DBM labor rows, grouped by employee, month, division, business unit, cost center and labor category. Extracted ${new Date().toISOString().slice(0,16).replace('T',' ')} UTC.</p>
+    <section><h2>Debug summary</h2><pre style="white-space:pre-wrap">${debugText}</pre></section>
     <table><thead><tr><th>Method</th><th>Matched / total rows</th><th>Rows matched</th><th>Hours matched</th><th>Workbook</th></tr></thead><tbody>${body}</tbody></table>
     <p>Hour percentages weight each grouped row by the absolute value of its entered hours. Facilities are ordered by hours, with (Unknown) last. Every share includes unknowns in its denominator. Blank percentages mean the denominator was zero.</p></main></html>`;
 }

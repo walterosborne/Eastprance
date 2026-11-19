@@ -45,6 +45,7 @@ function compareCandidates(left, right) {
 export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
   const candidates = new Map();
   const required = ['myid', 'city', 'state', 'sector', 'effective_date', 'is_standard_headcount', 'worker_id'];
+  if (includeDivision) required.push('division');
   for (const row of rows) {
     if (required.some((field) => !Object.hasOwn(row, field))) {
       throw new Error('Databricks labor roster is missing required MyID, location, sector, or fiscal snapshot fields.');
@@ -81,6 +82,11 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
       lookup.set(key, { city: best.city, state: best.state, facilityKey: best.facilityKey });
     }
   }
+  if (includeDivision) lookup.divisionDiagnostics = {
+    rows: rows.length,
+    populated: rows.filter(row => normalizeText(row.division)).length,
+    resolved: lookup.divisions.size
+  };
   return lookup;
 }
 

@@ -235,17 +235,22 @@ export async function renderLaborRosterComparison() {
       load: () => readLaborRosterLookup(getLaborRosterConfig(), rows, { includeDivision: true }),
       resolveDivision: (row, lookup) => lookupMonthlyLaborFacility(row, lookup.divisions || new Map()),
       resolve: lookupMonthlyLaborFacility,
-      failureHint: 'Check the Databricks labor roster configuration and warehouse access.'
+      failureHint: 'Check the configured Databricks roster table and warehouse access. DIVISION_LOOKUP_MISSING means laborRosterDatabricksRepository.js must be updated together with this diagnostic.'
     }
   ];
   const results = await Promise.all(methods.map(async method => {
     let lookup;
     try {
       lookup = withId ? await method.load() : new Map();
+      if (withId && method.resolveDivision && !(lookup.divisions instanceof Map)) {
+        const error = new Error('Division lookup missing from roster repository.');
+        error.code = 'DIVISION_LOOKUP_MISSING';
+        throw error;
+      }
     } catch (error) {
       return { ...method, failure: failureCode(error) };
     }
-    return { ...method, size: lookup.size, summary: summarize(rows, row => method.resolve(row, lookup),
+    return { ...method, size: lookup.size, divisionDiagnostics: lookup.divisionDiagnostics, summary: summarize(rows, row => method.resolve(row, lookup),
       method.resolveDivision && (row => method.resolveDivision(row, lookup))) };
   }));
   const report = ['[labor-test] ' + new Date().toISOString(),
@@ -268,6 +273,11 @@ export async function renderLaborRosterComparison() {
       if (result.failure) {
         report.push(result.label + ' unavailable (' + result.failure + '). ' + result.failureHint);
         continue;
+      }
+      if (result.divisionDiagnostics) {
+        const stats = result.divisionDiagnostics;
+        report.push('Roster division: ' + stats.populated + ' / ' + stats.rows
+          + ' returned snapshot rows populated; ' + stats.resolved + ' employee/month divisions resolved.');
       }
       const { total } = result.summary;
       const keys = result.slug === 'old' ? 'unambiguous Defense MyIDs' : 'eligible MyID/month keys';

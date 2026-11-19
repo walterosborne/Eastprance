@@ -326,7 +326,17 @@ export async function getPool(config, poolName = 'default') {
     // driver even for Tedious pools created earlier. Pin per-pool requests.
     bindSqlPoolRequestDriver(connectionPool, driver);
 
-    const poolPromise = connectionPool.connect().catch((error) => {
+    // Keep success logging on the returned promise so a failed connection cannot
+    // create an unobserved rejection in a detached .then() branch.
+    const poolPromise = connectionPool.connect().then((pool) => {
+      logDebug('sql', 'SQL connection pool connected.', {
+        poolName,
+        server: config.server,
+        database: config.database,
+        duration: formatDuration(stopTimer())
+      });
+      return pool;
+    }).catch((error) => {
       logError('sql', 'SQL connection pool failed to connect.', error, {
         poolName,
         server: config.server,
@@ -339,14 +349,6 @@ export async function getPool(config, poolName = 'default') {
 
     poolPromises.set(poolKey, poolPromise);
 
-    poolPromise.then(() => {
-      logDebug('sql', 'SQL connection pool connected.', {
-        poolName,
-        server: config.server,
-        database: config.database,
-        duration: formatDuration(stopTimer())
-      });
-    });
   } else {
     logDebug('sql', 'Reusing existing SQL connection pool.', {
       poolName,

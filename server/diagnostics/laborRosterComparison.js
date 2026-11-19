@@ -117,10 +117,11 @@ function bucketFor(map, key) {
   return map.get(key);
 }
 
-function summarize(rows, resolve) {
+function summarize(rows, resolve, resolveDivision) {
   const total = emptyBucket();
   const facilities = new Map([[unknown, emptyBucket()]]);
   const months = new Map();
+  const divisions = resolveDivision ? new Map() : null;
   for (const row of rows) {
     const amount = Number(row.entered_hours);
     if (row.entered_hours == null || !Number.isFinite(amount)) throw new Error('Invalid labor hours.');
@@ -129,11 +130,17 @@ function summarize(rows, resolve) {
     const location = resolve(row);
     const facility = location?.city ? [norm(location.city), norm(location.state)].filter(Boolean).join(', ') : unknown;
     const matched = facility !== unknown;
+    if (divisions) {
+      const hierarchyDivision = norm(row.division) || unknown;
+      const rosterDivision = norm(resolveDivision(row)) || unknown;
+      const pair = JSON.stringify([hierarchyDivision, rosterDivision]);
+      add(bucketFor(divisions, pair), hours, false);
+    }
     add(total, hours, matched);
     add(bucketFor(facilities, facility), hours, matched);
     add(bucketFor(months, row.year + '-' + String(row.month).padStart(2, '0')), hours, matched);
   }
-  return { total, facilities, months };
+  return { total, facilities, months, divisions };
 }
 
 function appendSheet(book, name, headers, rows, pctColumns) {
@@ -150,7 +157,7 @@ function appendSheet(book, name, headers, rows, pctColumns) {
 
 function workbook(summary) {
   const book = XLSX.utils.book_new();
-  const { total, facilities, months } = summary;
+  const { total, facilities, months, divisions } = summary;
   const ordered = [...facilities].sort(([a, x], [b, y]) =>
     Number(a === unknown) - Number(b === unknown) || y.hours - x.hours || a.localeCompare(b));
   let runningHours = 0, runningRows = 0;
@@ -167,6 +174,22 @@ function workbook(summary) {
     [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, v]) =>
       [month, v.rows, v.matchedRows, percent(v.matchedRows, v.rows), v.hours / 100,
         v.matchedHours / 100, percent(v.matchedHours, v.hours)]), [3, 6]);
+  if (divisions) {
+    // Preserve source labels. Only whitespace, case and the display prefix DS are normalized for agreement.
+    const divisionKey = value => norm(value).replace(/^DS\s+/, '').replace(/\s+/g, ' ');
+    const missingDivision = value => [unknown.toUpperCase(), 'UNMAPPED', 'UNKNOWN', 'N/A'].includes(norm(value));
+    appendSheet(book, 'division comparison',
+      ['Hierarchy division (LEV03_DESC)', 'Roster division (org_structure_lvl3)', 'Comparison',
+        'Labor rows', 'Share of all rows', 'Absolute hours', 'Share of all hours'],
+      [...divisions].sort(([a, x], [b, y]) => y.hours - x.hours || a.localeCompare(b)).map(([pair, v]) => {
+        const [hierarchy, roster] = JSON.parse(pair);
+        let comparison = 'Different';
+        if (missingDivision(hierarchy) || missingDivision(roster)) comparison = 'Missing division';
+        else if (divisionKey(hierarchy) === divisionKey(roster)) comparison = 'Same';
+        return [hierarchy, roster, comparison, v.rows, percent(v.rows, total.rows),
+          v.hours / 100, percent(v.hours, total.hours)];
+      }), [4, 6]);
+  }
   return XLSX.write(book, { type: 'base64', bookType: 'xlsx', compression: true });
 }
 
@@ -209,7 +232,8 @@ export async function renderLaborRosterComparison() {
     },
     {
       label: 'New monthly roster', slug: 'new',
-      load: () => readLaborRosterLookup(getLaborRosterConfig(), rows),
+      load: () => readLaborRosterLookup(getLaborRosterConfig(), rows, { includeDivision: true }),
+      resolveDivision: (row, lookup) => lookupMonthlyLaborFacility(row, lookup.divisions || new Map()),
       resolve: lookupMonthlyLaborFacility,
       failureHint: 'Check the Databricks labor roster configuration and warehouse access.'
     }
@@ -221,7 +245,8 @@ export async function renderLaborRosterComparison() {
     } catch (error) {
       return { ...method, failure: failureCode(error) };
     }
-    return { ...method, size: lookup.size, summary: summarize(rows, row => method.resolve(row, lookup)) };
+    return { ...method, size: lookup.size, summary: summarize(rows, row => method.resolve(row, lookup),
+      method.resolveDivision && (row => method.resolveDivision(row, lookup))) };
   }));
   const report = ['[labor-test] ' + new Date().toISOString(),
     'Shared DBM labor extract: ' + rows.length + ' grouped rows',
@@ -271,3 +296,4 @@ export async function renderLaborRosterComparison() {
     <table><thead><tr><th>Method</th><th>Matched / total rows</th><th>Rows matched</th><th>Hours matched</th><th>Workbook</th></tr></thead><tbody>${body}</tbody></table>
     <p>Hour percentages weight each grouped row by the absolute value of its entered hours. Facilities are ordered by hours, with (Unknown) last. Every share includes unknowns in its denominator. Blank percentages mean the denominator was zero.</p></main></html>`;
 }
+

@@ -42,7 +42,7 @@ function compareCandidates(left, right) {
   return left.workerId.localeCompare(right.workerId, undefined, { numeric: true });
 }
 
-export function buildLaborRosterLookup(rows) {
+export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
   const candidates = new Map();
   const required = ['myid', 'city', 'state', 'sector', 'effective_date', 'is_standard_headcount', 'worker_id'];
   for (const row of rows) {
@@ -56,6 +56,7 @@ export function buildLaborRosterLookup(rows) {
     const state = normalizeText(row.state);
     const candidate = {
       city, state,
+      division: normalizeText(row.division),
       facilityKey: JSON.stringify([city.toUpperCase(), state.toUpperCase()]),
       date: date.iso,
       standard: ['1', 'TRUE', 'Y', 'YES'].includes(normalizeId(row.is_standard_headcount)),
@@ -64,12 +65,18 @@ export function buildLaborRosterLookup(rows) {
     const key = monthKey(id, date.year, date.month);
     const previous = candidates.get(key);
     const comparison = previous ? compareCandidates(candidate, previous.best) : 1;
-    if (comparison > 0) candidates.set(key, { best: candidate, conflict: false });
-    else if (comparison === 0 && candidate.facilityKey !== previous.best.facilityKey) previous.conflict = true;
+    if (comparison > 0) candidates.set(key, { best: candidate, conflict: false, divisionConflict: false });
+    else if (comparison === 0) {
+      if (candidate.facilityKey !== previous.best.facilityKey) previous.conflict = true;
+      if (normalizeId(candidate.division) !== normalizeId(previous.best.division)) previous.divisionConflict = true;
+    }
   }
 
   const lookup = new Map();
-  for (const [key, { best, conflict }] of candidates) {
+  // Diagnostic division coverage is independent of whether the location is usable.
+  if (includeDivision) lookup.divisions = new Map();
+  for (const [key, { best, conflict, divisionConflict }] of candidates) {
+    if (includeDivision && !divisionConflict && best.division) lookup.divisions.set(key, best.division);
     if (!conflict && best.city && !INVALID_CITIES.has(best.city.toUpperCase())) {
       lookup.set(key, { city: best.city, state: best.state, facilityKey: best.facilityKey });
     }
@@ -77,7 +84,7 @@ export function buildLaborRosterLookup(rows) {
   return lookup;
 }
 
-export async function readLaborRosterLookup(config = getLaborRosterConfig(), laborRows = []) {
+export async function readLaborRosterLookup(config = getLaborRosterConfig(), laborRows = [], { includeDivision = false } = {}) {
   try {
     const ids = [...new Set(laborRows.map((row) => normalizeId(row.my_id)).filter(Boolean))];
     let firstPeriod = Infinity;
@@ -108,6 +115,7 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
             TRIM(CAST(\`work_city\` AS STRING)) AS city,
             TRIM(CAST(\`work_state_code\` AS STRING)) AS state,
             CAST(\`org_structure_lvl2\` AS STRING) AS sector,
+            ${includeDivision ? 'CAST(`org_structure_lvl3` AS STRING) AS division,' : ''}
             CAST(\`effective_date\` AS STRING) AS effective_date,
             CAST(\`is_standard_headcount\` AS STRING) AS is_standard_headcount,
             CAST(\`worker_id\` AS STRING) AS worker_id,
@@ -126,7 +134,7 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
             AND YEAR(\`effective_date\`) * 100 + MONTH(\`effective_date\`)
               BETWEEN ${firstPeriod} AND ${lastPeriod}
         )
-        SELECT myid, city, state, sector, effective_date, is_standard_headcount, worker_id
+        SELECT myid, city, state, sector, effective_date, is_standard_headcount, worker_id${includeDivision ? ', division' : ''}
         FROM ranked
         WHERE roster_rank = 1
       `
@@ -136,7 +144,7 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
         for (const row of result) rows.push(row);
       }
     }
-    return buildLaborRosterLookup(rows);
+    return buildLaborRosterLookup(rows, { includeDivision });
   } catch (error) {
     const failure = new Error(`Unable to load the configured Databricks labor roster: ${error.message}`, { cause: error });
     failure.code = 'LABOR_ROSTER_UNAVAILABLE';
@@ -174,3 +182,4 @@ export function joinLaborFacilities(laborRows, rosterLookup) {
   // Return the original facility-level shape; employee identifiers stay on the server.
   return [...totals.values()].map((row) => ({ ...row, entered_hours: Number(row.entered_hours.toFixed(2)) }));
 }
+

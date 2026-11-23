@@ -15,18 +15,20 @@ export function getLastCompletedMonthStamp(now = new Date()) {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
 }
 
-export function assessLatestMonth(points, {
-  lastCompletedMonth = getLastCompletedMonthStamp(),
-  minAbsoluteChange = 1,
-  minRelativeChange = MIN_RELATIVE_CHANGE
-} = {}) {
-  const valid = points.filter(({ stamp, value }) =>
+function observedMonths(points, lastCompletedMonth = getLastCompletedMonthStamp()) {
+  return points.filter(({ stamp, value }) =>
     Number.isFinite(stamp) && stamp <= lastCompletedMonth && Number.isFinite(value)
   ).sort((a, b) => a.stamp - b.stamp);
-  const latest = valid.at(-1);
-  const history = valid.slice(0, -1).slice(-LOOKBACK).map(({ value }) => value);
+}
+
+function assessMonthAt(months, index, {
+  minAbsoluteChange = 1,
+  minRelativeChange = MIN_RELATIVE_CHANGE
+}) {
+  const current = months[index];
+  const history = months.slice(Math.max(0, index - LOOKBACK), index).map(({ value }) => value);
   const result = {
-    stamp: latest?.stamp ?? null, value: latest?.value ?? null, historyCount: history.length,
+    stamp: current?.stamp ?? null, value: current?.value ?? null, historyCount: history.length,
     lower: null, upper: null, processingMonth: null
   };
   if (history.length < MIN_HISTORY) return result;
@@ -43,6 +45,16 @@ export function assessLatestMonth(points, {
   const upper = center + threshold;
   return {
     ...result, lower, upper,
-    processingMonth: latest.value < lower || latest.value > upper ? latest.stamp : null
+    processingMonth: current.value < lower || current.value > upper ? current.stamp : null
   };
+}
+
+export function assessLatestMonth(points, options = {}) {
+  const months = observedMonths(points, options.lastCompletedMonth);
+  return assessMonthAt(months, months.length - 1, options);
+}
+
+export function assessMonthHistory(points, options = {}) {
+  const months = observedMonths(points, options.lastCompletedMonth);
+  return months.map((_, index) => assessMonthAt(months, index, options));
 }

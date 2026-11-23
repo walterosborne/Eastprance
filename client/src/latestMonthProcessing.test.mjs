@@ -87,3 +87,19 @@ test('processing note appears only for a hidden month', () => {
   assert.equal(getProcessingMonthNote(october), 'October 2026 data is still processing.');
   assert.equal(getProcessingMonthNote(null), '');
 });
+
+test('report cutoffs include their endpoints and a stale latest observation has no release day', async () => {
+  const { assessLatestMonth } = await import('../../shared/latestMonthOutlier.mjs');
+  const rateOptions = { lastCompletedMonth: october, minAbsoluteChange: 0.05, minRelativeChange: 0 };
+  const series = latest => points([...Array(6).fill(0.8), latest]);
+  const result = assessLatestMonth(series(0.99), rateOptions);
+  assert.equal(result.historyCount, 6);
+  assert.equal(result.stamp, Date.UTC(2026, 6, 1));
+  assert.equal(result.processingMonth, result.stamp);
+  assert.equal(result.lower, 0.8 - 0.05);
+  assert.equal(result.upper, 0.8 + 0.05);
+  for (const boundary of [result.lower, result.upper]) {
+    assert.equal(assessLatestMonth(series(boundary), rateOptions).processingMonth, null);
+  }
+  assert.equal(assessLatestMonth([...series(0.99), { stamp: september, value: 0.8 }], rateOptions).processingMonth, null);
+});

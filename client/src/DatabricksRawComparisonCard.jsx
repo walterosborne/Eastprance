@@ -1,3 +1,6 @@
+import { getLastCompletedMonthStamp } from '../../shared/latestMonthOutlier.mjs';
+import { includeSelectedFilterOptions } from './hierarchyFilterUtils';
+import { ChartGoal, EmptyChartGoal, axisIncludingGoal } from './ChartGoal';
 import { findLatestMonthOutlier, excludeProcessingMonth, getProcessingMonthNote } from './latestMonthProcessing.mjs';
 import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
 import { memo, useEffect, useMemo, useState } from 'react';
@@ -20,7 +23,6 @@ import {
   BarPlot,
   ChartsContainer,
   ChartsGrid,
-  ChartsReferenceLine,
   ChartsTooltipContainer,
   ChartsXAxis,
   ChartsYAxis,
@@ -267,17 +269,6 @@ const optionCheckboxSx = {
   }
 };
 
-const goalLineStyle = {
-  stroke: 'var(--chart-annotation)',
-  strokeDasharray: '6 4',
-  strokeWidth: 1.5
-};
-const goalLabelStyle = {
-  fill: 'var(--chart-annotation)',
-  fontSize: 11,
-  fontWeight: 600
-};
-
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -334,10 +325,6 @@ function getMonthStamp(row) {
   return Date.UTC(year, month - 1, 1);
 }
 
-function getLastCompletedMonthStamp() {
-  const now = new Date();
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
-}
 
 function getVisibleRows(rows) {
   const lastCompletedMonthStamp = getLastCompletedMonthStamp();
@@ -489,7 +476,8 @@ function getGoalLine(totalSeries) {
   const values = totalSeries.map(Number).filter(Number.isFinite);
   if (values.length === 0) return null;
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  return { value: average * 0.95 };
+  const value = average * 0.95;
+  return { value, label: `Goal ${formatOverviewCurrency(value)}` };
 }
 
 
@@ -660,9 +648,7 @@ function ChartControls({
   paletteColorField,
   onPaletteColorFieldChange
 }) {
-  const isFilterMode = variant === 'line' || variant === 'bar';
   const isPaletteMode = variant === 'palette';
-  const isParetoMode = variant === 'pareto';
   const activeFilter = FILTER_FIELDS.find((option) => option.value === filterField) ?? FILTER_FIELDS[0];
   const paletteGroupOptions = FILTER_FIELDS.filter((option) => option.value !== paletteColorField);
   const paletteColorOptions = FILTER_FIELDS.filter((option) => option.value !== paletteGroupField);
@@ -693,55 +679,51 @@ function ChartControls({
         </ToggleButton>
       </ToggleButtonGroup>
 
-      <div className={`chart-type-inline-filter chart-type-inline-filter-visible${isParetoMode ? ' chart-type-inline-filter-single' : ''}`}>
-        {(isFilterMode || isParetoMode) && (
-          <FormControl fullWidth size="small" sx={inlineSelectSx}>
-            <Select
-              value={filterField}
-              onChange={(event) => onFilterFieldChange(event.target.value)}
-              renderValue={() => activeFilter.label}
-              MenuProps={selectMenuProps}
-              inputProps={{ 'aria-label': `Select ${sourceLabel} filter field` }}
-            >
-              {FILTER_FIELDS.map((option) => (
-                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
+      <div className={`chart-type-inline-filter chart-type-inline-filter-visible${isPaletteMode ? ' chart-type-inline-filter-palette' : ''}`}>
+        <FormControl fullWidth size="small" sx={inlineSelectSx}>
+          <Select
+            value={filterField}
+            onChange={(event) => onFilterFieldChange(event.target.value)}
+            renderValue={() => activeFilter.label}
+            MenuProps={selectMenuProps}
+            inputProps={{ 'aria-label': `Select ${sourceLabel} filter field` }}
+          >
+            {FILTER_FIELDS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
 
-        {isFilterMode && (
-          <Autocomplete
-            multiple
-            disableCloseOnSelect
-            options={filterValueOptions}
-            value={filterValues}
-            onChange={(_event, nextValues) => onFilterValuesChange(nextValues)}
-            renderValue={(selectedValues) => (
-              <span className="raw-filter-value-summary">
-                {selectedValues.length === 1 ? selectedValues[0] : `${selectedValues.length} selected`}
-              </span>
-            )}
-            renderOption={(optionProps, option, { selected }) => {
-              const { key, ...remainingOptionProps } = optionProps;
-              return (
-                <li key={key} {...remainingOptionProps}>
-                  <Checkbox checked={selected} size="small" disableRipple sx={optionCheckboxSx} />
-                  {option}
-                </li>
-              );
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                placeholder={filterValues.length === 0 ? activeFilter.allLabel : ''}
-                inputProps={{ ...params.inputProps, 'aria-label': `Select ${sourceLabel} filter values` }}
-              />
-            )}
-            slotProps={{ paper: selectMenuProps.PaperProps }}
-            sx={inlineAutocompleteSx}
-          />
-        )}
+        <Autocomplete
+          multiple
+          disableCloseOnSelect
+          options={filterValueOptions}
+          value={filterValues}
+          onChange={(_event, nextValues) => onFilterValuesChange(nextValues)}
+          renderValue={(selectedValues) => (
+            <span className="raw-filter-value-summary">
+              {selectedValues.length === 1 ? selectedValues[0] : `${selectedValues.length} selected`}
+            </span>
+          )}
+          renderOption={(optionProps, option, { selected }) => {
+            const { key, ...remainingOptionProps } = optionProps;
+            return (
+              <li key={key} {...remainingOptionProps}>
+                <Checkbox checked={selected} size="small" disableRipple sx={optionCheckboxSx} />
+                {option}
+              </li>
+            );
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              placeholder={filterValues.length === 0 ? activeFilter.allLabel : ''}
+              inputProps={{ ...params.inputProps, 'aria-label': `Select ${sourceLabel} filter values` }}
+            />
+          )}
+          slotProps={{ paper: selectMenuProps.PaperProps }}
+          sx={inlineAutocompleteSx}
+        />
 
         {isPaletteMode && (
           <>
@@ -806,13 +788,13 @@ function TrendChart({ width, variant, data, goalLine, scaleMax }) {
       showMark: data.labels.length <= 1
     }
   ];
-  const yAxis = [{
+  const yAxis = [axisIncludingGoal({
     min: 0,
     ...(scaleMax == null ? {} : { max: scaleMax, domainLimit: 'strict' }),
     width: 66,
     valueFormatter: formatMillionsCurrencyAxis,
     tickLabelStyle: { fontSize: 11 }
-  }];
+  }, goalLine)];
   const commonProps = {
     width,
     height: CHART_HEIGHT,
@@ -825,21 +807,13 @@ function TrendChart({ width, variant, data, goalLine, scaleMax }) {
     sx: sharedChartSx,
     slots: { tooltip: StandardChartTooltip },
     slotProps: { tooltip: { trigger: 'axis' } },
-    children: goalLine ? (
-      <ChartsReferenceLine
-        y={goalLine.value}
-        label={`Goal ${formatMillionsCurrencyAxis(goalLine.value)}`}
-        labelAlign="end"
-        lineStyle={goalLineStyle}
-        labelStyle={goalLabelStyle}
-      />
-    ) : null
+    children: <ChartGoal goal={goalLine} />
   };
 
   return variant === 'bar' ? <BarChart {...commonProps} /> : <LineChart {...commonProps} />;
 }
 
-function ParetoChart({ width, data }) {
+function ParetoChart({ width, data, goalLine }) {
   return (
     <ChartsContainer
       width={width}
@@ -868,13 +842,13 @@ function ParetoChart({ width, data }) {
       ]}
       xAxis={[{ id: 'raw-pareto-categories', scaleType: 'band', height: 28, data: data.labels }]}
       yAxis={[
-        {
+        axisIncludingGoal({
           id: 'value-axis',
           min: 0,
           width: 66,
           valueFormatter: formatMillionsCurrencyAxis,
           tickLabelStyle: { fontSize: 11 }
-        },
+        }, goalLine),
         {
           id: 'cumulative-axis',
           position: 'right',
@@ -894,6 +868,7 @@ function ParetoChart({ width, data }) {
       <ChartsXAxis axisId="raw-pareto-categories" />
       <ChartsYAxis axisId="value-axis" />
       <ChartsYAxis axisId="cumulative-axis" />
+      <ChartGoal goal={goalLine} axisId="value-axis" />
       <StandardChartTooltip trigger="axis" />
     </ChartsContainer>
   );
@@ -919,40 +894,22 @@ export default memo(function DatabricksRawComparisonCard({
   const [paletteColorField, setPaletteColorField] = useState(FILTER_FIELDS[1].value);
   const { chartHostRef, chartWidth } = useChartWidth();
 
-  const resetFilters = () => {
-    setFilterField('facility');
-    setFilterValues([]);
-    setPaletteGroupField('facility');
-    setPaletteColorField((current) => current === 'facility' ? 'business_unit' : current);
-  };
-
-  // Also handle changes made by the dashboard-wide chart controls.
-  useEffect(() => {
-    resetFilters();
-  }, [chartVariant]);
-
   const visibleRows = useMemo(() => getVisibleRows(state.rows), [state.rows]);
   const globallyFilteredRows = useMemo(
     () => applyGlobalFilters(visibleRows, metricKey, globalFilters),
     [visibleRows, globalFilters, applyGlobalFilters, metricKey]
   );
   const filterValueOptions = useMemo(
-    () => getFilterOptions(globallyFilteredRows, filterField),
-    [globallyFilteredRows, filterField]
-  );
-  const activeFilterValues = useMemo(
-    () => filterValues.filter((value) => filterValueOptions.includes(value)),
-    [filterValues, filterValueOptions]
+    () => includeSelectedFilterOptions(getFilterOptions(globallyFilteredRows, filterField), filterValues),
+    [globallyFilteredRows, filterField, filterValues]
   );
   const filteredRows = useMemo(() => globallyFilteredRows.filter((row) => (
-    activeFilterValues.length === 0
-    || activeFilterValues.includes(normalizeText(row?.[filterField]))
-  )), [globallyFilteredRows, activeFilterValues, filterField]);
-  const isTrend = chartVariant === 'line' || chartVariant === 'bar';
-  const unprocessedRows = isTrend ? filteredRows : globallyFilteredRows;
+    filterValues.length === 0
+    || filterValues.includes(normalizeText(row?.[filterField]))
+  )), [globallyFilteredRows, filterValues, filterField]);
   const processingMonth = useMemo(() => {
     const monthlyTotals = new Map();
-    for (const row of unprocessedRows) {
+    for (const row of filteredRows) {
       const stamp = getMonthStamp(row);
       if (Number.isFinite(stamp) && hasKpiValue(row.cost)) {
         monthlyTotals.set(stamp, (monthlyTotals.get(stamp) ?? 0) + Number(row.cost));
@@ -962,10 +919,10 @@ export default memo(function DatabricksRawComparisonCard({
       [...monthlyTotals].map(([stamp, value]) => ({ stamp, value })),
       { lastCompletedMonth: getLastCompletedMonthStamp() }
     );
-  }, [unprocessedRows]);
+  }, [filteredRows]);
   const selectedRows = useMemo(
-    () => excludeProcessingMonth(unprocessedRows, processingMonth, getMonthStamp),
-    [unprocessedRows, processingMonth]
+    () => excludeProcessingMonth(filteredRows, processingMonth, getMonthStamp),
+    [filteredRows, processingMonth]
   );
   const startStamp = selectedDateRange?.startStamp;
   const endStamp = selectedDateRange?.endStamp;
@@ -1078,14 +1035,15 @@ export default memo(function DatabricksRawComparisonCard({
               <p className="chart-message">
                 {state.rows.length === 0
                   ? `No ${sourceLabel} costs are available for charting.`
-                  : globallyFilteredRows.length === 0 || (isTrend && filteredRows.length === 0)
+                  : globallyFilteredRows.length === 0 || filteredRows.length === 0
                     ? `No ${sourceLabel} costs were found for the selected filters.`
                     : `No ${sourceLabel} costs were found in the selected date range.`}
+                <EmptyChartGoal goal={goalLine} />
               </p>
             )}
             {!state.loading && !state.error && hasChartData && chartWidth > 0 && (
               chartVariant === 'pareto' ? (
-                <ParetoChart width={chartWidth} data={paretoData} />
+                <ParetoChart width={chartWidth} data={paretoData} goalLine={goalLine} />
               ) : chartVariant === 'palette' ? (
                 <BarChart
                   width={chartWidth}
@@ -1093,18 +1051,20 @@ export default memo(function DatabricksRawComparisonCard({
                   hideLegend
                   margin={CHART_MARGIN}
                   xAxis={[{ scaleType: 'band', height: 28, data: paletteData.labels }]}
-                  yAxis={[{
+                  yAxis={[axisIncludingGoal({
                     min: 0,
                     width: 66,
                     valueFormatter: formatMillionsCurrencyAxis,
                     tickLabelStyle: { fontSize: 11 }
-                  }]}
+                  }, goalLine)]}
                   series={paletteData.series}
                   grid={{ horizontal: true }}
                   sx={sharedChartSx}
                   slots={{ tooltip: StandardChartTooltip }}
                   slotProps={{ tooltip: { trigger: 'axis' } }}
-                />
+                >
+                  <ChartGoal goal={goalLine} />
+                </BarChart>
               ) : (
                 <TrendChart
                   width={chartWidth}
@@ -1128,7 +1088,7 @@ export default memo(function DatabricksRawComparisonCard({
                   setFilterField(nextField);
                   setFilterValues([]);
                 }}
-                filterValues={activeFilterValues}
+                filterValues={filterValues}
                 onFilterValuesChange={setFilterValues}
                 filterValueOptions={filterValueOptions}
                 paletteGroupField={paletteGroupField}
@@ -1156,7 +1116,6 @@ export default memo(function DatabricksRawComparisonCard({
               fullWidth
               onChange={(_event, nextMode) => {
                 if (nextMode) {
-                  resetFilters();
                   setViewMode(nextMode);
                 }
               }}

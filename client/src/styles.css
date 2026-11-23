@@ -37,6 +37,7 @@
   --chart-text: var(--theme-blue);
   --chart-axis: var(--chart-grid);
   --chart-annotation: var(--theme-blue);
+  --chart-goal: #71396a;
   --text-primary: var(--theme-blue);
   --text-secondary: var(--theme-blue);
   --text-inverse: var(--white);
@@ -66,6 +67,7 @@
   --chart-text: #f1f5f9;
   --chart-axis: #e2e8f0;
   --chart-annotation: #f8fafc;
+  --chart-goal: #f2d3ed;
   --text-primary: #f4f7fb;
   --text-secondary: #b7c3d3;
   --text-inverse: #f8fafc;
@@ -1242,12 +1244,9 @@ h1 {
   pointer-events: auto;
 }
 
-.chart-type-inline-filter-single {
-  grid-template-rows: minmax(0, 1fr);
-}
-
-.chart-type-inline-filter-single.chart-type-inline-filter-visible {
-  max-height: 36px;
+.chart-type-inline-filter-palette {
+  grid-template-rows: repeat(4, auto);
+  max-height: none;
 }
 
 .chart-type-inline-field {
@@ -1597,6 +1596,23 @@ h1 {
   color: var(--chart-text);
   font-size: 1rem;
   place-self: center;
+}
+
+.empty-chart-goal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  color: var(--chart-goal);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.empty-chart-goal::before {
+  content: '';
+  width: 1.8rem;
+  border-top: 2px dashed currentColor;
 }
 
 .chart-message-error {

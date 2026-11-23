@@ -175,20 +175,35 @@ function workbook(summary) {
       [month, v.rows, v.matchedRows, percent(v.matchedRows, v.rows), v.hours / 100,
         v.matchedHours / 100, percent(v.matchedHours, v.hours)]), [3, 6]);
   if (divisions) {
-    // Preserve source labels. Only whitespace, case and the display prefix DS are normalized for agreement.
     const divisionKey = value => norm(value).replace(/^DS\s+/, '').replace(/\s+/g, ' ');
-    const missingDivision = value => [unknown.toUpperCase(), 'UNMAPPED', 'UNKNOWN', 'N/A'].includes(norm(value));
+    const missingKeys = new Set(['', unknown.toUpperCase(), 'UNMAPPED', 'UNKNOWN', 'N/A']);
+    const byHierarchy = new Map();
+    const pairs = [...divisions].sort(([a, x], [b, y]) => y.hours - x.hours || a.localeCompare(b));
+    const detail = pairs.map(([pair, v]) => {
+      const [hierarchy, roster] = JSON.parse(pair);
+      const hierarchyKey = divisionKey(hierarchy);
+      const rosterKey = divisionKey(roster);
+      const hasHierarchy = !missingKeys.has(hierarchyKey);
+      const hasRoster = !missingKeys.has(rosterKey);
+      const same = hasHierarchy && hasRoster && hierarchyKey === rosterKey;
+      const key = hasHierarchy ? hierarchyKey : unknown;
+      const counts = byHierarchy.get(key) ?? { total: 0, same: 0, missingRoster: 0 };
+      counts.total += v.rows;
+      if (same) counts.same += v.rows;
+      if (!hasRoster) counts.missingRoster += v.rows;
+      byHierarchy.set(key, counts);
+      const comparison = !hasHierarchy || !hasRoster ? 'Missing division' : same ? 'Same' : 'Different';
+      return [hierarchy, roster, comparison, v.rows, percent(v.rows, total.rows),
+        v.hours / 100, percent(v.hours, total.hours)];
+    });
     appendSheet(book, 'division comparison',
       ['Hierarchy division (LEV03_DESC)', 'Roster division (org_structure_lvl3)', 'Comparison',
-        'Labor rows', 'Share of all rows', 'Absolute hours', 'Share of all hours'],
-      [...divisions].sort(([a, x], [b, y]) => y.hours - x.hours || a.localeCompare(b)).map(([pair, v]) => {
-        const [hierarchy, roster] = JSON.parse(pair);
-        let comparison = 'Different';
-        if (missingDivision(hierarchy) || missingDivision(roster)) comparison = 'Missing division';
-        else if (divisionKey(hierarchy) === divisionKey(roster)) comparison = 'Same';
-        return [hierarchy, roster, comparison, v.rows, percent(v.rows, total.rows),
-          v.hours / 100, percent(v.hours, total.hours)];
-      }), [4, 6]);
+        'Labor rows', 'Share of all rows', 'Absolute hours', 'Share of all hours'], detail, [4, 6]);
+    appendSheet(book, 'Division agreement',
+      ['Hierarchy division', 'All labor rows', 'Same division rows', 'Missing roster division rows', 'Same division %'],
+      [...byHierarchy].sort(([a], [b]) => Number(a === unknown) - Number(b === unknown) || a.localeCompare(b))
+        .map(([division, counts]) => [division, counts.total, counts.same, counts.missingRoster,
+          division === unknown ? null : percent(counts.same, counts.total)]), [4]);
   }
   return XLSX.write(book, { type: 'base64', bookType: 'xlsx', compression: true });
 }
@@ -304,6 +319,7 @@ export async function renderLaborRosterComparison() {
     <main><h1>Labor facility coverage</h1><p>Both methods use the same ${rows.length.toLocaleString('en-US')} DBM labor rows, grouped by employee, month, division, business unit, cost center and labor category. Extracted ${new Date().toISOString().slice(0,16).replace('T',' ')} UTC.</p>
     <section><h2>Debug summary</h2><pre style="white-space:pre-wrap">${escapedDebug}</pre></section>
     <table><thead><tr><th>Method</th><th>Matched / total rows</th><th>Rows matched</th><th>Hours matched</th><th>Workbook</th></tr></thead><tbody>${body}</tbody></table>
+    <p>In the New monthly roster workbook, “Division agreement” shows same-division rows as a percentage of all grouped labor rows in each hierarchy division, including rows with a missing roster division. A missing hierarchy division has no agreement rate.</p>
     <p>Hour percentages weight each grouped row by the absolute value of its entered hours. Facilities are ordered by hours, with (Unknown) last. Every share includes unknowns in its denominator. Blank percentages mean the denominator was zero.</p></main></html>`;
 }
 

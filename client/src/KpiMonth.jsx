@@ -1,10 +1,8 @@
+export { hasKpiValue } from '../../shared/scorecardMonths.mjs';
+
 const monthFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short', year: 'numeric', timeZone: 'UTC'
 });
-
-export function hasKpiValue(value) {
-  return value != null && value !== '' && Number.isFinite(Number(value));
-}
 
 export function getLatestDataMonth(rows, getStamps) {
   const now = new Date();

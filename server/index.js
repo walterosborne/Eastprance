@@ -142,8 +142,8 @@ if (LABOR_HANA_DATASET_ENABLED) {
 registerSqlDatasetCache('safety-incidents', readSafetyEventMetricsData);
 registerSqlDatasetCache('safety-nmfr', readSafetyNmfrData);
 
-// Local development diagnostic. Reserve the entire path before CORS and the SPA catch-all.
-app.use('/labor-test', async (req, res) => {
+// Keep local diagnostics ahead of CORS and the SPA catch-all.
+app.use(['/labor-test', '/outlier-test'], (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   const dev = process.env.NODE_ENV === 'development'
     || (!process.env.NODE_ENV && process.env.npm_lifecycle_event === 'dev');
@@ -155,13 +155,28 @@ app.use('/labor-test', async (req, res) => {
       || req.method !== 'GET' || req.path !== '/') {
     return res.sendStatus(404);
   }
+  res.set('X-Frame-Options', 'DENY');
+  return next();
+});
+
+app.get('/labor-test', async (req, res) => {
   try {
     const { renderLaborRosterComparison } = await import('./diagnostics/laborRosterComparison.js');
     const html = await renderLaborRosterComparison();
-    return res.set('X-Frame-Options', 'DENY').type('html').send(html);
+    return res.type('html').send(html);
   } catch (error) {
     logError('labor-test', 'Labor roster comparison failed.', error);
     return res.status(500).type('text').send('Labor comparison failed: ' + error.message);
+  }
+});
+
+app.get('/outlier-test', async (_req, res) => {
+  try {
+    const { renderOutlierReport } = await import('./diagnostics/outlierReport.js');
+    return res.type('html').send(await renderOutlierReport());
+  } catch (error) {
+    logError('outlier-test', 'Unable to render the outlier report.', error);
+    return res.status(500).type('text').send('Unable to render the outlier report.');
   }
 });
 

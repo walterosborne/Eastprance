@@ -167,6 +167,10 @@ export function forecastLaborGoalLineFromSeries(seriesValues) {
   });
 }
 
+export function getAverageIncidentGoalLine(values) {
+  return buildAverageFallbackGoalLine(normalizeSeries(values), { roundValue: roundRate });
+}
+
 export function forecastIncidentGoalLineFromSeries(seriesValues) {
   return forecastStandardGoalLineFromSeries(seriesValues, {
     roundValue: roundRate

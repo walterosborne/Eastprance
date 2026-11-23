@@ -165,3 +165,8 @@ export function businessUnitFilterMatches(selectedValue, divisionValue, business
 
   return normalizeComparable(selection.businessUnit) === normalizedBusinessUnit;
 }
+
+// Keep a selection available to clear even after another filter narrows the option list.
+export function includeSelectedFilterOptions(options, selected) {
+  return selected.length ? [...new Set([...options, ...selected])] : options;
+}

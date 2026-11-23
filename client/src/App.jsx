@@ -215,8 +215,8 @@ const SAFETY_CHART_FILTER_FIELDS = [
   },
   {
     value: 'site',
-    label: 'Site',
-    allLabel: 'All sites'
+    label: 'Facility',
+    allLabel: 'All facilities'
   }
 ];
 
@@ -227,7 +227,7 @@ const SAFETY_PALETTE_FIELDS = [
   },
   {
     value: 'site',
-    label: 'Site'
+    label: 'Facility'
   }
 ];
 
@@ -250,8 +250,8 @@ const OTD_CHART_FILTER_FIELDS = [
   },
   {
     value: 'site',
-    label: 'Site',
-    allLabel: 'All sites'
+    label: 'Facility',
+    allLabel: 'All facilities'
   },
   {
     value: 'type',

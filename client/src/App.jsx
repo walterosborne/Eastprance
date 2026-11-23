@@ -429,6 +429,7 @@ const DATABRICKS_COST_CARD_ENABLED = true;
 const DATABRICKS_PROCESSED_CARD_ENABLED = false;
 const DATABRICKS_RAW_COST_CARD_ENABLED = false;
 const LABOR_HANA_CARD_ENABLED = false;
+const LABOR_DATABRICKS_CARD_ENABLED = false;
 
 const CARD_CHIP_OPTIONS = [
   {
@@ -452,7 +453,7 @@ const CARD_CHIP_OPTIONS = [
       'customerEscapes',
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
-      'laborDatabricks',
+      ...(LABOR_DATABRICKS_CARD_ENABLED ? ['laborDatabricks'] : []),
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
   },
@@ -472,7 +473,7 @@ const CARD_CHIP_OPTIONS = [
         : []),
       ...(LEGACY_LABOR_CARD_ENABLED ? ['labor'] : []),
       'laborNew',
-      'laborDatabricks',
+      ...(LABOR_DATABRICKS_CARD_ENABLED ? ['laborDatabricks'] : []),
       ...(LABOR_HANA_CARD_ENABLED ? ['laborHana'] : [])
     ]
   },
@@ -1471,14 +1472,14 @@ function applyGlobalFilters(rows, metricKey, globalFilters) {
     });
 }
 
-function labelGoalLineValue(goalLine, valueFormatter = formatNumber, label = 'Goal') {
+function labelGoalLineValue(goalLine, valueFormatter = formatNumber) {
   if (!goalLine) {
     return null;
   }
 
   return {
     ...goalLine,
-    label: `${label} ${valueFormatter(goalLine.value)}`
+    label: `Goal: ${valueFormatter(goalLine.value)}`
   };
 }
 
@@ -5021,7 +5022,7 @@ function DatabricksLaborHoursCard({
   const observedHours = hoursByPeriod.filter(hasKpiValue);
   const hasChartValues = observedHours.length > 0;
   const hoursGoalLine = observedHours.length ? labelGoalLineValue(
-    { value: sumNumericValues(observedHours) / observedHours.length }, formatHours, 'Average hours'
+    { value: sumNumericValues(observedHours) / observedHours.length }, formatHours
   ) : null;
 
   return (
@@ -5905,7 +5906,7 @@ export default function App() {
       loadLaborData();
     }
     loadLaborNewData();
-    loadLaborDatabricksData();
+    if (LABOR_DATABRICKS_CARD_ENABLED) loadLaborDatabricksData();
     if (LABOR_HANA_CARD_ENABLED) {
       loadLaborHanaData();
     }
@@ -6984,7 +6985,7 @@ export default function App() {
   const isOtdBarChart = chartVariants.otd === 'bar';
 
   const otdGoalLine = labelGoalLineValue(
-    getMetricGoalLine('otd', otdViewMode), formatPercentValue, 'Delivery goal'
+    getMetricGoalLine('otd', otdViewMode), formatPercentValue
   );
   const otdMetricInfo = buildOtdMetricInfo(METRIC_INFO.otd, {
     ...otdGoalCalculation.goalLine,
@@ -7735,7 +7736,7 @@ export default function App() {
     }
   );
   const laborGoalLine = labelGoalLineValue(
-    getMetricGoalLine('labor', laborViewMode), formatPercentValue, 'Direct labor goal'
+    getMetricGoalLine('labor', laborViewMode), formatPercentValue
   );
   const laborMetricInfo = buildLaborMetricInfo(METRIC_INFO.labor, {
     ...laborGoalCalculation.goalLine,
@@ -7745,7 +7746,7 @@ export default function App() {
     timelineLabel: LABOR_VIEW_CONFIG[laborViewMode]?.label
   });
   const laborNewGoalLine = labelGoalLineValue(
-    getMetricGoalLine('laborNew', laborNewViewMode), formatPercentValue, 'Direct labor goal'
+    getMetricGoalLine('laborNew', laborNewViewMode), formatPercentValue
   );
   const laborNewMetricInfo = buildLaborMetricInfo(METRIC_INFO.laborNew, {
     ...laborNewGoalCalculation.goalLine,
@@ -7755,7 +7756,7 @@ export default function App() {
     timelineLabel: LABOR_VIEW_CONFIG[laborNewViewMode]?.label
   });
   const laborHanaGoalLine = labelGoalLineValue(
-    getMetricGoalLine('laborHana', laborHanaViewMode), formatPercentValue, 'Direct labor goal'
+    getMetricGoalLine('laborHana', laborHanaViewMode), formatPercentValue
   );
   const laborHanaMetricInfo = buildLaborHanaMetricInfo(METRIC_INFO.laborHana, {
     ...laborHanaGoalCalculation.goalLine,
@@ -7880,7 +7881,7 @@ export default function App() {
   });
   const customerEscapesGoalLine = labelGoalLineValue(
     customerEscapesForecast.goalLine ?? getAverageIncidentGoalLine(customerEscapesForecastValues),
-    formatNumber, 'Calculated goal'
+    formatNumber
   );
   const customerEscapesYAxis = buildDynamicNumericYAxis(
     SIF_Y_AXIS,
@@ -7932,7 +7933,7 @@ export default function App() {
     customerEscapes: activeCardKeys.has('customerEscapes'),
     labor: LEGACY_LABOR_CARD_ENABLED && activeCardKeys.has('labor'),
     laborNew: activeCardKeys.has('laborNew'),
-    laborDatabricks: activeCardKeys.has('laborDatabricks'),
+    laborDatabricks: LABOR_DATABRICKS_CARD_ENABLED && activeCardKeys.has('laborDatabricks'),
     laborHana: LABOR_HANA_CARD_ENABLED && activeCardKeys.has('laborHana')
   };
   const hasVisibleCards = Object.values(visibleCards).some(Boolean);
@@ -10160,7 +10161,7 @@ export default function App() {
                     <MetricOverviewBand
                       value={customerEscapesState.loading || customerEscapesState.error
                         ? '--' : customerEscapesKpi}
-                      label="Reported Defective Units"
+                      label="Customer Escapes"
                       sublabel={<KpiMonthLabel stamp={customerEscapesLatest?.stamp} />}
                       ariaLabel="Customer escapes overview"
                     />

@@ -49,7 +49,7 @@ test('Databricks facility grouping preserves aliases, original labels and shared
   assert.deepEqual(source, before);
 });
 
-test('server setup never registers legacy labor loading or its routes', async () => {
+test('server setup excludes disabled labor datasets from startup, refresh and routes', async () => {
   const source = await fs.readFile(new URL('../index.js', import.meta.url), 'utf8');
   const imports = [...source.matchAll(/^import\s+([\s\S]*?)\s+from\s+['"][^'"]+['"];\n/gm)];
   const context = {};
@@ -65,7 +65,8 @@ test('server setup never registers legacy labor loading or its routes', async ()
     path, fileURLToPath,
     process: { env: { NODE_ENV: 'test' } },
     registerSqlDatasetCache: (name, loader) => loaders.set(name, loader),
-    readLaborUtilizationData: () => assert.fail('legacy labor loader ran')
+    readLaborUtilizationData: () => assert.fail('legacy labor loader ran'),
+    readLaborDatabricksData: () => assert.fail('disabled Databricks labor loader ran')
   });
   // Evaluate the real registrations with stubs; never listen or connect to a database.
   const setup = source.slice(0, source.indexOf('const { port, bindHost, connectHost }'))
@@ -73,11 +74,11 @@ test('server setup never registers legacy labor loading or its routes', async ()
     .replaceAll('import.meta.url', JSON.stringify(new URL('../index.js', import.meta.url).href));
   vm.runInNewContext(setup, context);
   assert.equal(loaders.has('labor'), false);
-  assert.equal(loaders.has('labor-databricks'), true);
+  assert.equal(loaders.has('labor-databricks'), false);
   for (const loader of loaders.values()) await loader();
   for (const route of ['/api/labor-utilization', '/labor-diagnostics', '/api/labor-diagnostics']) {
     assert.equal(routes.includes(route), false, route);
   }
   assert.ok(routes.includes('/api/labor-utilization-new'));
-  assert.ok(routes.includes('/api/labor-databricks'));
+  assert.equal(routes.includes('/api/labor-databricks'), false);
 });

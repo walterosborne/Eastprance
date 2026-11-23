@@ -15,7 +15,6 @@ const safety = (scope, key) => async () => getSafetyMetricPayload(await getCache
 const cards = [
   { key: 'controllableCostsNew', title: 'Controllable Costs', format: currency, read: cached('controllable-costs-databricks-new') },
   { key: 'laborNew', title: 'Labor Utilization', format: percent, read: readLaborUtilizationNewData },
-  { key: 'laborDatabricks', title: 'Labor Hours (Databricks)', format: number, read: cached('labor-databricks') },
   { key: 'nmfr', title: 'Near Miss Frequency Rate', format: number, read: safety('safety-nmfr', 'nmfr') },
   { key: 'otd', title: 'On Time Delivery (OTD)', format: percent, read: cached('otd') },
   { key: 'customerEscapes', title: 'Customer Escapes', format: number, read: cached('customer-escapes') },

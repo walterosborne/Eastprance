@@ -477,7 +477,7 @@ function getGoalLine(totalSeries) {
   if (values.length === 0) return null;
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   const value = average * 0.95;
-  return { value, label: `Goal ${formatOverviewCurrency(value)}` };
+  return { value, label: `Goal: ${formatOverviewCurrency(value)}` };
 }
 
 

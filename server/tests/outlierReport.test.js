@@ -36,12 +36,12 @@ const { renderOutlierReport } = await import('../diagnostics/outlierReport.js');
 test('hidden report shows actual bounds and card decisions even when another source fails', async () => {
   const html = await renderOutlierReport(new Date('2026-11-22T12:00:00Z'));
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-  assert.equal((html.match(/<th scope="row">/g) ?? []).length, 8);
+  assert.equal((html.match(/<th scope="row">/g) ?? []).length, 7);
   assert.match(text, /Controllable Costs Jul 2026 \$200\.00 \$75\.00 \$125\.00 6 Hidden \(above range\)/);
   assert.match(text, /On Time Delivery \(OTD\) Jul 2026 80% 60% 100% 6 Shown/);
   assert.match(text, /Labor Utilization Sep 2026 80% — — 0 Shown \(insufficient history\)/);
   assert.match(text, /SIF Incidents — — — — 0 No completed data/);
   assert.match(text, /Customer Escapes Data unavailable/);
   assert.deepEqual([...new Set(cacheReads)].sort(), ['controllable-costs-databricks-new', 'customer-escapes',
-    'labor-databricks', 'otd', 'safety-incidents', 'safety-nmfr']);
+    'otd', 'safety-incidents', 'safety-nmfr']);
 });

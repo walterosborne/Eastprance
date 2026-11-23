@@ -84,6 +84,7 @@ const DATABRICKS_PROCESSED_COST_DATASET_ENABLED = false;
 const CONTROLLABLE_COSTS_DATABRICKS_DATASET_ENABLED = true;
 const DATABRICKS_RAW_COST_DATASET_ENABLED = false;
 const LABOR_HANA_DATASET_ENABLED = false;
+const LABOR_DATABRICKS_DATASET_ENABLED = false;
 let requestCounter = 0;
 
 function getResponseErrorStatus(error, fallbackStatus = 500) {
@@ -135,7 +136,9 @@ registerSqlDatasetCache('customer-escapes', readCustomerEscapesData);
 if (LEGACY_LABOR_DATASET_ENABLED) {
   registerSqlDatasetCache('labor', readLaborUtilizationData);
 }
-registerSqlDatasetCache('labor-databricks', readLaborDatabricksData);
+if (LABOR_DATABRICKS_DATASET_ENABLED) {
+  registerSqlDatasetCache('labor-databricks', readLaborDatabricksData);
+}
 if (LABOR_HANA_DATASET_ENABLED) {
   registerSqlDatasetCache('labor-hana', readLaborUtilizationHanaData);
 }
@@ -705,15 +708,17 @@ app.get('/api/labor-utilization-new', async (request, response) => {
   );
 });
 
-app.get('/api/labor-databricks', async (request, response) => {
-  await sendDatasetResponse(
-    request,
-    response,
-    'labor-databricks',
-    () => getCachedSqlDataset('labor-databricks'),
-    'Unable to read Databricks labor hours.'
-  );
-});
+if (LABOR_DATABRICKS_DATASET_ENABLED) {
+  app.get('/api/labor-databricks', async (request, response) => {
+    await sendDatasetResponse(
+      request,
+      response,
+      'labor-databricks',
+      () => getCachedSqlDataset('labor-databricks'),
+      'Unable to read Databricks labor hours.'
+    );
+  });
+}
 
 if (LABOR_HANA_DATASET_ENABLED) {
   app.get('/api/labor-utilization-hana', async (request, response) => {

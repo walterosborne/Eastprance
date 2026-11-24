@@ -1,7 +1,6 @@
+import { executeDatabricksQuery } from './databricksQuery.js';
 import { getLaborRosterConfig, readLaborRosterLookup, joinLaborFacilities } from './laborRosterDatabricksRepository.js';
 import {
-  createTimer,
-  formatDuration,
   logDebug,
   logError
 } from './debugLogger.js';
@@ -111,7 +110,7 @@ function validateSourceColumns(sourceRows, sourceLabel, requireCostCenter = fals
 function buildLaborUtilizationPayload(sourceRows, metadata) {
   validateSourceColumns(sourceRows, metadata.sourceLabel, metadata.requireCostCenter);
 
-  const useRosterFacilities = metadata.source === 'dbm-sql';
+  const useRosterFacilities = metadata.requireCostCenter === true;
   const rows = sourceRows
     .map((row) => normalizeLaborUtilizationNewRow(row, useRosterFacilities))
     .filter(Boolean);
@@ -170,7 +169,6 @@ function buildLaborUtilizationPayload(sourceRows, metadata) {
 }
 
 async function readLaborUtilizationNewDbmData(config, rosterConfig) {
-  const stopTimer = createTimer();
   const pool = await getPool(config, 'dbm');
 
   logDebug('labor-new', 'Executing DBM labor utilization query.', {
@@ -184,31 +182,10 @@ async function readLaborUtilizationNewDbmData(config, rosterConfig) {
   const result = await pool.request().query(LABOR_UTILIZATION_NEW_DBM_QUERY);
   const rosterLookup = await readLaborRosterLookup(rosterConfig, result.recordset);
   const joinedRows = joinLaborFacilities(result.recordset, rosterLookup);
-  const payload = buildLaborUtilizationPayload(joinedRows, {
-    source: 'dbm-sql',
-    sourceLabel: 'DBM labor joined to the Databricks roster',
-    requireCostCenter: true
-  });
-
-  logDebug('labor-new', 'New labor utilization loaded from DBM SQL.', {
-    source: payload.source,
-    server: config.server,
-    database: config.database,
-    queryFile: payload.queryFile,
-    sourceRowCount: payload.sourceRowCount,
-    rowCount: payload.rowCount,
-    invalidRowCount: payload.invalidRowCount,
-    years: payload.years,
-    totalEnteredHours: payload.totalEnteredHours,
-    laborCategoryCounts: payload.laborCategoryCounts,
-    facilityMapping: payload.facilityMapping,
-    duration: formatDuration(stopTimer())
-  });
-
-  return payload;
+  return joinedRows;
 }
 
-export async function readLaborUtilizationNewData() {
+export async function extractJoinedLaborRows() {
   const rosterConfig = getLaborRosterConfig();
   const { config, missing } = getConnectionConfig('dbm');
 
@@ -225,4 +202,24 @@ export async function readLaborUtilizationNewData() {
     });
     throw error;
   }
+}
+
+export const laborSnapshot = 'integrated_operations_dev.analytics.templabor1124';
+
+export async function readLaborUtilizationNewData() {
+  const run = query => executeDatabricksQuery({ scope: 'labor-new', tableName: laborSnapshot, query });
+  const [latest] = await run(`DESCRIBE HISTORY ${laborSnapshot} LIMIT 1`);
+  const version = Number(latest.version);
+  if (!Number.isSafeInteger(version) || version < 0) throw new Error('Invalid labor snapshot version.');
+  const source = `${laborSnapshot} VERSION AS OF ${version}`;
+  const [count] = await run(`SELECT COUNT(*) AS n FROM ${source}`);
+  const rows = [];
+  for (let start = 0; start < Number(count.n); start += 20000) {
+    const batch = await run(`SELECT * FROM ${source} WHERE extract_row >= ${start} AND extract_row < ${start + 20000}`);
+    for (const row of batch) rows.push(row);
+  }
+  if (rows.length !== Number(count.n)) throw new Error('Incomplete labor snapshot.');
+  return buildLaborUtilizationPayload(rows, {
+    source: 'databricks', sourceLabel: laborSnapshot, requireCostCenter: true
+  });
 }

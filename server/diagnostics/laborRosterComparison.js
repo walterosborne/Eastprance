@@ -160,6 +160,57 @@ function appendSheet(book, name, headers, rows, pctColumns) {
   XLSX.utils.book_append_sheet(book, sheet, name);
 }
 
+async function investigateLabor(rows, lookup, dbm) {
+  const cwi = new Map();
+  const ws = new Map();
+  const wsLatest = new Map();
+  for (const row of rows) {
+    const division = norm(row.division).replace(/^DS\s+/, '');
+    const id = norm(row.my_id);
+    const month = row.year + '-' + String(row.month).padStart(2, '0');
+    if (division === 'WEAPON SYSTEMS' && id) {
+      if (!wsLatest.has(id) || wsLatest.get(id) < month) wsLatest.set(id, month);
+      if (!lookupMonthlyLaborFacility(row, lookup)) ws.set(id, row);
+    }
+    if (division !== 'C2 & WEAPONS INTEGRATION') continue;
+    const city = lookupMonthlyLaborFacility(row, lookup.invalidCities || new Map());
+    if (!city) continue;
+    const key = JSON.stringify([month, city]);
+    const group = cwi.get(key) || { month, city, ids: new Set(), records: 0, cents: 0 };
+    group.ids.add(id);
+    group.records++;
+    group.cents += Math.round(Number(row.entered_hours) * 100);
+    cwi.set(key, group);
+  }
+  const history = ws.size ? await readLaborRosterLookup(getLaborRosterConfig(), [...ws.values()], { allMonths: true }) : new Map();
+  const locations = new Map();
+  for (const [key, facility] of history) {
+    const [id] = JSON.parse(key);
+    if (!locations.has(id) || locations.get(id).snapshotDate < facility.snapshotDate) locations.set(id, facility);
+  }
+  const days = new Map();
+  // Period is YYYYMM. An actual work-date column is required for day precision.
+  const dayColumn = process.env.DBM_LABOR_WORK_DATE_COLUMN;
+  if (dayColumn && ws.size) {
+    const field = '[' + dayColumn.replaceAll(']', ']]') + ']';
+    const { recordset } = await dbm.request().input('ids', JSON.stringify([...ws.keys()])).query(`
+      SELECT UPPER(LTRIM(RTRIM(MYID))) AS id, CONVERT(char(10), MAX(TRY_CONVERT(date, ${field})), 23) AS day
+      FROM rpt.actuals_load_resource_management
+      WHERE UPPER(LTRIM(RTRIM(MYID))) IN (SELECT value FROM OPENJSON(@ids))
+        AND TRY_CONVERT(decimal(18,2), Hours) <> 0
+      GROUP BY UPPER(LTRIM(RTRIM(MYID)))`);
+    for (const row of recordset) days.set(row.id, row.day);
+  }
+  return {
+    cwi: [...cwi.values()].sort((a,b) => a.month.localeCompare(b.month) || b.cents-a.cents)
+      .map(g => [g.month, g.city, g.records, g.ids.size, g.cents / 100]),
+    ws: [...ws.keys()].sort().map(id => {
+      const loc = locations.get(id);
+      return [id, loc?.city, loc?.state, loc?.snapshotDate, days.get(id), wsLatest.get(id)];
+    })
+  };
+}
+
 function workbook(summary) {
   const book = XLSX.utils.book_new();
   const { total, facilities, months, divisions } = summary;
@@ -217,6 +268,10 @@ function workbook(summary) {
       });
     appendSheet(book, 'Unmapped causes', ['Division', 'Percent of total unmapped records', 'Cause'], causeRows, [1]);
     book.Sheets['Unmapped causes']['!cols'][2].wch = 45;
+  }
+  if (summary.investigation) {
+    appendSheet(book, 'CWI invalid cities', ['Labor month','Roster city','Grouped records','Distinct MyIDs','Net hours'], summary.investigation.cwi, []);
+    appendSheet(book, 'WS recent locations', ['MyID','Latest known Defense city','State','Roster snapshot date','Last work day (all actuals)','Latest WS labor month'], summary.investigation.ws, []);
   }
   return XLSX.write(book, { type: 'base64', bookType: 'xlsx', compression: true });
 }
@@ -278,9 +333,11 @@ export async function renderLaborRosterComparison() {
     } catch (error) {
       return { ...method, failure: failureCode(error) };
     }
-    return { ...method, size: lookup.size, divisionDiagnostics: lookup.divisionDiagnostics, summary: summarize(rows, row => method.resolve(row, lookup),
+    const summary = summarize(rows, row => method.resolve(row, lookup),
       method.resolveDivision && (row => method.resolveDivision(row, lookup)),
-      row => !norm(row.my_id) ? 'Blank labor MyID' : lookupMonthlyLaborFacility(row, lookup.unmappedCauses) || 'No roster row for MyID and labor month') };
+      row => !norm(row.my_id) ? 'Blank labor MyID' : lookupMonthlyLaborFacility(row, lookup.unmappedCauses) || 'No roster row for MyID and labor month');
+    if (method.slug === 'new') summary.investigation = await investigateLabor(rows, lookup, dbm);
+    return { ...method, size: lookup.size, divisionDiagnostics: lookup.divisionDiagnostics, summary };
   }));
   const report = ['[labor-test] ' + new Date().toISOString(),
     'Shared DBM labor extract: ' + rows.length + ' grouped rows',

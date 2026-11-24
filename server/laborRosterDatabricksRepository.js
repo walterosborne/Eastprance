@@ -80,17 +80,23 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
 
   const lookup = new Map();
   // Diagnostic division coverage is independent of whether the location is usable.
-  if (includeDivision) lookup.unmappedCauses = causes;
+  if (includeDivision) {
+    lookup.unmappedCauses = causes;
+    lookup.invalidCities = new Map();
+  }
   if (includeDivision) lookup.divisions = new Map();
   for (const [key, { best, conflict, divisionConflict }] of candidates) {
     if (includeDivision && !divisionConflict && best.division) lookup.divisions.set(key, best.division);
     if (includeDivision) {
       if (conflict) causes.set(key, 'Conflicting locations on tied roster rows');
-      else if (!best.city || INVALID_CITIES.has(best.city.toUpperCase())) causes.set(key, 'Missing or invalid roster city');
+      else if (!best.city || INVALID_CITIES.has(best.city.toUpperCase())) {
+        causes.set(key, 'Missing or invalid roster city');
+        lookup.invalidCities.set(key, best.city || '(blank)');
+      }
       else causes.delete(key);
     }
     if (!conflict && best.city && !INVALID_CITIES.has(best.city.toUpperCase())) {
-      lookup.set(key, { city: best.city, state: best.state, facilityKey: best.facilityKey });
+      lookup.set(key, { city: best.city, state: best.state, facilityKey: best.facilityKey, snapshotDate: best.date });
     }
   }
   if (includeDivision) lookup.divisionDiagnostics = {
@@ -101,7 +107,7 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
   return lookup;
 }
 
-export async function readLaborRosterLookup(config = getLaborRosterConfig(), laborRows = [], { includeDivision = false } = {}) {
+export async function readLaborRosterLookup(config = getLaborRosterConfig(), laborRows = [], { includeDivision = false, allMonths = false } = {}) {
   try {
     const ids = [...new Set(laborRows.map((row) => normalizeId(row.my_id)).filter(Boolean))];
     let firstPeriod = Infinity;
@@ -148,8 +154,7 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
             AND UPPER(TRIM(CAST(\`myid\` AS STRING))) IN (
               ${batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(', ')}
             )
-            AND YEAR(\`effective_date\`) * 100 + MONTH(\`effective_date\`)
-              BETWEEN ${firstPeriod} AND ${lastPeriod}
+            ${allMonths ? '' : `AND YEAR(effective_date) * 100 + MONTH(effective_date) BETWEEN ${firstPeriod} AND ${lastPeriod}`}
         )
         SELECT myid, city, state, sector, effective_date, is_standard_headcount, worker_id${includeDivision ? ', division' : ''}
         FROM ranked

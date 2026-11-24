@@ -8,6 +8,9 @@ const costs = [...Array(7).fill(10), ...Array(8).fill(100), 200];
 const costRows = costs.map((cost, i) => ({
   date: new Date(Date.UTC(2025, i < 7 ? i : i + 3, 1)), division: 'DS Alpha', cost
 }));
+await mock.module('../facilityGroupingsRepository.js', { namedExports: {
+  applyFacilityGroupingsToPayload: async payload => payload
+} });
 const cacheReads = [];
 await mock.module('../sqlDatasetCache.js', { namedExports: {
   getCachedSqlDataset: async scope => {
@@ -55,10 +58,10 @@ test('hidden report shows actual bounds and card decisions even when another sou
   const html = await renderOutlierReport(new Date('2026-11-22T12:00:00Z'));
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
   assert.equal((html.match(/<th scope="row">/g) ?? []).length, 7);
-  assert.match(text, /Controllable Costs Jul 2026 \$200\.00 \$75\.00 \$125\.00 12 Hidden \(above range\)/);
-  assert.match(text, /On Time Delivery \(OTD\) Jul 2026 93.75% 56.25% 93.75% 12 Shown/);
-  assert.match(text, /Labor Utilization Sep 2026 80% — — 0 Shown \(insufficient history\)/);
-  assert.match(text, /SIF Incidents — — — — 0 No completed data/);
+  assert.match(text, /Controllable Costs Jul 2026 \$200\.00 \$75\.00 \$125\.00 12 15 Hidden \(above range\)/);
+  assert.match(text, /On Time Delivery \(OTD\) Jul 2026 93.75% 56.25% 93.75% 12 12 Shown/);
+  assert.match(text, /Labor Utilization Sep 2026 80% — — 0 0 Shown \(insufficient history\)/);
+  assert.match(text, /SIF Incidents — — — — 0 — No completed data/);
   assert.match(text, /Customer Escapes Data unavailable/);
   assert.deepEqual([...new Set(cacheReads)].sort(), ['controllable-costs-databricks-new', 'customer-escapes',
     'otd', 'safety-incidents', 'safety-nmfr']);
@@ -89,9 +92,11 @@ test('download contains the displayed latest values and ranges based only on ear
   assert.equal(latest.C2.z, '$#,##0.00');
   assert.equal(latest.C3.w, '80.00%');
 
-  assert.deepEqual(Object.keys(historyRows[0]), ['Card', 'Month and year', 'Actual value', 'Lower cutoff', 'Upper cutoff', 'Decision']);
+  assert.deepEqual(Object.keys(historyRows[0]), ['Card', 'Month and year', 'Actual value', 'Lower cutoff', 'Upper cutoff', 'Prior months in window', 'Prior months available', 'Decision']);
   const costHistory = historyRows.filter(row => row.Card === 'Controllable Costs');
   assert.deepEqual(costHistory.map(monthLabel), ['Feb 2026', 'Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026']);
+  assert.deepEqual(costHistory.map(row => row['Prior months available']), [10, 11, 12, 13, 14, 15]);
+  assert.deepEqual(costHistory.map(row => row['Prior months in window']), [10, 11, 12, 12, 12, 12]);
   for (const row of costHistory.slice(0, 3)) assert.deepEqual(bounds(row), [100, 7.5, 12.5]);
   const transition = costHistory[3];
   assert.ok(Math.abs(transition['Lower cutoff'] - (-178.5095)) < 1e-8);

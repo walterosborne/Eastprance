@@ -70,12 +70,9 @@ async function loadFacilityGroupings() {
       scope: 'facility-groupings',
       tableName: FACILITY_GROUPINGS_TABLE_NAME,
       query: `
-        SELECT
-          TRIM(COALESCE(CAST(source.\`Original\` AS STRING), '')) AS original,
-          TRIM(COALESCE(CAST(source.\`Group\` AS STRING), '')) AS \`group\`
+        SELECT source.*
         FROM \`integrated_operations_dev\`.\`analytics\`.\`facilitygroupings\` AS source
         WHERE NULLIF(TRIM(CAST(source.\`Original\` AS STRING)), '') IS NOT NULL
-          AND NULLIF(TRIM(CAST(source.\`Group\` AS STRING)), '') IS NOT NULL
       `
     });
 
@@ -83,12 +80,19 @@ async function loadFacilityGroupings() {
     const entries = [];
     let duplicateCount = 0;
 
-    rows.forEach((row) => {
+    // Older lookup uploads have no Excluded column.
+    const mappings = rows.map(row => Object.fromEntries(
+      Object.entries(row).map(([name, value]) => [name.toLowerCase(), value])
+    ));
+    const excluded = new Set(mappings
+      .filter(row => normalizeLookupKey(row.excluded) === 'true')
+      .map(row => normalizeLookupKey(row.original)));
+    mappings.forEach((row) => {
       const original = normalizeText(row.original);
       const group = normalizeText(row.group);
       const key = normalizeLookupKey(original);
 
-      if (!key || !group) {
+      if (!key || !group || excluded.has(key)) {
         return;
       }
 
@@ -113,6 +117,7 @@ async function loadFacilityGroupings() {
     const groups = buildHierarchy(entries);
     const payload = {
       lookup,
+      excluded,
       entries,
       groups,
       rowCount: rows.length,
@@ -184,11 +189,15 @@ export async function applyFacilityGroupingsToPayload(payload, scope) {
     return payload;
   }
 
-  const { lookup } = await getFacilityGroupings();
+  const { lookup, excluded } = await getFacilityGroupings();
   let mappedValueCount = 0;
   const unmatchedFacilities = new Set();
 
-  const rows = payload.rows.map((row) => {
+  const included = excluded.size ? payload.rows.filter(row =>
+    !facilityFields.some(field => excluded.has(normalizeLookupKey(row[field])))
+    && !excluded.has(normalizeLookupKey(row.__facility_original))
+  ) : payload.rows;
+  const rows = included.map((row) => {
     let groupedRow = row;
     let rememberedOriginal = normalizeText(row.__facility_original);
 
@@ -236,7 +245,7 @@ export async function applyFacilityGroupingsToPayload(payload, scope) {
 
   return {
     ...payload,
+    rowCount: rows.length,
     rows
   };
 }
-

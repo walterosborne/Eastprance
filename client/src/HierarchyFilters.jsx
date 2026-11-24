@@ -40,6 +40,7 @@ function HierarchyFilter({
   getTokenLabel,
   loading = false,
   warning = '',
+  hideSingleChild = false,
   flat = false
 }) {
   const rootRef = useRef(null);
@@ -107,8 +108,9 @@ function HierarchyFilter({
     const childTokens = entry.children.map((child) => makeChildToken(entry, child));
     const nextSet = new Set(value);
 
-    if (nextSet.has(parentToken)) {
+    if (nextSet.has(parentToken) || (hideSingleChild && childTokens.length === 1 && nextSet.has(childTokens[0]))) {
       nextSet.delete(parentToken);
+      childTokens.forEach(token => nextSet.delete(token));
     } else {
       childTokens.forEach((token) => nextSet.delete(token));
       nextSet.add(parentToken);
@@ -220,11 +222,13 @@ function HierarchyFilter({
             {visibleEntries.map((entry) => {
               const parentToken = makeParentToken(entry);
               const childTokens = entry.children.map((child) => makeChildToken(entry, child));
-              const parentSelected = selectedSet.has(parentToken);
+              const singleChild = hideSingleChild && childTokens.length === 1;
+              const parentSelected = selectedSet.has(parentToken) || (singleChild && selectedSet.has(childTokens[0]));
               const selectedChildCount = childTokens.filter((token) => selectedSet.has(token)).length;
               const parentIndeterminate = !parentSelected && selectedChildCount > 0;
               const expanded = expandedParents.has(entry.parent);
-              const showChildren = normalizedSearch ? true : expanded;
+              const expandable = !singleChild && childTokens.length > 0;
+              const showChildren = expandable && (Boolean(normalizedSearch) || expanded);
               const childrenToRender = entry.visibleChildren ?? entry.children;
 
               return (
@@ -232,14 +236,14 @@ function HierarchyFilter({
                   className="hierarchy-filter-group"
                   key={entry.key ?? entry.parent}
                   role="treeitem"
-                  aria-expanded={entry.children.length > 0 ? showChildren : undefined}
+                  aria-expanded={expandable ? showChildren : undefined}
                 >
                   <div className="hierarchy-filter-group-row">
                     <button
                       type="button"
-                      className={`hierarchy-filter-expand${entry.children.length === 0 ? ' hierarchy-filter-expand-empty' : ''}`}
+                      className={`hierarchy-filter-expand${!expandable ? ' hierarchy-filter-expand-empty' : ''}`}
                       aria-label={`${showChildren ? 'Collapse' : 'Expand'} ${entry.parent}`}
-                      disabled={entry.children.length === 0}
+                      disabled={!expandable}
                       onClick={() => {
                         setExpandedParents((currentParents) => {
                           const nextParents = new Set(currentParents);
@@ -254,7 +258,7 @@ function HierarchyFilter({
                         });
                       }}
                     >
-                      {entry.children.length > 0 ? (showChildren ? '−' : '+') : ''}
+                      {expandable ? (showChildren ? '−' : '+') : ''}
                     </button>
                     <label className="hierarchy-filter-group-label">
                       <input
@@ -264,7 +268,7 @@ function HierarchyFilter({
                         onChange={() => toggleParent(entry)}
                       />
                       <span className="hierarchy-filter-group-name">{entry.label ?? entry.parent}</span>
-                      {entry.children.length > 0 ? (
+                      {expandable ? (
                         <span className="hierarchy-filter-count">{entry.children.length}</span>
                       ) : null}
                     </label>
@@ -463,6 +467,7 @@ export function FacilityHierarchyFilter({
       allLabel={allLabel}
       inputId={inputId}
       ariaLabel="Filter dashboard by Facility"
+      hideSingleChild
       menuAriaLabel="Facility groups"
       searchPlaceholder="Search groups or facilities"
       searchAriaLabel="Search facility groups"

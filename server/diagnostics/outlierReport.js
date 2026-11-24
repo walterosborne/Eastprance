@@ -2,6 +2,7 @@ import XLSX from 'xlsx-js-style';
 import { getCachedSqlDataset } from '../sqlDatasetCache.js';
 import { getSafetyMetricPayload } from '../sifRepository.js';
 import { readLaborUtilizationNewData } from '../laborUtilizationNewRepository.js';
+import { applyFacilityGroupingsToPayload } from '../facilityGroupingsRepository.js';
 import { logError } from '../debugLogger.js';
 import { buildCardMonthlyPoints, getCardMonthConfig, isScorecardSourceRow } from '../../shared/scorecardMonths.mjs';
 import { assessMonthHistory, getLastCompletedMonthStamp } from '../../shared/latestMonthOutlier.mjs';
@@ -25,18 +26,18 @@ const cached = (scope) => () => getCachedSqlDataset(scope);
 const safety = (scope, key) => async () => getSafetyMetricPayload(await getCachedSqlDataset(scope), key);
 
 const cards = [
-  { key: 'controllableCostsNew', title: 'Controllable Costs', format: currency, read: cached('controllable-costs-databricks-new') },
-  { key: 'laborNew', title: 'Labor Utilization', format: percent, read: readLaborUtilizationNewData },
+  { key: 'controllableCostsNew', facilityScope: 'controllable-costs-databricks-new', title: 'Controllable Costs', format: currency, read: cached('controllable-costs-databricks-new') },
+  { key: 'laborNew', facilityScope: 'labor-new', title: 'Labor Utilization', format: percent, read: readLaborUtilizationNewData },
   { key: 'nmfr', title: 'Near Miss Frequency Rate', format: number, read: safety('safety-nmfr', 'nmfr') },
   { key: 'otd', title: 'On Time Delivery (OTD)', format: percent, read: cached('otd') },
-  { key: 'customerEscapes', title: 'Customer Escapes', format: number, read: cached('customer-escapes') },
-  { key: 'potentialSif', title: 'Potential SIF Incidents', format: number, read: safety('safety-incidents', 'potentialSif') },
+  { key: 'customerEscapes', facilityScope: 'customer-escapes', title: 'Customer Escapes', format: number, read: cached('customer-escapes') },
+  { key: 'potentialSif', facilityScope: 'potential-sif', title: 'Potential SIF Incidents', format: number, read: safety('safety-incidents', 'potentialSif') },
   { key: 'sif', title: 'SIF Incidents', format: number, read: safety('safety-incidents', 'sif') }
 ];
 
-async function readCardReport({ key, title, format, read }, lastCompletedMonth) {
+async function readCardReport({ key, facilityScope = key, title, format, read }, lastCompletedMonth) {
   try {
-    const { rows } = await read();
+    const { rows } = await applyFacilityGroupingsToPayload(await read(), facilityScope);
     const scope = rows.filter(row => isScorecardSourceRow(row, key));
     const points = buildCardMonthlyPoints(scope, key, lastCompletedMonth);
     const { minAbsoluteChange, minRelativeChange } = getCardMonthConfig(key);
@@ -64,12 +65,12 @@ function latestDecision(months) {
 
 function renderLatestRow({ title, format, months }) {
   const decision = latestDecision(months);
-  if (!months) return `<tr><th scope="row">${title}</th><td colspan="6">${decision}</td></tr>`;
+  if (!months) return `<tr><th scope="row">${title}</th><td colspan="7">${decision}</td></tr>`;
   const latest = months.at(-1);
   const display = n => Number.isFinite(n) ? format.display.format(n) : '—';
   return `<tr><th scope="row">${title}</th><td>${latest ? month.format(latest.stamp) : '—'}</td>
     <td>${display(latest?.value)}</td><td>${display(latest?.lower)}</td><td>${display(latest?.upper)}</td>
-    <td>${latest?.historyCount ?? 0}</td><td>${decision}</td></tr>`;
+    <td>${latest?.historyCount ?? 0}</td><td>${latest ? months.length - 1 : '—'}</td><td>${decision}</td></tr>`;
 }
 
 function workbookRow({ title, format }, assessment) {
@@ -101,25 +102,25 @@ function appendSheet(book, name, rows) {
 }
 
 function buildWorkbook(reports) {
-  const columns = ['Card', 'Month and year', 'Actual value', 'Lower cutoff', 'Upper cutoff', 'Decision'];
+  const columns = ['Card', 'Month and year', 'Actual value', 'Lower cutoff', 'Upper cutoff', 'Prior months in window', 'Prior months available', 'Decision'];
   const latestRows = [columns];
   const historicalRows = [columns];
   const summaryRows = [['Card', 'Months evaluated', 'Shown', 'Hidden', 'Below cutoff', 'Above cutoff', 'Outlier rate', 'Coverage']];
   const totals = { shown: 0, below: 0, above: 0 };
   for (const report of reports) {
     const { title, months } = report;
-    latestRows.push([...workbookRow(report, months?.at(-1)), latestDecision(months)]);
+    latestRows.push([...workbookRow(report, months?.at(-1)), months?.at(-1)?.historyCount ?? null, months?.length ? months.length - 1 : null, latestDecision(months)]);
     if (!months) {
       summaryRows.push(summaryRow(title, null));
       continue;
     }
     const counts = { shown: 0, below: 0, above: 0 };
-    for (const assessment of months) {
+    for (const [priorMonths, assessment] of months.entries()) {
       if (assessment.historyCount < MIN_PRIOR_MONTHS_FOR_HISTORY) continue;
       const outcome = rangeOutcome(assessment);
       counts[outcome] += 1;
       totals[outcome] += 1;
-      historicalRows.push([...workbookRow(report, assessment), outcome === 'shown' ? 'Shown' : 'Hidden']);
+      historicalRows.push([...workbookRow(report, assessment), assessment.historyCount, priorMonths, outcome === 'shown' ? 'Shown' : 'Hidden']);
     }
     summaryRows.push(summaryRow(title, counts));
   }
@@ -152,7 +153,7 @@ export async function renderOutlierReport(now = new Date()) {
     <p><a download="outlier-report.xlsx" href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${workbook}">Download Excel workbook</a></p>
     <p>The Historical ranges sheet uses the data available today to reconstruct cutoffs for each month with at least ${MIN_PRIOR_MONTHS_FOR_HISTORY} earlier observed months on that card. Red rows would have been hidden. The Historical range summary counts each evaluated month once per card.</p>
     <p>All divisions, business units and facilities. Each card tests its newest observed completed month against the previous 6–12 observed months. A value on either cutoff is included. The test uses full precision. Dashboard filters can change the result.</p>
-    <div class="scroll"><table><thead><tr><th>Card</th><th>Month tested</th><th>Actual</th><th>Lower cutoff</th><th>Upper cutoff</th><th>Prior months</th><th>Decision</th></tr></thead>
+    <div class="scroll"><table><thead><tr><th>Card</th><th>Month tested</th><th>Actual</th><th>Lower cutoff</th><th>Upper cutoff</th><th>Prior months in window</th><th>Prior months available</th><th>Decision</th></tr></thead>
     <tbody>${reports.map(renderLatestRow).join('')}</tbody></table></div>
     <p>There is no scheduled release day. A hidden month is shown when its value returns inside the range on refresh, or when a newer completed month has a usable value for that card.</p></main></body></html>`;
 }

@@ -13,7 +13,7 @@ import {
   excludeProcessingMonth, getProcessedDateRange, getProcessingMonthNote
 } from './latestMonthProcessing.mjs';
 import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faAsterisk,
@@ -686,6 +686,7 @@ const percentFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1
 });
+const goalPercentFormatter = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 1 });
 const monthYearFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   year: 'numeric',
@@ -4997,6 +4998,7 @@ function useCalculatedMetricGoalLine({
 }
 
 function DatabricksLaborHoursCard({
+  order,
   state, globalFilters, selectedDateRange, chartVariant, onVariantChange
 }) {
   const [viewMode, setViewMode] = useState('monthly');
@@ -5026,7 +5028,7 @@ function DatabricksLaborHoursCard({
   ) : null;
 
   return (
-    <article className="analytics-card" style={{ order: 5 }}>
+    <article className="analytics-card" style={{ order }}>
       <CardHeader
         title="Labor Hours (Databricks)"
         processingMonth={processingMonth}
@@ -5090,6 +5092,44 @@ function DatabricksLaborHoursCard({
       </div>
     </article>
   );
+}
+
+function BalancedCardRows({ children }) {
+  const cards = Children.toArray(children);
+  const cardCount = cards.length;
+  const grid = useRef(null);
+  const [capacity, setCapacity] = useState(1);
+  useLayoutEffect(() => {
+    const element = grid.current;
+    const measure = () => {
+      const card = element.querySelector('.analytics-card');
+      if (!card) return;
+      const basis = getComputedStyle(card).flexBasis;
+      const gap = parseFloat(getComputedStyle(element).columnGap);
+      setCapacity(basis.endsWith('%') ? 1 : Math.max(1,
+        Math.floor((element.clientWidth + gap) / (parseFloat(basis) + gap))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [cardCount]);
+
+  const order = card => card.props.style?.order ?? card.props.order ?? 0;
+  cards.sort((a, b) => order(a) - order(b));
+  const rowCount = Math.ceil(cards.length / capacity);
+  const rows = [];
+  let start = 0;
+  for (let index = 0; index < rowCount; index++) {
+    const size = Math.floor(cards.length / rowCount) + Number(index < cards.length % rowCount);
+    rows.push(<div className="cards-row" key={index}>{cards.slice(start, start + size)}</div>);
+    start += size;
+  }
+  return <div className="cards-grid" ref={grid}>{rows}</div>;
 }
 
 export default function App() {
@@ -6985,7 +7025,7 @@ export default function App() {
   const isOtdBarChart = chartVariants.otd === 'bar';
 
   const otdGoalLine = labelGoalLineValue(
-    getMetricGoalLine('otd', otdViewMode), formatPercentValue
+    getMetricGoalLine('otd', otdViewMode), goalPercentFormatter.format
   );
   const otdMetricInfo = buildOtdMetricInfo(METRIC_INFO.otd, {
     ...otdGoalCalculation.goalLine,
@@ -7736,7 +7776,7 @@ export default function App() {
     }
   );
   const laborGoalLine = labelGoalLineValue(
-    getMetricGoalLine('labor', laborViewMode), formatPercentValue
+    getMetricGoalLine('labor', laborViewMode), goalPercentFormatter.format
   );
   const laborMetricInfo = buildLaborMetricInfo(METRIC_INFO.labor, {
     ...laborGoalCalculation.goalLine,
@@ -7746,7 +7786,7 @@ export default function App() {
     timelineLabel: LABOR_VIEW_CONFIG[laborViewMode]?.label
   });
   const laborNewGoalLine = labelGoalLineValue(
-    getMetricGoalLine('laborNew', laborNewViewMode), formatPercentValue
+    getMetricGoalLine('laborNew', laborNewViewMode), goalPercentFormatter.format
   );
   const laborNewMetricInfo = buildLaborMetricInfo(METRIC_INFO.laborNew, {
     ...laborNewGoalCalculation.goalLine,
@@ -7756,7 +7796,7 @@ export default function App() {
     timelineLabel: LABOR_VIEW_CONFIG[laborNewViewMode]?.label
   });
   const laborHanaGoalLine = labelGoalLineValue(
-    getMetricGoalLine('laborHana', laborHanaViewMode), formatPercentValue
+    getMetricGoalLine('laborHana', laborHanaViewMode), goalPercentFormatter.format
   );
   const laborHanaMetricInfo = buildLaborHanaMetricInfo(METRIC_INFO.laborHana, {
     ...laborHanaGoalCalculation.goalLine,
@@ -7879,8 +7919,9 @@ export default function App() {
     error: customerEscapesState.error,
     calculateGoalLine: forecastIncidentGoalLineFromSeries
   });
+  const escapeGoal = customerEscapesForecast.goalLine ?? getAverageIncidentGoalLine(customerEscapesForecastValues);
   const customerEscapesGoalLine = labelGoalLineValue(
-    customerEscapesForecast.goalLine ?? getAverageIncidentGoalLine(customerEscapesForecastValues),
+    escapeGoal && { ...escapeGoal, value: Math.round(escapeGoal.value) },
     formatNumber
   );
   const customerEscapesYAxis = buildDynamicNumericYAxis(
@@ -8906,7 +8947,7 @@ export default function App() {
             )}
           </div>
 
-          <div className="cards-grid">
+          <BalancedCardRows>
             {visibleCards.controllableCosts && (
               <article className="analytics-card" style={{ order: 1 }}>
                 <CardHeader
@@ -9540,6 +9581,7 @@ export default function App() {
 
             {visibleCards.controllableCostsDatabricksRaw && (
               <DatabricksRawComparisonCard
+                order={3}
                 chartVariant={chartVariants.controllableCostsDatabricksRaw}
                 onVariantChange={(nextVariant) => changeChartVariant('controllableCostsDatabricksRaw', nextVariant)}
                 state={controllableCostsDatabricksRawState}
@@ -10926,6 +10968,7 @@ export default function App() {
 
             {visibleCards.laborDatabricks && (
               <DatabricksLaborHoursCard
+                order={5}
                 state={laborDatabricksState}
                 globalFilters={activeGlobalFilters}
                 selectedDateRange={selectedDateRange}
@@ -11142,7 +11185,7 @@ export default function App() {
             {!hasVisibleCards && (
               <div className="cards-empty-state">Select a card above to show it again.</div>
             )}
-          </div>
+          </BalancedCardRows>
         </section>
       </div>
     </main>

@@ -44,6 +44,7 @@ function compareCandidates(left, right) {
 
 export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
   const candidates = new Map();
+  const causes = new Map();
   const required = ['myid', 'city', 'state', 'sector', 'effective_date', 'is_standard_headcount', 'worker_id'];
   if (includeDivision) required.push('division');
   for (const row of rows) {
@@ -52,7 +53,11 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
     }
     const id = normalizeId(row.myid);
     const date = snapshotDate(row.effective_date);
-    if (!id || !date || !normalizeId(row.sector).includes('DEFENSE')) continue;
+    if (!id || !date) continue;
+    if (!normalizeId(row.sector).includes('DEFENSE')) {
+      if (includeDivision) causes.set(monthKey(id, date.year, date.month), 'No Defense sector roster row');
+      continue;
+    }
     const city = normalizeText(row.city);
     const state = normalizeText(row.state);
     const candidate = {
@@ -75,16 +80,22 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
 
   const lookup = new Map();
   // Diagnostic division coverage is independent of whether the location is usable.
+  if (includeDivision) lookup.unmappedCauses = causes;
   if (includeDivision) lookup.divisions = new Map();
   for (const [key, { best, conflict, divisionConflict }] of candidates) {
     if (includeDivision && !divisionConflict && best.division) lookup.divisions.set(key, best.division);
+    if (includeDivision) {
+      if (conflict) causes.set(key, 'Conflicting locations on tied roster rows');
+      else if (!best.city || INVALID_CITIES.has(best.city.toUpperCase())) causes.set(key, 'Missing or invalid roster city');
+      else causes.delete(key);
+    }
     if (!conflict && best.city && !INVALID_CITIES.has(best.city.toUpperCase())) {
       lookup.set(key, { city: best.city, state: best.state, facilityKey: best.facilityKey });
     }
   }
   if (includeDivision) lookup.divisionDiagnostics = {
-    rows: rows.length,
-    populated: rows.filter(row => normalizeText(row.division)).length,
+    rows: rows.filter(row => normalizeId(row.sector).includes('DEFENSE')).length,
+    populated: rows.filter(row => normalizeId(row.sector).includes('DEFENSE') && normalizeText(row.division)).length,
     resolved: lookup.divisions.size
   };
   return lookup;
@@ -128,12 +139,12 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
             DENSE_RANK() OVER (
               PARTITION BY UPPER(TRIM(CAST(\`myid\` AS STRING))),
                 YEAR(\`effective_date\`), MONTH(\`effective_date\`)
-              ORDER BY \`effective_date\` DESC,
+              ORDER BY ${includeDivision ? "CASE WHEN UPPER(CAST(`org_structure_lvl2` AS STRING)) LIKE '%DEFENSE%' THEN 0 ELSE 1 END," : ''} \`effective_date\` DESC,
                 \`is_standard_headcount\` DESC, \`worker_id\` DESC
             ) AS roster_rank
           FROM ${config.tableSql}
           WHERE \`effective_date\` IS NOT NULL
-            AND UPPER(CAST(\`org_structure_lvl2\` AS STRING)) LIKE '%DEFENSE%'
+            ${includeDivision ? '' : "AND UPPER(CAST(`org_structure_lvl2` AS STRING)) LIKE '%DEFENSE%'"}
             AND UPPER(TRIM(CAST(\`myid\` AS STRING))) IN (
               ${batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(', ')}
             )

@@ -117,10 +117,11 @@ function bucketFor(map, key) {
   return map.get(key);
 }
 
-function summarize(rows, resolve, resolveDivision) {
+function summarize(rows, resolve, resolveDivision, resolveCause) {
   const total = emptyBucket();
   const facilities = new Map([[unknown, emptyBucket()]]);
   const months = new Map();
+  const causes = new Map();
   const divisions = resolveDivision ? new Map() : null;
   for (const row of rows) {
     const amount = Number(row.entered_hours);
@@ -132,6 +133,10 @@ function summarize(rows, resolve, resolveDivision) {
     const matched = facility !== unknown;
     if (divisions) {
       const hierarchyDivision = norm(row.division) || unknown;
+      if (!matched) {
+        const key = JSON.stringify([hierarchyDivision, resolveCause(row)]);
+        causes.set(key, (causes.get(key) || 0) + 1);
+      }
       const rosterDivision = norm(resolveDivision(row)) || unknown;
       const pair = JSON.stringify([hierarchyDivision, rosterDivision]);
       add(bucketFor(divisions, pair), hours, false);
@@ -140,7 +145,7 @@ function summarize(rows, resolve, resolveDivision) {
     add(bucketFor(facilities, facility), hours, matched);
     add(bucketFor(months, row.year + '-' + String(row.month).padStart(2, '0')), hours, matched);
   }
-  return { total, facilities, months, divisions };
+  return { total, facilities, months, divisions, causes };
 }
 
 function appendSheet(book, name, headers, rows, pctColumns) {
@@ -204,6 +209,14 @@ function workbook(summary) {
       [...byHierarchy].sort(([a], [b]) => Number(a === unknown) - Number(b === unknown) || a.localeCompare(b))
         .map(([division, counts]) => [division, counts.total, counts.same, counts.missingRoster,
           division === unknown ? null : percent(counts.same, counts.total)]), [4]);
+    const unmapped = total.rows - total.matchedRows;
+    const causeRows = [...summary.causes].sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+      .map(([key, count]) => {
+        const [division, cause] = JSON.parse(key);
+        return [division, percent(count, unmapped), cause];
+      });
+    appendSheet(book, 'Unmapped causes', ['Division', 'Percent of total unmapped records', 'Cause'], causeRows, [1]);
+    book.Sheets['Unmapped causes']['!cols'][2].wch = 45;
   }
   return XLSX.write(book, { type: 'base64', bookType: 'xlsx', compression: true });
 }
@@ -266,7 +279,8 @@ export async function renderLaborRosterComparison() {
       return { ...method, failure: failureCode(error) };
     }
     return { ...method, size: lookup.size, divisionDiagnostics: lookup.divisionDiagnostics, summary: summarize(rows, row => method.resolve(row, lookup),
-      method.resolveDivision && (row => method.resolveDivision(row, lookup))) };
+      method.resolveDivision && (row => method.resolveDivision(row, lookup)),
+      row => !norm(row.my_id) ? 'Blank labor MyID' : lookupMonthlyLaborFacility(row, lookup.unmappedCauses) || 'No roster row for MyID and labor month') };
   }));
   const report = ['[labor-test] ' + new Date().toISOString(),
     'Shared DBM labor extract: ' + rows.length + ' grouped rows',

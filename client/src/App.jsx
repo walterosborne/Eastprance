@@ -4159,7 +4159,7 @@ function ResponsiveKpiValue({ value }) {
 
 const costKpi = { format: formatOverviewCurrency, direction: -1, forecast: forecastControllableCostsGoalLineFromSeries };
 const countKpi = { format: formatNumber, direction: -1, forecast: forecastIncidentGoalLineFromSeries };
-const laborKpi = { format: formatPercentValue, direction: 0, forecast: forecastLaborGoalLineFromSeries };
+const laborKpi = { format: formatPercentValue, direction: 1, forecast: forecastLaborGoalLineFromSeries };
 const kpiMetrics = {
   controllableCosts: costKpi, controllableCostsNew: costKpi, controllableCostsHana: costKpi,
   customerEscapes: countKpi, potentialSif: countKpi, sif: countKpi,
@@ -4217,9 +4217,10 @@ function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label,
       + (summary.average === 0 ? 'Percentage difference is undefined for a zero average.'
         : 'Compares the KPI month with this average, using the absolute average as the denominator.')
     : 'Requires a KPI month and at least one prior monthly value.';
-  const forecastTip = (prediction ? prediction.method + '. ' : '') + 'The percentage compares the forecast to the KPI month. Estimate for the month after the KPI month. Uses up to the latest completed month. '
-    + 'ARIMA(1,0,1) requires 10 consecutive observations. Short histories or model failures use their average. '
-    + 'OTD can use its recent median when the model exceeds its deviation limit.';
+  const forecastMethodTip = prediction?.method === 'Average fallback' ? 'This estimate is the average of past months.'
+    : prediction?.method === 'Recent median' ? 'This estimate uses the middle value from recent months.'
+    : 'ARIMA looks for patterns in past months to estimate next month’s value.';
+  const forecastTip = 'The percentage compares the forecast to the KPI month. ' + forecastMethodTip;
   const currentValue = value ?? (Number.isFinite(summary?.value) ? format(summary.value) : '--');
   return (
     <section className="metric-overview-band" aria-label={ariaLabel}>

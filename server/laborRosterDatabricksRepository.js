@@ -1,6 +1,6 @@
 import { executeDatabricksQuery } from './databricksQuery.js';
 
-// Approved use: this fiscal month-end roster may only assign facilities to labor actuals.
+// Approved use: this fiscal month-end roster supplies facility, division, and business unit for labor actuals only.
 // Do not import it for safety, headcount, identity, costs, or any other metric.
 const INVALID_CITIES = new Set(['UNKNOWN CITY', 'UNKNOWN', 'N/A']);
 // A bounded batch keeps each response below Databricks' 26 MB INLINE limit.
@@ -63,6 +63,7 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
     const candidate = {
       city, state,
       division: normalizeText(row.division),
+      businessUnit: normalizeText(row.business_unit),
       facilityKey: JSON.stringify([city.toUpperCase(), state.toUpperCase()]),
       date: date.iso,
       standard: ['1', 'TRUE', 'Y', 'YES'].includes(normalizeId(row.is_standard_headcount)),
@@ -71,10 +72,16 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
     const key = monthKey(id, date.year, date.month);
     const previous = candidates.get(key);
     const comparison = previous ? compareCandidates(candidate, previous.best) : 1;
-    if (comparison > 0) candidates.set(key, { best: candidate, conflict: false, divisionConflict: false });
+    if (comparison > 0) candidates.set(key, {
+      best: candidate, conflict: false, divisions: new Map(), businessUnits: new Map()
+    });
     else if (comparison === 0) {
       if (candidate.facilityKey !== previous.best.facilityKey) previous.conflict = true;
-      if (normalizeId(candidate.division) !== normalizeId(previous.best.division)) previous.divisionConflict = true;
+    }
+    if (comparison >= 0) {
+      const match = candidates.get(key);
+      if (candidate.division) match.divisions.set(normalizeId(candidate.division), candidate.division);
+      if (candidate.businessUnit) match.businessUnits.set(normalizeId(candidate.businessUnit), candidate.businessUnit);
     }
   }
 
@@ -84,9 +91,11 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
     lookup.unmappedCauses = causes;
     lookup.invalidCities = new Map();
   }
-  if (includeDivision) lookup.divisions = new Map();
-  for (const [key, { best, conflict, divisionConflict }] of candidates) {
-    if (includeDivision && !divisionConflict && best.division) lookup.divisions.set(key, best.division);
+  lookup.divisions = new Map();
+  lookup.businessUnits = new Map();
+  for (const [key, { best, conflict, divisions, businessUnits }] of candidates) {
+    if (divisions.size === 1) lookup.divisions.set(key, divisions.values().next().value);
+    if (businessUnits.size === 1) lookup.businessUnits.set(key, businessUnits.values().next().value);
     if (includeDivision) {
       if (conflict) causes.set(key, 'Conflicting locations on tied roster rows');
       else if (!best.city || INVALID_CITIES.has(best.city.toUpperCase())) {
@@ -138,7 +147,8 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
             TRIM(CAST(\`work_city\` AS STRING)) AS city,
             TRIM(CAST(\`work_state_code\` AS STRING)) AS state,
             CAST(\`org_structure_lvl2\` AS STRING) AS sector,
-            ${includeDivision ? 'CAST(`org_structure_lvl3` AS STRING) AS division,' : ''}
+            CAST(\`org_structure_lvl3\` AS STRING) AS division,
+            CAST(\`org_structure_lvl4\` AS STRING) AS business_unit,
             CAST(\`effective_date\` AS STRING) AS effective_date,
             CAST(\`is_standard_headcount\` AS STRING) AS is_standard_headcount,
             CAST(\`worker_id\` AS STRING) AS worker_id,
@@ -156,7 +166,7 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
             )
             ${allMonths ? '' : `AND YEAR(effective_date) * 100 + MONTH(effective_date) BETWEEN ${firstPeriod} AND ${lastPeriod}`}
         )
-        SELECT myid, city, state, sector, effective_date, is_standard_headcount, worker_id${includeDivision ? ', division' : ''}
+        SELECT myid, city, state, sector, effective_date, is_standard_headcount, worker_id, division, business_unit
         FROM ranked
         WHERE roster_rank = 1
       `
@@ -183,12 +193,13 @@ export function joinLaborFacilities(laborRows, rosterLookup) {
   for (const row of laborRows) {
     // A fiscal month-end snapshot belongs only to that labor month. Do not carry
     // today's location backward or substitute an adjacent month's facility.
-    const facility = lookupMonthlyLaborFacility(row, rosterLookup);
+    const employeeMonth = monthKey(row.my_id, row.year, row.month);
+    const facility = rosterLookup.get(employeeMonth);
     const result = {
       year: row.year,
       month: row.month,
-      division: row.division,
-      business_unit: row.business_unit,
+      division: rosterLookup.divisions?.get(employeeMonth) ?? row.division,
+      business_unit: rosterLookup.businessUnits?.get(employeeMonth) ?? row.business_unit,
       cost_center: row.cost_center,
       facility: facility?.city ?? '',
       facility_state: facility?.state ?? '',

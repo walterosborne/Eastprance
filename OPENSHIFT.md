@@ -374,20 +374,25 @@ Secret key references). Restart the app pods after updating environment-backed s
 For local runs, put the same keys in `server/.env`. Set each to one identifier component,
 without surrounding SQL quotes; no actual table name belongs in source control.
 
-Labor hours and cost-center hierarchy still come from DBM SQL. The app queries the configured
+Labor hours and cost-center hierarchy still come from DBM SQL. The labor extract queries the configured
 Databricks fiscal month-end roster by `myid` and the labor row's year/month. Within
 each month it prefers the latest `effective_date` Defense record, then
 `is_standard_headcount`, then `worker_id`; it aggregates back to the existing
 facility-level response. The roster must expose `myid`, `work_city`,
-`work_state_code`, `org_structure_lvl2`, `effective_date`,
+`work_state_code`, `org_structure_lvl2`, `org_structure_lvl3` (division),
+`org_structure_lvl4` (business unit), `effective_date`,
 `is_standard_headcount`, and `worker_id`.
 Only `org_structure_lvl2` values containing `Defense` qualify. Months without
 a qualifying snapshot, blank/unknown cities, and unresolved same-rank conflicts
 remain unmapped; a later facility is never carried into a prior labor month.
+For each employee and month, the extract uses each resolved roster division and business unit.
+A missing or conflicting field falls back to its cost-center hierarchy value, even when the
+other field resolves. These assignments are independent of city coverage. Refresh
+`templabor1124` with `node server/uploadLabor1124.js upload.env` to publish them.
 Duplicate roster records never multiply labor hours. Roster configuration/query
 errors are surfaced rather than falling back to the SQL roster.
 
-**Approved use:** This Databricks roster table is for labor facility attribution only.
+**Approved use:** This Databricks roster table is for labor facility, division, and business unit attribution only.
 Do not reuse it for safety, headcount, identity, costs, or another metric. The
 separate SQL `RosterExtractFarm` use described above is unaffected.
 

@@ -111,6 +111,8 @@ test('roster reads only labor MyIDs and months, follows chunks, and surfaces Dat
       assert.ok(query.includes('`work_city`'));
       assert.ok(query.includes('`work_state_code`'));
       assert.ok(query.includes('`org_structure_lvl2`'));
+      assert.ok(query.includes('`org_structure_lvl3` AS STRING) AS division'));
+      assert.ok(query.includes('`org_structure_lvl4` AS STRING) AS business_unit'));
       assert.ok(query.includes('`effective_date` IS NOT NULL'));
       assert.ok(query.includes('`is_standard_headcount`'));
       assert.ok(query.includes('`worker_id`'));
@@ -176,19 +178,36 @@ async function repositoryHarness(rosterLoader) {
   };
   vm.createContext(context);
   vm.runInContext(source, context);
-  return { load: context.readLaborUtilizationNewData };
+  return { load: context.extractJoinedLaborRows };
 }
 
-test('repository joins before payload creation and retains signed totals and Unmapped rows', async () => {
+test('snapshot extract joins before aggregation and retains signed hours and unmapped rows', async () => {
   const harness = await repositoryHarness(async () => buildLaborRosterLookup([roster()]));
-  const payload = await harness.load();
-  assert.equal(payload.totalEnteredHours, 9);
-  assert.equal(payload.rows.find((row) => row.facility === 'Huntsville').entered_hours, 6);
-  assert.equal(payload.rows.find((row) => row.facility === 'Unmapped').entered_hours, 3);
-  assert.equal(payload.facilityMapping.source, 'databricks');
+  const rows = await harness.load();
+  assert.equal(rows.reduce((sum, row) => sum + row.entered_hours, 0), 9);
+  assert.equal(rows.find(row => row.facility === 'Huntsville').entered_hours, 6);
+  assert.equal(rows.find(row => !row.facility).entered_hours, 3);
 });
 
-test('roster failure propagates to the card', async () => {
+test('roster failure stops the snapshot extract', async () => {
   const harness = await repositoryHarness(async () => { throw Object.assign(new Error('roster unavailable'), { code: 'LABOR_ROSTER_UNAVAILABLE' }); });
   await assert.rejects(harness.load(), /roster unavailable/);
+});
+
+test('monthly MyID hierarchy takes precedence and falls back independently for each field', () => {
+  const lookup = buildLaborRosterLookup([
+    roster({ division: 'Roster division', business_unit: 'Roster BU', city: '' }),
+    roster({ myid: 'B', division: 'Other', business_unit: 'B unit' }),
+    roster({ myid: 'B', division: 'Conflicting', business_unit: 'B unit' }),
+    roster({ myid: 'C', division: 'C division', business_unit: ' ' }),
+    roster({ myid: 'D', sector: 'Other', division: 'Wrong', business_unit: 'Wrong' })
+  ]);
+  const rows = joinLaborFacilities([
+    labor('A1', 1), labor('B', 2), labor('C', 3), labor('D', 4),
+    labor('A1', 5, { month: 8 })
+  ], lookup);
+  assert.deepEqual(rows.map(row => [row.entered_hours, row.division, row.business_unit]), [
+    [1, 'Roster division', 'Roster BU'], [2, 'Weapon Systems', 'B unit'],
+    [3, 'C division', 'BU'], [4, 'Weapon Systems', 'BU'], [5, 'Weapon Systems', 'BU']
+  ]);
 });

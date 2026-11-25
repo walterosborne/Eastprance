@@ -54,14 +54,10 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
     const id = normalizeId(row.myid);
     const date = snapshotDate(row.effective_date);
     if (!id || !date) continue;
-    if (!normalizeId(row.sector).includes('DEFENSE')) {
-      if (includeDivision) causes.set(monthKey(id, date.year, date.month), 'No Defense sector roster row');
-      continue;
-    }
     const city = normalizeText(row.city);
     const state = normalizeText(row.state);
     const candidate = {
-      city, state,
+      city, state, sector: normalizeId(row.sector),
       division: normalizeText(row.division),
       businessUnit: normalizeText(row.business_unit),
       facilityKey: JSON.stringify([city.toUpperCase(), state.toUpperCase()]),
@@ -73,13 +69,14 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
     const previous = candidates.get(key);
     const comparison = previous ? compareCandidates(candidate, previous.best) : 1;
     if (comparison > 0) candidates.set(key, {
-      best: candidate, conflict: false, divisions: new Map(), businessUnits: new Map()
+      best: candidate, conflict: false, sectors: new Set(), divisions: new Map(), businessUnits: new Map()
     });
     else if (comparison === 0) {
       if (candidate.facilityKey !== previous.best.facilityKey) previous.conflict = true;
     }
     if (comparison >= 0) {
       const match = candidates.get(key);
+      if (candidate.sector) match.sectors.add(candidate.sector.includes('DEFENSE'));
       if (candidate.division) match.divisions.set(normalizeId(candidate.division), candidate.division);
       if (candidate.businessUnit) match.businessUnits.set(normalizeId(candidate.businessUnit), candidate.businessUnit);
     }
@@ -91,9 +88,16 @@ export function buildLaborRosterLookup(rows, { includeDivision = false } = {}) {
     lookup.unmappedCauses = causes;
     lookup.invalidCities = new Map();
   }
+  lookup.sectors = new Map();
   lookup.divisions = new Map();
   lookup.businessUnits = new Map();
-  for (const [key, { best, conflict, divisions, businessUnits }] of candidates) {
+  for (const [key, { best, conflict, sectors, divisions, businessUnits }] of candidates) {
+    const defense = sectors.size === 1 ? sectors.values().next().value : null;
+    if (defense !== null) lookup.sectors.set(key, defense);
+    if (defense !== true) {
+      if (includeDivision) causes.set(key, 'No unambiguous Defense sector roster row');
+      continue;
+    }
     if (divisions.size === 1) lookup.divisions.set(key, divisions.values().next().value);
     if (businessUnits.size === 1) lookup.businessUnits.set(key, businessUnits.values().next().value);
     if (includeDivision) {
@@ -139,7 +143,7 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
       scope: 'labor-roster',
       tableName: 'configured Databricks labor roster',
       query: `
-        -- Return only the most relevant Defense snapshot for each MyID/month.
+        -- Return only the most relevant snapshot for each MyID/month.
         -- DENSE_RANK retains tied locations so the app can leave conflicts unmapped.
         WITH ranked AS (
           SELECT
@@ -155,12 +159,11 @@ export async function readLaborRosterLookup(config = getLaborRosterConfig(), lab
             DENSE_RANK() OVER (
               PARTITION BY UPPER(TRIM(CAST(\`myid\` AS STRING))),
                 YEAR(\`effective_date\`), MONTH(\`effective_date\`)
-              ORDER BY ${includeDivision ? "CASE WHEN UPPER(CAST(`org_structure_lvl2` AS STRING)) LIKE '%DEFENSE%' THEN 0 ELSE 1 END," : ''} \`effective_date\` DESC,
+              ORDER BY \`effective_date\` DESC,
                 \`is_standard_headcount\` DESC, \`worker_id\` DESC
             ) AS roster_rank
           FROM ${config.tableSql}
           WHERE \`effective_date\` IS NOT NULL
-            ${includeDivision ? '' : "AND UPPER(CAST(`org_structure_lvl2` AS STRING)) LIKE '%DEFENSE%'"}
             AND UPPER(TRIM(CAST(\`myid\` AS STRING))) IN (
               ${batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(', ')}
             )
@@ -188,11 +191,17 @@ export function lookupMonthlyLaborFacility(row, rosterLookup) {
   return rosterLookup.get(monthKey(row.my_id, row.year, row.month));
 }
 
+export function isDefenseLaborRow(row, lookup) {
+  const sector = lookup.sectors?.get(monthKey(row.my_id, row.year, row.month));
+  return sector ?? (normalizeId(row.cost_center_sector) === 'NGRBT');
+}
+
 export function joinLaborFacilities(laborRows, rosterLookup) {
   const totals = new Map();
   for (const row of laborRows) {
     // A fiscal month-end snapshot belongs only to that labor month. Do not carry
     // today's location backward or substitute an adjacent month's facility.
+    if (!isDefenseLaborRow(row, rosterLookup)) continue;
     const employeeMonth = monthKey(row.my_id, row.year, row.month);
     const facility = rosterLookup.get(employeeMonth);
     const result = {

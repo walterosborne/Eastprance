@@ -2,7 +2,7 @@ import XLSX from 'xlsx';
 import { getConnectionConfig, getPool } from '../sqlConnection.js';
 import { LABOR_UTILIZATION_NEW_DBM_QUERY, LABOR_PERIOD_SQL } from '../dbmQueries/laborUtilizationNewQuery.js';
 import {
-  getLaborRosterConfig, readLaborRosterLookup, lookupMonthlyLaborFacility
+  getLaborRosterConfig, readLaborRosterLookup, lookupMonthlyLaborFacility, isDefenseLaborRow
 } from '../laborRosterDatabricksRepository.js';
 
 // Reproduce the former labor card's DefenseRoster and RosterByPerson rules.
@@ -23,56 +23,17 @@ WITH DefenseRoster AS (
 SELECT MyID AS my_id, MIN(City) AS city, MIN(State) AS state
 FROM DefenseRoster GROUP BY MyID HAVING MIN(Facility) = MAX(Facility);`;
 
-// Run only when the normal extract is empty. Count original actuals before
-// grouping, with the same conversions and hierarchy key used by the labor query.
-const EMPTY_EXTRACT_COUNTS = `
-WITH Hierarchy AS (
-  SELECT UPPER(LTRIM(RTRIM(COST_CENTER))) AS center,
-         MAX(CASE WHEN LTRIM(RTRIM(LEV02)) = 'NGRBT' THEN 1 ELSE 0 END) AS in_scope
-  FROM rpt.cost_center_load_hierarchy GROUP BY UPPER(LTRIM(RTRIM(COST_CENTER)))
-), Actuals AS (
-  SELECT NULLIF(UPPER(LTRIM(RTRIM(Cost_Center))), '') AS center,
-         TRY_CONVERT(decimal(18,2), Hours) AS hours,
-         month_start
-  FROM rpt.actuals_load_resource_management
-  ${LABOR_PERIOD_SQL}
-)
-SELECT COUNT_BIG(*) AS raw_rows,
-       COUNT_BIG(a.center) AS with_center,
-       COUNT_BIG(CASE WHEN a.center IS NOT NULL AND a.hours IS NOT NULL THEN 1 END) AS with_hours,
-       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.center IS NOT NULL AND a.month_start IS NOT NULL THEN 1 END) AS with_period,
-       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.month_start IS NOT NULL AND h.center IS NOT NULL THEN 1 END) AS any_hierarchy,
-       COUNT_BIG(CASE WHEN a.hours IS NOT NULL AND a.month_start IS NOT NULL AND h.in_scope = 1 THEN 1 END) AS scoped
-FROM Actuals a LEFT JOIN Hierarchy h ON h.center = a.center;
-
-SELECT COUNT_BIG(*) AS hierarchy_rows,
-       COUNT_BIG(CASE WHEN LTRIM(RTRIM(LEV02)) = 'NGRBT' THEN 1 END) AS scoped_hierarchy_rows
-FROM rpt.cost_center_load_hierarchy;`;
 
 async function explainEmptyExtract(dbm) {
-  try {
-    const { recordsets } = await dbm.request().query(EMPTY_EXTRACT_COUNTS);
-    const [counts] = recordsets[0];
-    const [hierarchy] = recordsets[1];
-    const stages = [
-      ['raw_rows', 'Source actuals', 'The actuals table returned zero rows.'],
-      ['with_center', 'With cost center', 'All actuals have blank cost centers.'],
-      ['with_hours', 'With numeric hours', 'No remaining hours convert to decimal.'],
-      ['with_period', 'With valid period', 'Period parsing excluded all remaining rows (expected YYYYMM, e.g. 202601 for January 2026).'],
-      ['any_hierarchy', 'Matching any hierarchy center', 'No eligible cost center matches the hierarchy.'],
-      ['scoped', 'Matching NGRBT hierarchy center', 'No eligible cost center matches a hierarchy row with LEV02 = NGRBT.']
-    ];
-    const firstZero = stages.find(([key]) => Number(counts[key]) === 0);
-    return [
-      'Finding: ' + (firstZero?.[2] ?? 'Eligible actuals exist on recheck. The extract and diagnostics were separate reads.'),
-      'Actuals funnel (raw rows remaining):',
-      ...stages.map(([key, label]) => '  ' + label + ': ' + counts[key]),
-      'Hierarchy rows: ' + hierarchy.hierarchy_rows + ' total, ' + hierarchy.scoped_hierarchy_rows + ' in NGRBT.'
-    ];
-  } catch (error) {
-    const code = String(error.code || 'unknown').replace(/[^A-Za-z0-9_-]/g, '').slice(0,30);
-    return ['Finding: The common labor extract returned zero rows. The follow-up count query failed (' + code + ').'];
-  }
+  const { recordset: [counts] } = await dbm.request().query(`
+    SELECT COUNT_BIG(*) AS raw_rows,
+           COUNT_BIG(TRY_CONVERT(decimal(18,2), Hours)) AS with_hours,
+           COUNT_BIG(CASE WHEN TRY_CONVERT(decimal(18,2), Hours) IS NOT NULL
+                          AND month_start IS NOT NULL THEN 1 END) AS with_period
+    FROM rpt.actuals_load_resource_management
+    ${LABOR_PERIOD_SQL}`);
+  return 'Source rows: ' + counts.raw_rows + ', numeric hours: ' + counts.with_hours
+    + ', numeric hours with valid period: ' + counts.with_period + '.';
 }
 
 const norm = value => String(value ?? '').trim().toUpperCase();
@@ -289,7 +250,9 @@ export async function renderLaborRosterComparison() {
     throw new Error('Shared DBM labor extract failed (' + failureCode(error) + ') at ' + sqlTarget(config)
       + '. Neither roster lookup ran.');
   }
-  // Approved use of the Databricks fiscal roster is limited to labor facility attribution.
+  const candidateCount = rows.length;
+  const monthlyRoster = await readLaborRosterLookup(getLaborRosterConfig(), rows, { includeDivision: true });
+  rows = rows.filter(row => isDefenseLaborRow(row, monthlyRoster));
   const distinctIds = new Set();
   let withId = 0;
   for (const row of rows) {
@@ -315,7 +278,7 @@ export async function renderLaborRosterComparison() {
     },
     {
       label: 'New monthly roster', slug: 'new',
-      load: () => readLaborRosterLookup(getLaborRosterConfig(), rows, { includeDivision: true }),
+      load: () => monthlyRoster,
       resolveDivision: (row, lookup) => lookupMonthlyLaborFacility(row, lookup.divisions || new Map()),
       resolve: lookupMonthlyLaborFacility,
       failureHint: 'Check the configured Databricks roster table and warehouse access. DIVISION_LOOKUP_MISSING means laborRosterDatabricksRepository.js must be updated together with this diagnostic.'
@@ -343,7 +306,11 @@ export async function renderLaborRosterComparison() {
     'Shared DBM labor extract: ' + rows.length + ' grouped rows',
     'Rows with MyID: ' + withId + ' / ' + rows.length + ' (' + distinctIds.size + ' distinct IDs)'];
   if (!rows.length) {
-    report.push(...await explainEmptyExtract(dbm));
+    if (candidateCount) report.push('Final sector assignment excluded all ' + candidateCount + ' candidate rows.');
+    else {
+      try { report.push(await explainEmptyExtract(dbm)); }
+      catch (error) { report.push('Source count unavailable (' + failureCode(error) + ').'); }
+    }
   } else if (!withId) {
     report.push('Finding: Every grouped row has a blank MyID.');
   }

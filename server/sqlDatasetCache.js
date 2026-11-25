@@ -88,8 +88,8 @@ function getNextLocalDayParts(parts, timeZone) {
   };
 }
 
-function getNextRefreshDate(now = new Date()) {
-  const todayParts = getTimeZoneParts(now, DAILY_REFRESH_TIMEZONE);
+export function getNextRefreshDate(now = new Date(), timeZone = DAILY_REFRESH_TIMEZONE, hour = DAILY_REFRESH_HOUR, minute = DAILY_REFRESH_MINUTE) {
+  const todayParts = getTimeZoneParts(now, timeZone);
   let targetDateParts = {
     year: todayParts.year,
     month: todayParts.month,
@@ -98,23 +98,23 @@ function getNextRefreshDate(now = new Date()) {
   let nextRefreshDate = convertZonedTimeToUtc(
     {
       ...targetDateParts,
-      hour: DAILY_REFRESH_HOUR,
-      minute: DAILY_REFRESH_MINUTE,
+      hour,
+      minute,
       second: 0
     },
-    DAILY_REFRESH_TIMEZONE
+    timeZone
   );
 
   if (nextRefreshDate <= now) {
-    targetDateParts = getNextLocalDayParts(targetDateParts, DAILY_REFRESH_TIMEZONE);
+    targetDateParts = getNextLocalDayParts(targetDateParts, timeZone);
     nextRefreshDate = convertZonedTimeToUtc(
       {
         ...targetDateParts,
-        hour: DAILY_REFRESH_HOUR,
-        minute: DAILY_REFRESH_MINUTE,
+        hour,
+        minute,
         second: 0
       },
-      DAILY_REFRESH_TIMEZONE
+      timeZone
     );
   }
 

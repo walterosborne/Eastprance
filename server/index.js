@@ -48,6 +48,7 @@ import { applyBuGroupingsToPayload, readBuGroupingTitles } from './buGroupingsRe
 import { readLaborDatabricksData } from './laborDatabricksRepository.js';
 import { readLaborUtilizationData } from './laborUtilizationRepository.js';
 import { readLaborUtilizationHanaData } from './laborUtilizationHanaRepository.js';
+import { startLaborRefreshScheduler } from './laborSnapshotRefresh.js';
 import { readLaborUtilizationNewData } from './laborUtilizationNewRepository.js';
 import { readOtdData } from './otdRepository.js';
 import { readCustomerEscapesData } from './customerEscapesRepository.js';
@@ -797,11 +798,13 @@ logDebugJson('entra-debug', 'Identity diagnostics enabled.', {
   expectedProxyArchitecture: 'OAuth2 Proxy sidecar -> 127.0.0.1:8080'
 });
 
+const stopLaborRefresh = startLaborRefreshScheduler();
 startSqlDatasetCacheScheduler();
 void warmAllSqlDatasetCaches('server startup warm');
 
 async function shutdown() {
   try {
+    stopLaborRefresh();
     stopSqlDatasetCacheScheduler();
     await closeDatabaseConnection();
   } catch (error) {

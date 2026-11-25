@@ -376,19 +376,31 @@ without surrounding SQL quotes; no actual table name belongs in source control.
 
 Labor hours and cost-center hierarchy still come from DBM SQL. The labor extract queries the configured
 Databricks fiscal month-end roster by `myid` and the labor row's year/month. Within
-each month it prefers the latest `effective_date` Defense record, then
+each month it prefers the latest `effective_date` record, then
 `is_standard_headcount`, then `worker_id`; it aggregates back to the existing
 facility-level response. The roster must expose `myid`, `work_city`,
 `work_state_code`, `org_structure_lvl2`, `org_structure_lvl3` (division),
 `org_structure_lvl4` (business unit), `effective_date`,
 `is_standard_headcount`, and `worker_id`.
-Only `org_structure_lvl2` values containing `Defense` qualify. Months without
+Sector is resolved after matching. A roster sector containing `Defense` qualifies and a resolved
+non-Defense sector excludes the row. A missing or conflicting sector falls back to `LEV02 = NGRBT`
+on the latest cost-center hierarchy record. A Defense MyID can qualify without a cost center.
+Months without
 a qualifying snapshot, blank/unknown cities, and unresolved same-rank conflicts
 remain unmapped; a later facility is never carried into a prior labor month.
 For each employee and month, the extract uses each resolved roster division and business unit.
 A missing or conflicting field falls back to its cost-center hierarchy value, even when the
 other field resolves. These assignments are independent of city coverage. Refresh
-`templabor1124` with `node server/uploadLabor1124.js upload.env` to publish them.
+`templabor1124` manually with `node server/uploadLabor1124.js upload.env` to force publication.
+
+The running API checks `MAX(created_date)` and `COUNT_BIG(*)` across the entire DBM actuals table
+at 3 AM America/New_York. The initial check upgrades older snapshots. Later checks rebuild only
+when either value changes. The published rows include `labor_update_date` (source maximum),
+`labor_row_count` (source count before filters), and `last_updated` (Delta publication time).
+The API needs the same DBM, roster and Databricks access as the manual uploader, including
+staging-table creation and snapshot replacement. Instances coordinate with a DBM application lock.
+Roster-only or hierarchy-only corrections can be published with the manual command.
+
 Duplicate roster records never multiply labor hours. Roster configuration/query
 errors are surfaced rather than falling back to the SQL roster.
 

@@ -10,6 +10,7 @@ export const LABOR_UTILIZATION_NEW_DBM_QUERY = `
 WITH CostCenterHierarchy AS (
     SELECT
         UPPER(LTRIM(RTRIM(COST_CENTER))) AS Cost_Center,
+        UPPER(LTRIM(RTRIM(LEV02))) AS sector_code,
         NULLIF(LTRIM(RTRIM(LEV03_DESC)), '') AS Division,
         NULLIF(LTRIM(RTRIM(LEV04_DESC)), '') AS Business_Unit,
         ROW_NUMBER() OVER (
@@ -19,14 +20,13 @@ WITH CostCenterHierarchy AS (
                 id DESC
         ) AS rn
     FROM rpt.cost_center_load_hierarchy
-    WHERE LTRIM(RTRIM(LEV02)) = 'NGRBT'
 ),
 
 Actuals AS (
     SELECT
         YEAR(month_start) AS [year],
         MONTH(month_start) AS [month],
-        UPPER(LTRIM(RTRIM(Cost_Center))) AS Cost_Center,
+        NULLIF(UPPER(LTRIM(RTRIM(Cost_Center))), '') AS Cost_Center,
         NULLIF(UPPER(LTRIM(RTRIM(MYID))), '') AS MyID,
         CASE
             WHEN LOWER(LTRIM(RTRIM(Labor_Category))) LIKE '%indirect%'
@@ -39,8 +39,7 @@ Actuals AS (
     FROM rpt.actuals_load_resource_management
     ${LABOR_PERIOD_SQL}
     WHERE
-        NULLIF(LTRIM(RTRIM(Cost_Center)), '') IS NOT NULL
-        AND TRY_CONVERT(DECIMAL(18,2), Hours) IS NOT NULL
+        TRY_CONVERT(DECIMAL(18,2), Hours) IS NOT NULL
 ),
 
 LaborByPerson AS (
@@ -49,18 +48,19 @@ LaborByPerson AS (
         a.[month],
         COALESCE(h.Division, 'Unmapped') AS Division,
         COALESCE(h.Business_Unit, 'Unmapped') AS Business_Unit,
+        h.sector_code,
         a.Cost_Center,
         a.Labor_Category,
         a.MyID,
         SUM(a.Entered_Hours) AS Entered_Hours
     FROM Actuals a
-    JOIN CostCenterHierarchy h
+    LEFT JOIN CostCenterHierarchy h
         ON a.Cost_Center = h.Cost_Center
        AND h.rn = 1
     WHERE
         a.[year] IS NOT NULL
         AND a.[month] BETWEEN 1 AND 12
-    GROUP BY a.[year], a.[month], h.Division, h.Business_Unit,
+    GROUP BY a.[year], a.[month], h.Division, h.Business_Unit, h.sector_code,
         a.Cost_Center, a.Labor_Category, a.MyID
 )
 
@@ -68,6 +68,7 @@ LaborByPerson AS (
 SELECT
     a.[year] AS year,
     a.[month] AS month,
+    a.sector_code AS cost_center_sector,
     a.Division AS division,
     a.Business_Unit AS business_unit,
     a.Cost_Center AS cost_center,

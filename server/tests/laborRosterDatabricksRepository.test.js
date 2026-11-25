@@ -12,7 +12,7 @@ const roster = (overrides = {}) => ({
 });
 const labor = (my_id, entered_hours, overrides = {}) => ({
   year: 2026, month: 9, division: 'Weapon Systems', business_unit: 'BU',
-  cost_center: 'CC1', labor_category: 'Labor Direct', my_id, entered_hours, ...overrides
+  cost_center_sector: 'NGRBT', cost_center: 'CC1', labor_category: 'Labor Direct', my_id, entered_hours, ...overrides
 });
 
 test('table identifiers are required, individually quoted, and not hardcoded', () => {
@@ -48,7 +48,7 @@ test('non-Defense, missing, unknown, and ambiguous roster matches stay unmapped'
   ]);
   const rows = joinLaborFacilities(['A1', 'X1', 'Y1', 'Z1', null, 'not found'].map((id) => labor(id, 1)), lookup);
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].entered_hours, 6);
+  assert.equal(rows[0].entered_hours, 5);
   assert.equal(rows[0].facility, '');
   assert.equal(lookup.has(JSON.stringify(['A1', 2026, 9])), false);
   assert.throws(() => buildLaborRosterLookup([{ city: 'City' }]), /required MyID/);
@@ -68,7 +68,7 @@ test('month-end snapshots follow transfers without leaking locations across mont
   ], lookup);
   assert.equal(rows.find((row) => row.month === 8).facility, 'Huntsville');
   assert.equal(rows.find((row) => row.month === 9).facility, 'Baltimore');
-  assert.equal(rows.find((row) => row.month === 10).facility, '');
+  assert.ok(!rows.some(row => row.month === 10));
   assert.equal(rows.find((row) => row.month === 7).facility, '');
 });
 
@@ -106,7 +106,7 @@ test('roster reads only labor MyIDs and months, follows chunks, and surfaces Dat
     if (init.method === 'POST') {
       const query = JSON.parse(init.body).statement;
       assert.ok(query.includes('FROM `test_catalog`.`test_schema`.`test_roster`'));
-      assert.ok(query.includes("LIKE '%DEFENSE%'"));
+      assert.ok(!query.includes("LIKE '%DEFENSE%'"));
       assert.ok(query.includes('`myid`'));
       assert.ok(query.includes('`work_city`'));
       assert.ok(query.includes('`work_state_code`'));
@@ -208,6 +208,15 @@ test('monthly MyID hierarchy takes precedence and falls back independently for e
   ], lookup);
   assert.deepEqual(rows.map(row => [row.entered_hours, row.division, row.business_unit]), [
     [1, 'Roster division', 'Roster BU'], [2, 'Weapon Systems', 'B unit'],
-    [3, 'C division', 'BU'], [4, 'Weapon Systems', 'BU'], [5, 'Weapon Systems', 'BU']
+    [3, 'C division', 'BU'], [5, 'Weapon Systems', 'BU']
   ]);
+});
+
+test('sector is resolved by employee/month before cost-center fallback', () => {
+  const lookup = buildLaborRosterLookup([roster(), roster({ myid: 'B1', sector: 'Other' })]);
+  const rows = joinLaborFacilities([
+    labor('A1', 8, { cost_center: '', cost_center_sector: null }),
+    labor('B1', 4), labor('absent', 2), labor('absent', 16, { cost_center_sector: 'OTHER' })
+  ], lookup);
+  assert.deepEqual(rows.map(row => row.entered_hours), [8, 2]);
 });

@@ -12,6 +12,7 @@ import { getLastCompletedMonthStamp } from '../../shared/latestMonthOutlier.mjs'
 import {
   excludeProcessingMonth, getProcessedDateRange, getProcessingMonthNote
 } from './latestMonthProcessing.mjs';
+import { predictKpi, summarizeKpi } from './kpiComparison.mjs';
 import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
 import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -37,7 +38,8 @@ import {
   Slider,
   TextField,
   ToggleButton,
-  ToggleButtonGroup
+  ToggleButtonGroup,
+  Tooltip
 } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
@@ -4155,61 +4157,82 @@ function ResponsivePrimaryKpiValue({ value }) {
   );
 }
 
-function MetricOverviewBand({
-  value,
-  label,
-  sublabel = '',
-  performanceStatus = null,
-  ariaLabel = ''
-}) {
-  const indicators = [
-    {
-      key: 'historical',
-      label: PERFORMANCE_STATUS_LABELS.historical,
-      status: performanceStatus?.historical
-    },
-    {
-      key: 'estimated',
-      label: PERFORMANCE_STATUS_LABELS.estimated,
-      status: performanceStatus?.estimated
-    }
-  ];
+const costKpi = { format: formatOverviewCurrency, direction: -1, forecast: forecastControllableCostsGoalLineFromSeries };
+const countKpi = { format: formatNumber, direction: -1, forecast: forecastIncidentGoalLineFromSeries };
+const laborKpi = { format: formatPercentValue, direction: 0, forecast: forecastLaborGoalLineFromSeries };
+const kpiMetrics = {
+  controllableCosts: costKpi, controllableCostsNew: costKpi, controllableCostsHana: costKpi,
+  customerEscapes: countKpi, potentialSif: countKpi, sif: countKpi,
+  nmfr: { format: formatNumber, direction: 1, forecast: forecastNmfrGoalLineFromSeries },
+  otd: { format: formatPercentValue, direction: 1, forecast: forecastOtdGoalLineFromSeries },
+  labor: laborKpi, laborNew: laborKpi, laborHana: laborKpi,
+  laborDatabricks: { format: formatNumber, direction: 0, forecast: forecastControllableCostsGoalLineFromSeries }
+};
+const relativeDifference = new Intl.NumberFormat('en-US', {
+  style: 'percent', maximumFractionDigits: 1, signDisplay: 'exceptZero'
+});
 
+function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label, ariaLabel }) {
+  const { format, direction, forecast } = kpiMetrics[metricKey];
+  const summary = useMemo(() => unavailable ? null : summarizeKpi(
+    buildCardMonthlyPoints(rows, metricKey, CURRENT_MONTH_STAMP), month, CURRENT_MONTH_STAMP
+  ), [rows, metricKey, month, unavailable]);
+  const trainingKey = JSON.stringify(summary?.training ?? []);
+  const steps = summary?.steps ?? 0;
+  const [estimate, setEstimate] = useState(null);
+  useEffect(() => {
+    let active = true;
+    predictKpi(JSON.parse(trainingKey), steps, forecast).then(result => {
+      if (active) setEstimate({ trainingKey, steps, forecast, result });
+    });
+    return () => { active = false; };
+  }, [trainingKey, steps, forecast]);
+  const prediction = estimate?.trainingKey === trainingKey && estimate.steps === steps
+    && estimate.forecast === forecast ? estimate.result : null;
+  const delta = summary?.difference;
+  const score = Number.isFinite(delta) ? Math.sign(delta) * direction : 0;
+  const tone = score > 0 ? 'dark-green' : score < 0 ? 'dark-red' : 'neutral';
+  const performance = score > 0 ? 'Favorable' : score < 0 ? 'Unfavorable' : 'Neutral';
+  const rangeLabel = summary ? formatMonthStamp(summary.start) + ' – ' + formatMonthStamp(summary.end) : '';
+  const comparisonTip = summary
+    ? rangeLabel + '. Average of ' + summary.count + ' of 12 calendar months with data. '
+      + (summary.average === 0 ? 'Percentage difference is undefined for a zero average.'
+        : 'Difference is relative to the absolute average. ' + performance + '.')
+    : 'Requires a KPI month and at least one prior monthly value.';
+  const forecastTip = 'Estimate for the month after the KPI month. Uses up to the latest completed month. '
+    + 'ARIMA(1,0,1) requires 10 consecutive observations. Short histories or model failures use their average. '
+    + 'OTD can use its recent median when the model exceeds its deviation limit.';
+  const currentValue = value ?? (Number.isFinite(summary?.value) ? format(summary.value) : '--');
   return (
-    <section
-      className="metric-overview-band"
-      aria-label={ariaLabel || undefined}
-    >
-      <div
-        className={`metric-overview-summary${SHOW_PERFORMANCE_INDICATORS ? '' : ' metric-overview-summary-kpi-only'}`}
-      >
-        <div className="metric-overview-primary">
-          <ResponsivePrimaryKpiValue value={value} />
-          <p className="metric-overview-label">{label}</p>
-          {sublabel && <p className="metric-overview-sublabel">{sublabel}</p>}
-        </div>
-        {SHOW_PERFORMANCE_INDICATORS && (
-          <div className="metric-overview-status-list">
-            {indicators.map(({ key, label: indicatorLabel, status }) => (
-              <div
-                key={key}
-                className="metric-overview-status"
-                aria-label={`${indicatorLabel}: ${status?.toneLabel ?? 'Unavailable'}; ${status?.detail ?? '--'
-                  }`}
-                title={`${status?.toneLabel ?? 'Unavailable'}: ${status?.detail ?? '--'}`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`metric-overview-status-dot performance-${status?.tone ?? 'unavailable'}`}
-                />
-                <span className="metric-overview-status-copy">
-                  <span className="metric-overview-status-label">{indicatorLabel}</span>
-                  <span className="metric-overview-status-detail">{status?.detail ?? '--'}</span>
-                </span>
-              </div>
-            ))}
+    <section className="metric-overview-band" aria-label={ariaLabel}>
+      <div className="kpi-sections">
+        <Tooltip describeChild title="Latest eligible KPI month for the active filters. The chart date range does not change this value.">
+          <div tabIndex={0} className="metric-overview-primary">
+            <span className="metric-overview-label">{label}</span>
+            <ResponsivePrimaryKpiValue value={unavailable ? '--' : currentValue} />
+            <span className="kpi-caption"><KpiMonthLabel stamp={summary?.month} /></span>
           </div>
-        )}
+        </Tooltip>
+        <Tooltip describeChild title={comparisonTip}>
+          <div tabIndex={0} className="kpi-section">
+            <span className="metric-overview-label">12-month average</span>
+            <strong>{Number.isFinite(summary?.average) ? format(summary.average) : '—'}</strong>
+            <span className="kpi-caption">{rangeLabel}{summary && summary.count < 12 && ` · ${summary.count}/12 mo.`}</span>
+            {Number.isFinite(delta) && <span className="kpi-change" data-tone={tone}>
+              <i aria-hidden="true" className={'metric-overview-status-dot performance-' + tone} />
+              {relativeDifference.format(delta)}<span className="kpi-sr"> {performance}</span>
+            </span>}
+            {summary && !Number.isFinite(delta) && <span className="kpi-caption">Change unavailable</span>}
+          </div>
+        </Tooltip>
+        <Tooltip describeChild title={forecastTip}>
+          <div tabIndex={0} className="kpi-section">
+            <span className="metric-overview-label">Next forecast</span>
+            <strong>{prediction ? format(prediction.value) : '—'}</strong>
+            <span className="kpi-caption">{summary && formatMonthStamp(summary.target)}</span>
+            <span className="kpi-caption">{prediction?.method ?? 'Unavailable'}</span>
+          </div>
+        </Tooltip>
       </div>
     </section>
   );
@@ -5041,9 +5064,12 @@ function DatabricksLaborHoursCard({
       <div className="dashboard-grid">
         <div className="visual-column">
           <MetricOverviewBand
+            metricKey="laborDatabricks"
+            rows={filteredRows}
+            month={summaryMonth}
             value={summaryValue}
+            unavailable={state.loading || state.error}
             label="Total Labor Hours"
-            sublabel={<KpiMonthLabel stamp={summaryMonth} />}
             ariaLabel="Databricks labor hours overview"
           />
           <div className="chart-host" ref={chartHostRef}>
@@ -7834,10 +7860,6 @@ export default function App() {
     [filteredCustomerEscapesRows, selectedDateRange]
   );
   const customerEscapesLatest = customerEscapesMonthly.at(-1);
-  const customerEscapesKpi = customerEscapesLatest
-    ? formatNumber(customerEscapesLatest.software + customerEscapesLatest.hardware
-      + customerEscapesLatest.documentation)
-    : '--';
   const customerEscapesChartRows = useMemo(() => {
     const buckets = new Map();
     customerEscapesMonthly.forEach((month) => {
@@ -8930,14 +8952,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={
-                        controllableCostsState.loading || controllableCostsState.error
-                          ? '--'
-                          : controllableCostsSummaryValue
-                      }
+                      metricKey="controllableCosts"
+                      rows={filteredControllableCostsRows}
+                      month={controllableCostsSummaryMonth}
+                      value={controllableCostsSummaryValue}
+                      unavailable={controllableCostsState.loading || controllableCostsState.error}
                       label="Total Cost"
-                      sublabel={<KpiMonthLabel stamp={controllableCostsSummaryMonth} />}
-                      performanceStatus={controllableCostsPerformanceStatus}
                       ariaLabel="Controllable costs overview"
                     />
                     <div ref={controllableCostsChartHostRef} className="chart-host">
@@ -9133,14 +9153,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={
-                        controllableCostsNewState.loading || controllableCostsNewState.error
-                          ? '--'
-                          : controllableCostsNewSummaryValue
-                      }
+                      metricKey="controllableCostsNew"
+                      rows={filteredControllableCostsNewRows}
+                      month={controllableCostsNewSummaryMonth}
+                      value={controllableCostsNewSummaryValue}
+                      unavailable={controllableCostsNewState.loading || controllableCostsNewState.error}
                       label="Total Cost"
-                      sublabel={<KpiMonthLabel stamp={controllableCostsNewSummaryMonth} />}
-                      performanceStatus={controllableCostsNewPerformanceStatus}
                       ariaLabel="Controllable costs overview"
                     />
                     <div ref={controllableCostsNewChartHostRef} className="chart-host">
@@ -9351,14 +9369,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={
-                        controllableCostsHanaState.loading || controllableCostsHanaState.error
-                          ? '--'
-                          : controllableCostsHanaSummaryValue
-                      }
+                      metricKey="controllableCostsHana"
+                      rows={filteredControllableCostsHanaRows}
+                      month={controllableCostsHanaSummaryMonth}
+                      value={controllableCostsHanaSummaryValue}
+                      unavailable={controllableCostsHanaState.loading || controllableCostsHanaState.error}
                       label="Total Cost"
-                      sublabel={<KpiMonthLabel stamp={controllableCostsHanaSummaryMonth} />}
-                      performanceStatus={controllableCostsHanaPerformanceStatus}
                       ariaLabel="Databricks controllable costs overview"
                     />
                     <div ref={controllableCostsHanaChartHostRef} className="chart-host">
@@ -9588,10 +9604,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={sifState.loading || sifState.error ? '--' : sifSummaryValue}
+                      metricKey="sif"
+                      rows={filteredSifRows}
+                      month={sifSummaryMonth}
+                      value={sifSummaryValue}
+                      unavailable={sifState.loading || sifState.error}
                       label="SIF Incidents"
-                      sublabel={<KpiMonthLabel stamp={sifSummaryMonth} />}
-                      performanceStatus={sifPerformanceStatus}
                       ariaLabel="SIF incidents overview"
                     />
                     <div ref={sifChartHostRef} className="chart-host">
@@ -9777,14 +9795,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={
-                        potentialSifState.loading || potentialSifState.error
-                          ? '--'
-                          : potentialSifSummaryValue
-                      }
+                      metricKey="potentialSif"
+                      rows={filteredPotentialSifRows}
+                      month={potentialSifSummaryMonth}
+                      value={potentialSifSummaryValue}
+                      unavailable={potentialSifState.loading || potentialSifState.error}
                       label="Potential SIFs"
-                      sublabel={<KpiMonthLabel stamp={potentialSifSummaryMonth} />}
-                      performanceStatus={potentialSifPerformanceStatus}
                       ariaLabel="Potential SIF incidents overview"
                     />
                     <div ref={potentialSifChartHostRef} className="chart-host">
@@ -9974,10 +9990,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={nmfrState.loading || nmfrState.error ? '--' : nmfrSummaryValue}
+                      metricKey="nmfr"
+                      rows={filteredNmfrRows}
+                      month={nmfrSummaryMonth}
+                      value={nmfrSummaryValue}
+                      unavailable={nmfrState.loading || nmfrState.error}
                       label="NMFR"
-                      sublabel={<KpiMonthLabel stamp={nmfrSummaryMonth} />}
-                      performanceStatus={nmfrPerformanceStatus}
                       ariaLabel="Near miss frequency rate overview"
                     />
                     <div ref={nmfrChartHostRef} className="chart-host">
@@ -10166,10 +10184,10 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={customerEscapesState.loading || customerEscapesState.error
-                        ? '--' : customerEscapesKpi}
+                      metricKey="customerEscapes"
+                      rows={filteredCustomerEscapesRows}
+                      unavailable={customerEscapesState.loading || customerEscapesState.error}
                       label="Customer Escapes"
-                      sublabel={<KpiMonthLabel stamp={customerEscapesLatest?.stamp} />}
                       ariaLabel="Customer escapes overview"
                     />
                     <div ref={customerEscapesChartHostRef} className="chart-host">
@@ -10339,10 +10357,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={otdState.loading || otdState.error ? '--' : otdSummaryValue}
+                      metricKey="otd"
+                      rows={filteredOtdRows}
+                      month={otdSummaryMonth}
+                      value={otdSummaryValue}
+                      unavailable={otdState.loading || otdState.error}
                       label="Percent Delivered"
-                      sublabel={<KpiMonthLabel stamp={otdSummaryMonth} />}
-                      performanceStatus={otdPerformanceStatus}
                       ariaLabel="On time delivery overview"
                     />
                     <div ref={otdChartHostRef} className="chart-host">
@@ -10547,10 +10567,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={laborState.loading || laborState.error ? '--' : laborSummaryValue}
+                      metricKey="labor"
+                      rows={filteredLaborRows}
+                      month={laborSummaryMonth}
+                      value={laborSummaryValue}
+                      unavailable={laborState.loading || laborState.error}
                       label="Direct Labor"
-                      sublabel={<KpiMonthLabel stamp={laborSummaryMonth} />}
-                      performanceStatus={laborPerformanceStatus}
                       ariaLabel="Direct labor utilization overview"
                     />
                     <div ref={laborChartHostRef} className="chart-host">
@@ -10740,14 +10762,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={
-                        laborNewState.loading || laborNewState.error
-                          ? '--'
-                          : laborNewSummaryValue
-                      }
+                      metricKey="laborNew"
+                      rows={filteredLaborNewRows}
+                      month={laborNewSummaryMonth}
+                      value={laborNewSummaryValue}
+                      unavailable={laborNewState.loading || laborNewState.error}
                       label="Direct Labor"
-                      sublabel={<KpiMonthLabel stamp={laborNewSummaryMonth} />}
-                      performanceStatus={laborNewPerformanceStatus}
                       ariaLabel="Labor utilization overview"
                     />
                     <div ref={laborNewChartHostRef} className="chart-host">
@@ -10955,14 +10975,12 @@ export default function App() {
                 <div className="dashboard-grid">
                   <div className="visual-column">
                     <MetricOverviewBand
-                      value={
-                        laborHanaState.loading || laborHanaState.error
-                          ? '--'
-                          : laborHanaSummaryValue
-                      }
+                      metricKey="laborHana"
+                      rows={filteredLaborHanaRows}
+                      month={laborHanaSummaryMonth}
+                      value={laborHanaSummaryValue}
+                      unavailable={laborHanaState.loading || laborHanaState.error}
                       label="Direct Labor"
-                      sublabel={<KpiMonthLabel stamp={laborHanaSummaryMonth} />}
-                      performanceStatus={laborHanaPerformanceStatus}
                       ariaLabel="HANA direct labor utilization overview"
                     />
                     <div

@@ -98,7 +98,8 @@ async function forecastStandardGoalLineFromSeries(
     roundValue,
     minValue = 0,
     maxValue = Number.POSITIVE_INFINITY,
-    challengeDirection = 'increase'
+    challengeDirection = 'increase',
+    steps = 1
   }
 ) {
   const numericSeries = normalizeSeries(seriesValues).map((value) =>
@@ -118,8 +119,8 @@ async function forecastStandardGoalLineFromSeries(
 
   try {
     model = new ARIMA(NMFR_ARIMA_OPTIONS).train(numericSeries);
-    const [predictions] = model.predict(1);
-    const predictedValue = Number(predictions?.[0]);
+    const [predictions] = model.predict(steps);
+    const predictedValue = Number(predictions?.[steps - 1]);
 
     if (!Number.isFinite(predictedValue)) {
       return null;
@@ -152,16 +153,18 @@ async function forecastStandardGoalLineFromSeries(
   }
 }
 
-export function forecastControllableCostsGoalLineFromSeries(seriesValues) {
+export function forecastControllableCostsGoalLineFromSeries(seriesValues, steps = 1) {
   return forecastStandardGoalLineFromSeries(seriesValues, {
+    steps,
     roundValue: roundCurrency,
     minValue: Number.NEGATIVE_INFINITY,
     challengeDirection: 'decrease'
   });
 }
 
-export function forecastLaborGoalLineFromSeries(seriesValues) {
+export function forecastLaborGoalLineFromSeries(seriesValues, steps = 1) {
   return forecastStandardGoalLineFromSeries(seriesValues, {
+    steps,
     roundValue: roundShare,
     maxValue: 1
   });
@@ -171,13 +174,14 @@ export function getAverageIncidentGoalLine(values) {
   return buildAverageFallbackGoalLine(normalizeSeries(values), { roundValue: roundRate });
 }
 
-export function forecastIncidentGoalLineFromSeries(seriesValues) {
+export function forecastIncidentGoalLineFromSeries(seriesValues, steps = 1) {
   return forecastStandardGoalLineFromSeries(seriesValues, {
+    steps,
     roundValue: roundRate
   });
 }
 
-export async function forecastNmfrGoalLineFromSeries(seriesValues) {
+export async function forecastNmfrGoalLineFromSeries(seriesValues, steps = 1) {
   const numericSeries = normalizeSeries(seriesValues);
 
   if (numericSeries.length < CALCULATED_GOAL_MIN_OBSERVATIONS) {
@@ -191,8 +195,8 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
 
   try {
     model = new ARIMA(NMFR_ARIMA_OPTIONS).train(numericSeries);
-    const [predictions] = model.predict(1);
-    const predictedValue = Number(predictions?.[0]);
+    const [predictions] = model.predict(steps);
+    const predictedValue = Number(predictions?.[steps - 1]);
 
     if (!Number.isFinite(predictedValue)) {
       return null;
@@ -216,7 +220,7 @@ export async function forecastNmfrGoalLineFromSeries(seriesValues) {
   }
 }
 
-export async function forecastOtdGoalLineFromSeries(seriesValues) {
+export async function forecastOtdGoalLineFromSeries(seriesValues, steps = 1) {
   const numericSeries = normalizeSeries(seriesValues).map((value) =>
     Math.min(1, Math.max(0, value))
   );
@@ -238,8 +242,8 @@ export async function forecastOtdGoalLineFromSeries(seriesValues) {
     );
 
     model = new ARIMA(OTD_ARIMA_OPTIONS).train(percentagePointSeries);
-    const [predictions] = model.predict(1);
-    const predictedValue = Number(predictions?.[0]) / 100;
+    const [predictions] = model.predict(steps);
+    const predictedValue = Number(predictions?.[steps - 1]) / 100;
 
     if (!Number.isFinite(predictedValue)) {
       return null;

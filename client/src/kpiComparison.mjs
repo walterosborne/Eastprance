@@ -8,6 +8,11 @@ function monthNumber(stamp) {
   return date.getUTCFullYear() * 12 + date.getUTCMonth();
 }
 
+export function relativeChange(value, baseline) {
+  if (!Number.isFinite(value) || !Number.isFinite(baseline) || baseline === 0) return null;
+  return (value - baseline) / Math.abs(baseline);
+}
+
 export function summarizeKpi(points, selectedMonth, currentMonth) {
   const observed = points.filter(p => Number.isFinite(p.value) && p.stamp <= currentMonth)
     .sort((a, b) => a.stamp - b.stamp);
@@ -17,8 +22,10 @@ export function summarizeKpi(points, selectedMonth, currentMonth) {
   const history = observed.filter(p => p.stamp >= start && p.stamp < month);
   const average = history.length ? history.reduce((sum, p) => sum + p.value, 0) / history.length : null;
   const value = observed.find(p => p.stamp === month)?.value ?? null;
-  const difference = value !== null && average !== null && average !== 0
-    ? (value - average) / Math.abs(average) : null;
+  const previousMonth = shiftMonth(month, -1);
+  const previous = history.find(p => p.stamp === previousMonth)?.value;
+  const previousDifference = relativeChange(value, previous);
+  const difference = relativeChange(value, average);
   const target = shiftMonth(month, 1);
   const completed = observed.filter(p => p.stamp <= month && p.stamp < currentMonth);
   // Monthly ARIMA needs evenly spaced observations. Train on the latest continuous run.
@@ -26,7 +33,7 @@ export function summarizeKpi(points, selectedMonth, currentMonth) {
   while (first > 0 && shiftMonth(completed[first - 1].stamp, 1) === completed[first].stamp) first--;
   const training = completed.slice(Math.max(first, 0)).map(p => p.value);
   const steps = completed.length ? monthNumber(target) - monthNumber(completed.at(-1).stamp) : 0;
-  return { month, value, average, difference, count: history.length, start, end: shiftMonth(month, -1),
+  return { month, value, average, difference, previousDifference, count: history.length, start, end: previousMonth,
     target, training, steps };
 }
 

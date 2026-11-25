@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { predictKpi, summarizeKpi } from './kpiComparison.mjs';
+import { predictKpi, relativeChange, summarizeKpi } from './kpiComparison.mjs';
 
 const stamp = index => Date.UTC(2025, index, 1);
 const point = (index, value) => ({ stamp: stamp(index), value });
@@ -46,4 +46,14 @@ test('uses forecast estimates, distinguishes methods and handles failures', asyn
   }
   assert.deepEqual(await predictKpi(values, 1, async () => { throw Error(); }), { value: 3, method: 'Average fallback' });
   assert.equal(await predictKpi([], 0, fit), null);
+});
+
+test('prior-month and forecast comparisons use their own baselines', () => {
+  const points = [point(11, 80), point(12, 100)];
+  assert.equal(summarizeKpi(points, stamp(12), stamp(12)).previousDifference, 0.25);
+  assert.equal(summarizeKpi([point(10, 80), points[1]], stamp(12), stamp(12)).previousDifference, null);
+  assert.equal(relativeChange(90, 100), -0.1);
+  assert.equal(relativeChange(0, 100), -1);
+  assert.equal(relativeChange(90, 0), null);
+  assert.equal(relativeChange(undefined, 100), null);
 });

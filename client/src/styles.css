@@ -1386,8 +1386,8 @@ h1 {
   container-type: inline-size;
   width: 100%;
   height: auto;
-  min-height: 72px;
-  padding: 0.4rem 0.75rem;
+  min-height: 58px;
+  padding: 0.32rem 0.5rem;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--surface-muted);
@@ -1397,8 +1397,8 @@ h1 {
 .kpi-sections {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) repeat(2, minmax(0, 1fr));
-  align-items: center;
-  gap: 0.65rem;
+  align-items: start;
+  gap: 0.4rem;
   padding-block: 0.25rem;
 }
 
@@ -1407,19 +1407,19 @@ h1 {
   align-content: center;
   gap: 0.18rem;
   min-width: 0;
-  padding-inline-start: 0.65rem;
+  padding-inline-start: 0.4rem;
   border-inline-start: 1px solid var(--border);
 }
 
 .kpi-section strong {
-  font-size: clamp(0.82rem, 3.5cqi, 1.05rem);
+  font-size: clamp(0.65rem, 2.8cqi, 0.84rem);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
 .kpi-caption,
 .kpi-change {
-  font-size: 0.67rem;
+  font-size: 0.58rem;
   line-height: 1.18;
   color: var(--text-secondary);
 }
@@ -1428,10 +1428,12 @@ h1 {
 .kpi-change[data-tone="dark-red"] { color: color-mix(in srgb, #d64b45 65%, var(--text-primary)); }
 .kpi-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
+.kpi-comparison { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.08rem 0.22rem; }
+.kpi-comparison .kpi-change { font-variant-numeric: tabular-nums; }
 @container (max-width: 330px) {
-  .kpi-sections { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
-  .kpi-sections .metric-overview-primary { grid-column: 1 / -1; }
-  .kpi-section { padding-inline-start: 0; border-inline-start: 0; }
+  .kpi-sections { gap: 0.25rem; }
+  .kpi-section { padding-inline-start: 0.25rem; }
+  .kpi-sections .metric-overview-label { white-space: normal; }
 }
 
 .metric-overview-primary,
@@ -1454,7 +1456,7 @@ h1 {
 .metric-overview-value {
   max-width: 100%;
   color: var(--text-primary);
-  font-size: clamp(0.9rem, 5.8cqi, 1.65rem);
+  font-size: clamp(0.72rem, 4.64cqi, 1.32rem);
   font-weight: 750;
   letter-spacing: -0.025em;
   line-height: 1;

@@ -12,7 +12,7 @@ import { getLastCompletedMonthStamp } from '../../shared/latestMonthOutlier.mjs'
 import {
   excludeProcessingMonth, getProcessedDateRange, getProcessingMonthNote
 } from './latestMonthProcessing.mjs';
-import { predictKpi, summarizeKpi } from './kpiComparison.mjs';
+import { predictKpi, relativeChange, summarizeKpi } from './kpiComparison.mjs';
 import { getLatestDataMonth, hasKpiValue, KpiMonthLabel } from './KpiMonth';
 import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -4172,6 +4172,21 @@ const relativeDifference = new Intl.NumberFormat('en-US', {
   style: 'percent', maximumFractionDigits: 1, signDisplay: 'exceptZero'
 });
 
+function KpiChange({ delta, direction, label }) {
+  const score = Number.isFinite(delta) ? Math.sign(delta) * direction : 0;
+  const tone = score > 0 ? 'dark-green' : score < 0 ? 'dark-red' : 'neutral';
+  const performance = score > 0 ? 'Favorable' : score < 0 ? 'Unfavorable' : 'Neutral';
+  return (
+    <div className="kpi-comparison">
+      <span className="kpi-change" data-tone={tone}>
+        {Number.isFinite(delta) ? relativeDifference.format(delta) : '—'}
+        <span className="kpi-sr"> {Number.isFinite(delta) ? performance : 'Unavailable'}</span>
+      </span>
+      <span className="kpi-caption">{label}</span>
+    </div>
+  );
+}
+
 function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label, ariaLabel }) {
   const { format, direction, forecast } = kpiMetrics[metricKey];
   const summary = useMemo(() => unavailable ? null : summarizeKpi(
@@ -4189,28 +4204,25 @@ function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label,
   }, [trainingKey, steps, forecast]);
   const prediction = estimate?.trainingKey === trainingKey && estimate.steps === steps
     && estimate.forecast === forecast ? estimate.result : null;
-  const delta = summary?.difference;
-  const score = Number.isFinite(delta) ? Math.sign(delta) * direction : 0;
-  const tone = score > 0 ? 'dark-green' : score < 0 ? 'dark-red' : 'neutral';
-  const performance = score > 0 ? 'Favorable' : score < 0 ? 'Unfavorable' : 'Neutral';
   const rangeLabel = summary ? formatMonthStamp(summary.start) + ' – ' + formatMonthStamp(summary.end) : '';
   const comparisonTip = summary
     ? rangeLabel + '. Average of ' + summary.count + ' of 12 calendar months with data. '
       + (summary.average === 0 ? 'Percentage difference is undefined for a zero average.'
-        : 'Difference is relative to the absolute average. ' + performance + '.')
+        : 'Compares the KPI month with this average, using the absolute average as the denominator.')
     : 'Requires a KPI month and at least one prior monthly value.';
-  const forecastTip = 'Estimate for the month after the KPI month. Uses up to the latest completed month. '
+  const forecastTip = (prediction ? prediction.method + '. ' : '') + 'The percentage compares the forecast to the KPI month. Estimate for the month after the KPI month. Uses up to the latest completed month. '
     + 'ARIMA(1,0,1) requires 10 consecutive observations. Short histories or model failures use their average. '
     + 'OTD can use its recent median when the model exceeds its deviation limit.';
   const currentValue = value ?? (Number.isFinite(summary?.value) ? format(summary.value) : '--');
   return (
     <section className="metric-overview-band" aria-label={ariaLabel}>
       <div className="kpi-sections">
-        <Tooltip describeChild title="Latest eligible KPI month for the active filters. The chart date range does not change this value.">
+        <Tooltip describeChild title="Latest eligible KPI month for the active filters. The percentage compares this KPI with the immediately preceding calendar month. A missing or zero baseline yields no percentage.">
           <div tabIndex={0} className="metric-overview-primary">
             <span className="metric-overview-label">{label}</span>
             <ResponsivePrimaryKpiValue value={unavailable ? '--' : currentValue} />
             <span className="kpi-caption"><KpiMonthLabel stamp={summary?.month} /></span>
+            <KpiChange delta={summary?.previousDifference} direction={direction} label="vs prior month" />
           </div>
         </Tooltip>
         <Tooltip describeChild title={comparisonTip}>
@@ -4218,11 +4230,7 @@ function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label,
             <span className="metric-overview-label">12-month average</span>
             <strong>{Number.isFinite(summary?.average) ? format(summary.average) : '—'}</strong>
             <span className="kpi-caption">{rangeLabel}{summary && summary.count < 12 && ` · ${summary.count}/12 mo.`}</span>
-            {Number.isFinite(delta) && <span className="kpi-change" data-tone={tone}>
-              <i aria-hidden="true" className={'metric-overview-status-dot performance-' + tone} />
-              {relativeDifference.format(delta)}<span className="kpi-sr"> {performance}</span>
-            </span>}
-            {summary && !Number.isFinite(delta) && <span className="kpi-caption">Change unavailable</span>}
+            <KpiChange delta={summary?.difference} direction={direction} label="KPI vs 12-mo avg" />
           </div>
         </Tooltip>
         <Tooltip describeChild title={forecastTip}>
@@ -4230,7 +4238,8 @@ function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label,
             <span className="metric-overview-label">Next forecast</span>
             <strong>{prediction ? format(prediction.value) : '—'}</strong>
             <span className="kpi-caption">{summary && formatMonthStamp(summary.target)}</span>
-            <span className="kpi-caption">{prediction?.method ?? 'Unavailable'}</span>
+            <KpiChange delta={relativeChange(prediction?.value, summary?.value)} direction={direction} label="vs KPI month" />
+            {prediction && prediction.method !== 'ARIMA' && <span className="kpi-caption">{prediction.method}</span>}
           </div>
         </Tooltip>
       </div>

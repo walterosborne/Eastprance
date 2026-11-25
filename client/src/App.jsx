@@ -105,6 +105,7 @@ const NG_TOAST_BLUE = '#0057b8';
 // Reserved for a future scorecard version. Keep the calculations and UI code in place,
 // but do not expose historical/estimated performance indicators in the current release.
 const SHOW_PERFORMANCE_INDICATORS = false;
+const CURRENT_MONTH_STAMP = getMonthStartStamp(new Date());
 const SCORECARD_END_STAMP = getLastCompletedMonthStamp();
 const PALETTE_INFO_TOAST_OPTIONS = {
   autoClose: 10000,
@@ -1548,12 +1549,12 @@ function getTooltipBucketLabel(bucketLabel, bucketLabelLookup = null) {
   return bucketLabelLookup[bucketLabel] ?? bucketLabel;
 }
 
-function isStampWithinDateRange(stamp, selectedDateRange) {
+function isStampWithinDateRange(stamp, selectedDateRange, endStamp = SCORECARD_END_STAMP) {
   if (stamp == null) {
     return false;
   }
 
-  if (stamp < SCORECARD_START_STAMP || stamp > SCORECARD_END_STAMP) {
+  if (stamp < SCORECARD_START_STAMP || stamp > endStamp) {
     return false;
   }
 
@@ -1567,7 +1568,7 @@ function isStampWithinDateRange(stamp, selectedDateRange) {
 function getLatestIncidentStamp(rows, selectedDateRange) {
   const monthStamps = rows
     .map((row) => getIncidentRowStamp(row))
-    .filter((stamp) => stamp != null && isStampWithinDateRange(stamp, selectedDateRange));
+    .filter((stamp) => stamp != null && isStampWithinDateRange(stamp, selectedDateRange, CURRENT_MONTH_STAMP));
 
   if (monthStamps.length === 0) {
     return null;
@@ -1647,19 +1648,20 @@ function getAvailableTimelineStamps({
     });
   });
 
+  const incidentStamps = new Set();
   [sifRows, potentialSifRows, nmfrRows].forEach((rows) => {
     rows.forEach((row) => {
       const stamp = getIncidentRowStamp(row);
 
       if (stamp != null) {
-        stampSet.add(stamp);
+        incidentStamps.add(stamp);
       }
     });
   });
 
   customerEscapesRows.forEach((row) => {
     const stamp = Date.parse(`${String(row.data_month).slice(0, 10)}T00:00:00Z`);
-    if (Number.isFinite(stamp)) stampSet.add(stamp);
+    if (Number.isFinite(stamp)) incidentStamps.add(stamp);
   });
 
   const otdYears = new Set(otdRows.map((row) => getOtdRowYear(row)));
@@ -1694,8 +1696,10 @@ function getAvailableTimelineStamps({
     });
   });
 
+  for (const stamp of incidentStamps) stampSet.add(stamp);
   return Array.from(stampSet)
-    .filter((stamp) => isStampWithinDateRange(stamp, null))
+    .filter(stamp => isStampWithinDateRange(stamp, null,
+      incidentStamps.has(stamp) ? CURRENT_MONTH_STAMP : SCORECARD_END_STAMP))
     .sort((left, right) => left - right);
 }
 
@@ -1827,7 +1831,7 @@ function buildIncidentChartData(
     if (
       !Number.isFinite(actualValue) ||
       Number.isNaN(referenceDate.getTime()) ||
-      !isStampWithinDateRange(stamp, selectedDateRange)
+      !isStampWithinDateRange(stamp, selectedDateRange, CURRENT_MONTH_STAMP)
     ) {
       return;
     }
@@ -1890,7 +1894,7 @@ function buildNmfrChartData(rows, kpiId, orgUnitName, viewMode, selectedDateRang
 
     if (
       Number.isNaN(referenceDate.getTime()) ||
-      !isStampWithinDateRange(stamp, selectedDateRange)
+      !isStampWithinDateRange(stamp, selectedDateRange, CURRENT_MONTH_STAMP)
     ) {
       return;
     }
@@ -1953,7 +1957,7 @@ function getNmfrExposureHours(rows, selectedDateRange) {
 
     if (
       monthStamp == null ||
-      !isStampWithinDateRange(monthStamp, selectedDateRange) ||
+      !isStampWithinDateRange(monthStamp, selectedDateRange, CURRENT_MONTH_STAMP) ||
       !Number.isFinite(employeeCount) ||
       employeeCount <= 0 ||
       !Number.isFinite(workingDays) ||
@@ -1985,7 +1989,7 @@ function getCustomerEscapesEntries(rows, selectedDateRange) {
   return rows.flatMap((row) => {
     const month = String(row.data_month ?? '').slice(0, 10);
     const stamp = Date.parse(`${month}T00:00:00Z`);
-    if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange)) return [];
+    if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange, CURRENT_MONTH_STAMP)) return [];
     return [
       { ...row, defect_type: 'Software', value: Number(row.software_escapes) || 0 },
       { ...row, defect_type: 'Hardware', value: Number(row.hardware_escapes) || 0 },
@@ -2028,7 +2032,7 @@ function buildCustomerEscapesPalette(rows, groupField, colorField, selectedDateR
 
 function buildSafetyParetoChartData(rows, fieldName, selectedDateRange, metricKey) {
   const rowsWithinRange = rows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange, CURRENT_MONTH_STAMP)
   );
 
   if (metricKey === 'nmfr') {
@@ -2073,7 +2077,7 @@ function buildSafetyPaletteChartData(
   metricKey
 ) {
   const rowsWithinRange = rows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange, CURRENT_MONTH_STAMP)
   );
   const groups = new Map();
   const colorTotals = new Map();
@@ -6599,22 +6603,11 @@ export default function App() {
   ),
     [unprocessedSifBaseRows, activeSifChartFilterField.value]
   );
-  const unprocessedSifRows = useChartFilterRows(
+  const filteredSifRows = useChartFilterRows(
     unprocessedSifBaseRows, activeSifChartFilterField.value, selectedSifChartFilterValue
   );
-  const {
-    filteredRows: filteredSifRows,
-    processingMonth: sifProcessingMonth,
-    dateRange: sifDateRange,
-    historicalDateRange: sifHistoricalDateRange
-  } = useCardProcessingRows(
-    unprocessedSifRows,
-    'sif',
-    selectedDateRange,
-    historicalPerformanceDateRange
-  );
   const globallyFilteredSifRows = filteredSifRows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), sifDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange, CURRENT_MONTH_STAMP)
   );
   const sifChartData = useMemo(
     () => buildIncidentChartData(
@@ -6622,9 +6615,9 @@ export default function App() {
     SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     sifViewMode,
-    sifDateRange
+    selectedDateRange
   ),
-    [filteredSifRows, sifViewMode, sifDateRange]
+    [filteredSifRows, sifViewMode, selectedDateRange]
   );
   const sifMonthlyPerformanceData = useMemo(
     () => buildIncidentChartData(
@@ -6632,9 +6625,9 @@ export default function App() {
     SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     'monthly',
-    sifHistoricalDateRange
+    selectedDateRange
   ),
-    [filteredSifRows, sifHistoricalDateRange]
+    [filteredSifRows, selectedDateRange]
   );
   const sifForecastCalculation = useCalculatedMetricGoalLine({
     metricKey: 'sif-forecast',
@@ -6648,26 +6641,27 @@ export default function App() {
     () => buildSafetyParetoChartData(
     filteredSifRows,
     activeSifChartFilterField.value,
-    sifDateRange,
+    selectedDateRange,
     'sif'
   ),
-    [filteredSifRows, activeSifChartFilterField.value, sifDateRange]
+    [filteredSifRows, activeSifChartFilterField.value, selectedDateRange]
   );
   const sifPaletteChartData = useMemo(
     () => buildSafetyPaletteChartData(
     filteredSifRows,
     activeSifPaletteGroupField.value,
     activeSifPaletteColorField.value,
-    sifDateRange,
+    selectedDateRange,
     'sif'
   ),
-    [filteredSifRows, activeSifPaletteGroupField.value, activeSifPaletteColorField.value, sifDateRange]
+    [filteredSifRows, activeSifPaletteGroupField.value, activeSifPaletteColorField.value, selectedDateRange]
   );
   const isSifPareto = chartVariants.sif === 'pareto';
   const isSifPalette = chartVariants.sif === 'palette';
   const sifSummaryMonth = getLatestDataMonth(
     filteredSifRows,
-    (row) => hasKpiValue(row.actual_value) ? getIncidentRowStamp(row) : null
+    (row) => hasKpiValue(row.actual_value) ? getIncidentRowStamp(row) : null,
+    CURRENT_MONTH_STAMP
   );
   const sifSummaryRows = filteredSifRows.filter(
     (row) => sifSummaryMonth != null && getIncidentRowStamp(row) === sifSummaryMonth
@@ -6707,22 +6701,11 @@ export default function App() {
   ),
     [unprocessedPotentialSifBaseRows, activePotentialSifChartFilterField.value]
   );
-  const unprocessedPotentialSifRows = useChartFilterRows(
+  const filteredPotentialSifRows = useChartFilterRows(
     unprocessedPotentialSifBaseRows, activePotentialSifChartFilterField.value, selectedPotentialSifChartFilterValue
   );
-  const {
-    filteredRows: filteredPotentialSifRows,
-    processingMonth: potentialSifProcessingMonth,
-    dateRange: potentialSifDateRange,
-    historicalDateRange: potentialSifHistoricalDateRange
-  } = useCardProcessingRows(
-    unprocessedPotentialSifRows,
-    'potentialSif',
-    selectedDateRange,
-    historicalPerformanceDateRange
-  );
   const globallyFilteredPotentialSifRows = filteredPotentialSifRows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), potentialSifDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange, CURRENT_MONTH_STAMP)
   );
   const potentialSifChartData = useMemo(
     () => buildIncidentChartData(
@@ -6730,9 +6713,9 @@ export default function App() {
     POTENTIAL_SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     potentialSifViewMode,
-    potentialSifDateRange
+    selectedDateRange
   ),
-    [filteredPotentialSifRows, potentialSifViewMode, potentialSifDateRange]
+    [filteredPotentialSifRows, potentialSifViewMode, selectedDateRange]
   );
   const potentialSifMonthlyPerformanceData = useMemo(
     () => buildIncidentChartData(
@@ -6740,9 +6723,9 @@ export default function App() {
     POTENTIAL_SIF_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     'monthly',
-    potentialSifHistoricalDateRange
+    selectedDateRange
   ),
-    [filteredPotentialSifRows, potentialSifHistoricalDateRange]
+    [filteredPotentialSifRows, selectedDateRange]
   );
   const potentialSifForecastCalculation = useCalculatedMetricGoalLine({
     metricKey: 'potential-sif-forecast',
@@ -6756,26 +6739,27 @@ export default function App() {
     () => buildSafetyParetoChartData(
     filteredPotentialSifRows,
     activePotentialSifChartFilterField.value,
-    potentialSifDateRange,
+    selectedDateRange,
     'potentialSif'
   ),
-    [filteredPotentialSifRows, activePotentialSifChartFilterField.value, potentialSifDateRange]
+    [filteredPotentialSifRows, activePotentialSifChartFilterField.value, selectedDateRange]
   );
   const potentialSifPaletteChartData = useMemo(
     () => buildSafetyPaletteChartData(
     filteredPotentialSifRows,
     activePotentialSifPaletteGroupField.value,
     activePotentialSifPaletteColorField.value,
-    potentialSifDateRange,
+    selectedDateRange,
     'potentialSif'
   ),
-    [filteredPotentialSifRows, activePotentialSifPaletteGroupField.value, activePotentialSifPaletteColorField.value, potentialSifDateRange]
+    [filteredPotentialSifRows, activePotentialSifPaletteGroupField.value, activePotentialSifPaletteColorField.value, selectedDateRange]
   );
   const isPotentialSifPareto = chartVariants.potentialSif === 'pareto';
   const isPotentialSifPalette = chartVariants.potentialSif === 'palette';
   const potentialSifSummaryMonth = getLatestDataMonth(
     filteredPotentialSifRows,
-    (row) => hasKpiValue(row.actual_value) ? getIncidentRowStamp(row) : null
+    (row) => hasKpiValue(row.actual_value) ? getIncidentRowStamp(row) : null,
+    CURRENT_MONTH_STAMP
   );
   const potentialSifSummaryRows = filteredPotentialSifRows.filter(
     (row) => potentialSifSummaryMonth != null && getIncidentRowStamp(row) === potentialSifSummaryMonth
@@ -6815,22 +6799,11 @@ export default function App() {
   ),
     [unprocessedNmfrBaseRows, activeNmfrChartFilterField.value]
   );
-  const unprocessedNmfrRows = useChartFilterRows(
+  const filteredNmfrRows = useChartFilterRows(
     unprocessedNmfrBaseRows, activeNmfrChartFilterField.value, selectedNmfrChartFilterValue
   );
-  const {
-    filteredRows: filteredNmfrRows,
-    processingMonth: nmfrProcessingMonth,
-    dateRange: nmfrDateRange,
-    historicalDateRange: nmfrHistoricalDateRange
-  } = useCardProcessingRows(
-    unprocessedNmfrRows,
-    'nmfr',
-    selectedDateRange,
-    historicalPerformanceDateRange
-  );
   const globallyFilteredNmfrRows = filteredNmfrRows.filter((row) =>
-    isStampWithinDateRange(getIncidentRowStamp(row), nmfrDateRange)
+    isStampWithinDateRange(getIncidentRowStamp(row), selectedDateRange, CURRENT_MONTH_STAMP)
   );
   const nmfrChartData = useMemo(
     () => buildNmfrChartData(
@@ -6838,9 +6811,9 @@ export default function App() {
     NMFR_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     nmfrViewMode,
-    nmfrDateRange
+    selectedDateRange
   ),
-    [filteredNmfrRows, nmfrViewMode, nmfrDateRange]
+    [filteredNmfrRows, nmfrViewMode, selectedDateRange]
   );
   const nmfrMonthlyPerformanceData = useMemo(
     () => buildNmfrChartData(
@@ -6848,9 +6821,9 @@ export default function App() {
     NMFR_KPI_ID,
     INCIDENT_ORG_UNIT_NAME,
     'monthly',
-    nmfrHistoricalDateRange
+    selectedDateRange
   ),
-    [filteredNmfrRows, nmfrHistoricalDateRange]
+    [filteredNmfrRows, selectedDateRange]
   );
   const nmfrGoalForecastSeries = nmfrChartData;
   const nmfrGoalForecastSeriesValues = nmfrGoalForecastSeries.map((bucket) => bucket.total);
@@ -6863,27 +6836,27 @@ export default function App() {
     calculateGoalLine: forecastNmfrGoalLineFromSeries
   });
   const nmfrForecastPeriodLabel = getNextTimelinePeriodLabelAfterStamp(
-    getLatestIncidentStamp(filteredNmfrRows, nmfrDateRange),
+    getLatestIncidentStamp(filteredNmfrRows, selectedDateRange),
     nmfrViewMode
   );
   const nmfrParetoChartData = useMemo(
     () => buildSafetyParetoChartData(
     filteredNmfrRows,
     activeNmfrChartFilterField.value,
-    nmfrDateRange,
+    selectedDateRange,
     'nmfr'
   ),
-    [filteredNmfrRows, activeNmfrChartFilterField.value, nmfrDateRange]
+    [filteredNmfrRows, activeNmfrChartFilterField.value, selectedDateRange]
   );
   const nmfrPaletteChartData = useMemo(
     () => buildSafetyPaletteChartData(
     filteredNmfrRows,
     activeNmfrPaletteGroupField.value,
     activeNmfrPaletteColorField.value,
-    nmfrDateRange,
+    selectedDateRange,
     'nmfr'
   ),
-    [filteredNmfrRows, activeNmfrPaletteGroupField.value, activeNmfrPaletteColorField.value, nmfrDateRange]
+    [filteredNmfrRows, activeNmfrPaletteGroupField.value, activeNmfrPaletteColorField.value, selectedDateRange]
   );
   const isNmfrPareto = chartVariants.nmfr === 'pareto';
   const isNmfrPalette = chartVariants.nmfr === 'palette';
@@ -6892,7 +6865,8 @@ export default function App() {
     (row) => (hasKpiValue(row.actual_value)
       || (hasKpiValue(row.near_miss_count)
         && Number(row.employee_count) > 0 && Number(row.working_days) > 0))
-      ? getIncidentRowStamp(row) : null
+      ? getIncidentRowStamp(row) : null,
+    CURRENT_MONTH_STAMP
   );
   const nmfrSummaryRows = filteredNmfrRows.filter(
     (row) => nmfrSummaryMonth != null && getIncidentRowStamp(row) === nmfrSummaryMonth
@@ -7825,7 +7799,7 @@ export default function App() {
       : unprocessedCustomerEscapesBaseRows;
     return getFilterOptions(rows, customerEscapesFilterField);
   }, [unprocessedCustomerEscapesBaseRows, customerEscapesFilterField, selectedDateRange]);
-  const unprocessedCustomerEscapesRows = useMemo(() => {
+  const filteredCustomerEscapesRows = useMemo(() => {
     if (!customerEscapesFilterValues.length) return unprocessedCustomerEscapesBaseRows;
     const selected = new Set(customerEscapesFilterValues);
     if (customerEscapesFilterField !== 'defect_type') {
@@ -7838,17 +7812,12 @@ export default function App() {
       documentation_escapes: selected.has('Documentation') ? row.documentation_escapes : null
     }));
   }, [unprocessedCustomerEscapesBaseRows, customerEscapesFilterField, customerEscapesFilterValues]);
-  const {
-    filteredRows: filteredCustomerEscapesRows,
-    processingMonth: customerEscapesProcessingMonth,
-    dateRange: customerEscapesDateRange
-  } = useCardProcessingRows(unprocessedCustomerEscapesRows, 'customerEscapes', selectedDateRange);
   function summarizeCustomerEscapes(rows) {
     const months = new Map();
     rows.forEach((row) => {
       const month = String(row.data_month ?? '').slice(0, 10);
       const stamp = Date.parse(`${month}T00:00:00Z`);
-      if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, customerEscapesDateRange)) return;
+      if (!Number.isFinite(stamp) || !isStampWithinDateRange(stamp, selectedDateRange, CURRENT_MONTH_STAMP)) return;
       const bucket = months.get(month) ?? {
         month, stamp, software: 0, hardware: 0, documentation: 0, programs: new Set()
       };
@@ -7862,7 +7831,7 @@ export default function App() {
   }
   const customerEscapesMonthly = useMemo(
     () => summarizeCustomerEscapes(filteredCustomerEscapesRows),
-    [filteredCustomerEscapesRows, customerEscapesDateRange]
+    [filteredCustomerEscapesRows, selectedDateRange]
   );
   const customerEscapesLatest = customerEscapesMonthly.at(-1);
   const customerEscapesKpi = customerEscapesLatest
@@ -7897,18 +7866,18 @@ export default function App() {
   const customerEscapesPalette = useMemo(
     () => buildCustomerEscapesPalette(
     filteredCustomerEscapesRows, customerEscapesPaletteGroupField,
-    customerEscapesPaletteColorField, customerEscapesDateRange
+    customerEscapesPaletteColorField, selectedDateRange
   ),
-    [filteredCustomerEscapesRows, customerEscapesPaletteGroupField, customerEscapesPaletteColorField, customerEscapesDateRange]
+    [filteredCustomerEscapesRows, customerEscapesPaletteGroupField, customerEscapesPaletteColorField, selectedDateRange]
   );
   const customerEscapesPareto = useMemo(
     () => buildParetoChartData(
-    getCustomerEscapesEntries(filteredCustomerEscapesRows, customerEscapesDateRange).map((entry) => ({
+    getCustomerEscapesEntries(filteredCustomerEscapesRows, selectedDateRange).map((entry) => ({
       category: entry[customerEscapesFilterField], value: entry.value
     })),
     PALETTE_MAX_GROUPS
   ),
-    [filteredCustomerEscapesRows, customerEscapesFilterField, customerEscapesDateRange]
+    [filteredCustomerEscapesRows, customerEscapesFilterField, selectedDateRange]
   );
   const customerEscapesForecastValues = customerEscapesChartRows.map((row) => row.total);
   const customerEscapesForecast = useCalculatedMetricGoalLine({
@@ -9610,7 +9579,6 @@ export default function App() {
             {visibleCards.sif && (
               <article className="analytics-card" style={{ order: 8 }}>
                 <CardHeader
-                  processingMonth={sifProcessingMonth}
                   title="SIF Incidents"
                   info={METRIC_INFO.sif}
                   tooltipLegend={sifCardTooltipLegend}
@@ -9692,7 +9660,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={sifDateRange}
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.sif === 'bar' ? 'bar' : 'line'}
                               width={sifChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -9800,7 +9768,6 @@ export default function App() {
             {visibleCards.potentialSif && (
               <article className="analytics-card" style={{ order: 7 }}>
                 <CardHeader
-                  processingMonth={potentialSifProcessingMonth}
                   title="Potential SIF Incidents"
                   info={METRIC_INFO.potentialSif}
                   tooltipLegend={potentialSifCardTooltipLegend}
@@ -9890,7 +9857,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={potentialSifDateRange}
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.potentialSif === 'bar' ? 'bar' : 'line'}
                               width={potentialSifChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -9998,7 +9965,6 @@ export default function App() {
             {visibleCards.nmfr && (
               <article className="analytics-card" style={{ order: 5 }}>
                 <CardHeader
-                  processingMonth={nmfrProcessingMonth}
                   title="Near Miss Frequency Rate"
                   info={nmfrMetricInfo}
                   tooltipLegend={nmfrCardTooltipLegend}
@@ -10080,7 +10046,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={nmfrDateRange}
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.nmfr === 'bar' ? 'bar' : 'line'}
                               width={nmfrChartWidth}
                               height={INCIDENT_CHART_HEIGHT}
@@ -10188,7 +10154,6 @@ export default function App() {
             {visibleCards.customerEscapes && (
               <article className="analytics-card" style={{ order: 7 }}>
                 <CardHeader
-                  processingMonth={customerEscapesProcessingMonth}
                   title="Customer Escapes"
                   info={customerEscapesMetricInfo}
                   tooltipLegend={isCustomerEscapesPalette
@@ -10264,7 +10229,7 @@ export default function App() {
                             />
                           ) : (
                             <MetricTrendChart
-                              selectedDateRange={customerEscapesDateRange}
+                              selectedDateRange={selectedDateRange}
                               variant={chartVariants.customerEscapes === 'bar' ? 'bar' : 'line'}
                               width={customerEscapesChartWidth}
                               goalLine={customerEscapesGoalLine}

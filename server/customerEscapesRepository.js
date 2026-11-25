@@ -60,7 +60,7 @@ export async function readCustomerEscapesData() {
       AND pc.[PCMY_Status] = 'FINAL'
       AND pc.[PCMY_PROG_Sector] = 'Defense Systems'
       AND md.[MYDT_From_DT] >= '2025-01-01'
-      AND md.[MYDT_From_DT] < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+      AND md.[MYDT_From_DT] < DATEADD(month, 1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
     GROUP BY md.[MYDT_From_DT], p.[PMDH_PROG_ID],
       pc.[PCMY_PROG_Division], pc.[PCMY_PROG_BusinessUnit], pc.[PCMY_PROG_Campus]
     ORDER BY data_month, division, business_unit, facility, program_id;

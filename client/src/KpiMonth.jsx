@@ -4,15 +4,14 @@ const monthFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short', year: 'numeric', timeZone: 'UTC'
 });
 
-export function getLatestDataMonth(rows, getStamps) {
+export function getLatestDataMonth(rows, getStamps, endStamp) {
   const now = new Date();
-  const lastCompletedMonth = Date.UTC(now.getFullYear(), now.getMonth() - 1, 1);
+  const latestAllowedMonth = endStamp ?? Date.UTC(now.getFullYear(), now.getMonth() - 1, 1);
   let latest = null;
   for (const row of rows) {
     const stamps = getStamps(row);
     for (const stamp of Array.isArray(stamps) ? stamps : [stamps]) {
-      // KPIs never include the current month or future months.
-      if (Number.isFinite(stamp) && stamp <= lastCompletedMonth
+      if (Number.isFinite(stamp) && stamp <= latestAllowedMonth
         && (latest == null || stamp > latest)) latest = stamp;
     }
   }

@@ -1,16 +1,10 @@
 import XLSX from 'xlsx-js-style';
 import { getCachedSqlDataset } from '../sqlDatasetCache.js';
-import { getSafetyMetricPayload } from '../sifRepository.js';
 import { readLaborUtilizationNewData } from '../laborUtilizationNewRepository.js';
 import { applyFacilityGroupingsToPayload } from '../facilityGroupingsRepository.js';
 import { logError } from '../debugLogger.js';
 import { buildCardMonthlyPoints, getCardMonthConfig, isScorecardSourceRow } from '../../shared/scorecardMonths.mjs';
 import { assessMonthHistory, getLastCompletedMonthStamp } from '../../shared/latestMonthOutlier.mjs';
-
-const number = {
-  display: new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }),
-  excel: '#,##0.00##'
-};
 const currency = {
   display: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }),
   excel: '$#,##0.00'
@@ -23,16 +17,11 @@ const month = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric'
 const MIN_PRIOR_MONTHS_FOR_HISTORY = 10;
 const HIDDEN_ROW_FILL = { patternType: 'solid', fgColor: { rgb: 'FFFFC7CE' } };
 const cached = (scope) => () => getCachedSqlDataset(scope);
-const safety = (scope, key) => async () => getSafetyMetricPayload(await getCachedSqlDataset(scope), key);
 
 const cards = [
   { key: 'controllableCostsNew', facilityScope: 'controllable-costs-databricks-new', title: 'Controllable Costs', format: currency, read: cached('controllable-costs-databricks-new') },
   { key: 'laborNew', facilityScope: 'labor-new', title: 'Labor Utilization', format: percent, read: readLaborUtilizationNewData },
-  { key: 'nmfr', title: 'Near Miss Frequency Rate', format: number, read: safety('safety-nmfr', 'nmfr') },
   { key: 'otd', title: 'On Time Delivery (OTD)', format: percent, read: cached('otd') },
-  { key: 'customerEscapes', facilityScope: 'customer-escapes', title: 'Customer Escapes', format: number, read: cached('customer-escapes') },
-  { key: 'potentialSif', facilityScope: 'potential-sif', title: 'Potential SIF Incidents', format: number, read: safety('safety-incidents', 'potentialSif') },
-  { key: 'sif', title: 'SIF Incidents', format: number, read: safety('safety-incidents', 'sif') }
 ];
 
 async function readCardReport({ key, facilityScope = key, title, format, read }, lastCompletedMonth) {
@@ -152,7 +141,7 @@ export async function renderOutlierReport(now = new Date()) {
     <body><main><h1>Latest-month outlier report</h1>
     <p><a download="outlier-report.xlsx" href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${workbook}">Download Excel workbook</a></p>
     <p>The Historical ranges sheet uses the data available today to reconstruct cutoffs for each month with at least ${MIN_PRIOR_MONTHS_FOR_HISTORY} earlier observed months on that card. Red rows would have been hidden. The Historical range summary counts each evaluated month once per card.</p>
-    <p>All divisions, business units and facilities. Each card tests its newest observed completed month against the previous 6–12 observed months. A value on either cutoff is included. The test uses full precision. Dashboard filters can change the result.</p>
+    <p>All divisions, business units and facilities. Controllable Costs, Labor Utilization and OTD each test its newest observed completed month against the previous 6–12 observed months. A value on either cutoff is included. The test uses full precision. Dashboard filters can change the result.</p>
     <div class="scroll"><table><thead><tr><th>Card</th><th>Month tested</th><th>Actual</th><th>Lower cutoff</th><th>Upper cutoff</th><th>Prior months in window</th><th>Prior months available</th><th>Decision</th></tr></thead>
     <tbody>${reports.map(renderLatestRow).join('')}</tbody></table></div>
     <p>There is no scheduled release day. A hidden month is shown when its value returns inside the range on refresh, or when a newer completed month has a usable value for that card.</p></main></body></html>`;

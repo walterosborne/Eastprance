@@ -4092,7 +4092,7 @@ function CardHeader({ title, info, tooltipLegend = null, performanceStatus = nul
   );
 }
 
-function ResponsivePrimaryKpiValue({ value }) {
+function ResponsiveKpiValue({ value }) {
   const valueRef = useRef(null);
   const fullValue = String(value ?? '--');
   const [displayValue, setDisplayValue] = useState(fullValue);
@@ -4177,15 +4177,19 @@ function KpiChange({ delta, direction, label }) {
   const tone = score > 0 ? 'dark-green' : score < 0 ? 'dark-red' : 'neutral';
   const performance = score > 0 ? 'Favorable' : score < 0 ? 'Unfavorable' : 'Neutral';
   return (
-    <div className="kpi-comparison">
+    <>
       <span className="kpi-change" data-tone={tone}>
         {Number.isFinite(delta) ? relativeDifference.format(delta) : '—'}
         <span className="kpi-sr"> {Number.isFinite(delta) ? performance : 'Unavailable'}</span>
       </span>
-      <span className="kpi-caption">{label}</span>
-    </div>
+      <span className="kpi-caption" title={label}>{label}</span>
+    </>
   );
 }
+
+const kpiRangeMonth = new Intl.DateTimeFormat('en-US', {
+  month: 'short', year: '2-digit', timeZone: 'UTC'
+});
 
 function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label, ariaLabel }) {
   const { format, direction, forecast } = kpiMetrics[metricKey];
@@ -4205,8 +4209,11 @@ function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label,
   const prediction = estimate?.trainingKey === trainingKey && estimate.steps === steps
     && estimate.forecast === forecast ? estimate.result : null;
   const rangeLabel = summary ? formatMonthStamp(summary.start) + ' – ' + formatMonthStamp(summary.end) : '';
+  const compactRange = summary ? kpiRangeMonth.format(summary.start) + '–' + kpiRangeMonth.format(summary.end) : '—';
+  const forecastHeading = prediction?.method === 'Average fallback' ? 'Avg forecast'
+    : prediction?.method === 'Recent median' ? 'Median forecast' : 'Next forecast';
   const comparisonTip = summary
-    ? rangeLabel + '. Average of ' + summary.count + ' of 12 calendar months with data. '
+    ? rangeLabel + '. Average of available monthly values in the preceding 12 months. '
       + (summary.average === 0 ? 'Percentage difference is undefined for a zero average.'
         : 'Compares the KPI month with this average, using the absolute average as the denominator.')
     : 'Requires a KPI month and at least one prior monthly value.';
@@ -4218,9 +4225,9 @@ function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label,
     <section className="metric-overview-band" aria-label={ariaLabel}>
       <div className="kpi-sections">
         <Tooltip describeChild title="Latest eligible KPI month for the active filters. The percentage compares this KPI with the immediately preceding calendar month. A missing or zero baseline yields no percentage.">
-          <div tabIndex={0} className="metric-overview-primary">
-            <span className="metric-overview-label">{label}</span>
-            <ResponsivePrimaryKpiValue value={unavailable ? '--' : currentValue} />
+          <div tabIndex={0} className="kpi-section metric-overview-primary">
+            <span className="metric-overview-label" title={label}>{label}</span>
+            <ResponsiveKpiValue value={unavailable ? '--' : currentValue} />
             <span className="kpi-caption"><KpiMonthLabel stamp={summary?.month} /></span>
             <KpiChange delta={summary?.previousDifference} direction={direction} label="vs prior month" />
           </div>
@@ -4228,18 +4235,17 @@ function MetricOverviewBand({ metricKey, rows, month, value, unavailable, label,
         <Tooltip describeChild title={comparisonTip}>
           <div tabIndex={0} className="kpi-section">
             <span className="metric-overview-label">12-month average</span>
-            <strong>{Number.isFinite(summary?.average) ? format(summary.average) : '—'}</strong>
-            <span className="kpi-caption">{rangeLabel}{summary && summary.count < 12 && ` · ${summary.count}/12 mo.`}</span>
+            <ResponsiveKpiValue value={Number.isFinite(summary?.average) ? format(summary.average) : '—'} />
+            <span className="kpi-caption" title={rangeLabel}>{compactRange}</span>
             <KpiChange delta={summary?.difference} direction={direction} label="KPI vs 12-mo avg" />
           </div>
         </Tooltip>
         <Tooltip describeChild title={forecastTip}>
           <div tabIndex={0} className="kpi-section">
-            <span className="metric-overview-label">Next forecast</span>
-            <strong>{prediction ? format(prediction.value) : '—'}</strong>
+            <span className="metric-overview-label" title={forecastHeading}>{forecastHeading}</span>
+            <ResponsiveKpiValue value={prediction ? format(prediction.value) : '—'} />
             <span className="kpi-caption">{summary && formatMonthStamp(summary.target)}</span>
             <KpiChange delta={relativeChange(prediction?.value, summary?.value)} direction={direction} label="vs KPI month" />
-            {prediction && prediction.method !== 'ARIMA' && <span className="kpi-caption">{prediction.method}</span>}
           </div>
         </Tooltip>
       </div>

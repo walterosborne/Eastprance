@@ -1385,9 +1385,7 @@ h1 {
 .metric-overview-band {
   container-type: inline-size;
   width: 100%;
-  height: auto;
-  min-height: 58px;
-  padding: 0.32rem 0.5rem;
+  padding: 0.35rem 0;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--surface-muted);
@@ -1396,97 +1394,61 @@ h1 {
 
 .kpi-sections {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 0.4rem;
-  padding-block: 0.25rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .kpi-section {
   display: grid;
-  align-content: center;
-  gap: 0.18rem;
+  /* Heading, value, date, change and comparison share the same tracks on every card. */
+  grid-template-rows: 0.78rem 1.22rem 0.78rem 0.84rem 0.78rem;
+  align-items: baseline;
+  align-content: start;
   min-width: 0;
-  padding-inline-start: 0.4rem;
-  border-inline-start: 1px solid var(--border);
+  padding-inline: 0.3rem;
+  padding-inline: clamp(0.2rem, 1.5cqi, 0.55rem);
 }
 
-.kpi-section strong {
-  font-size: clamp(0.65rem, 2.8cqi, 0.84rem);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+.kpi-section + .kpi-section {
+  box-shadow: inset 1px 0 var(--border);
 }
 
+.kpi-section > * {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-overview-label,
 .kpi-caption,
 .kpi-change {
-  font-size: 0.58rem;
-  line-height: 1.18;
   color: var(--text-secondary);
+  font-size: 0.625rem;
+  line-height: 0.78rem;
 }
-.kpi-change { display: flex; align-items: center; gap: 0.25rem; font-weight: 700; }
+
+.metric-overview-label { font-weight: 700; }
+
+.metric-overview-value {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-size: clamp(0.78rem, 3.1cqi, 1rem);
+  font-weight: 700;
+  line-height: 1.22rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-overview-primary .metric-overview-value {
+  font-size: 1rem;
+  font-size: clamp(0.9rem, 3.6cqi, 1.16rem);
+  font-weight: 750;
+}
+
+.kpi-change { font-weight: 700; font-variant-numeric: tabular-nums; }
 .kpi-change[data-tone="dark-green"] { color: color-mix(in srgb, #1d973e 65%, var(--text-primary)); }
 .kpi-change[data-tone="dark-red"] { color: color-mix(in srgb, #d64b45 65%, var(--text-primary)); }
 .kpi-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-
-.kpi-comparison { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.08rem 0.22rem; }
-.kpi-comparison .kpi-change { font-variant-numeric: tabular-nums; }
-@container (max-width: 330px) {
-  .kpi-sections { gap: 0.25rem; }
-  .kpi-section { padding-inline-start: 0.25rem; }
-  .kpi-sections .metric-overview-label { white-space: normal; }
-}
-
-.metric-overview-primary,
-.metric-overview-status-list {
-  display: grid;
-  align-content: center;
-  min-width: 0;
-}
-
-.metric-overview-primary {
-  gap: 0.22rem;
-}
-
-.metric-overview-value,
-.metric-overview-label,
-.metric-overview-sublabel {
-  margin: 0;
-}
-
-.metric-overview-value {
-  max-width: 100%;
-  color: var(--text-primary);
-  font-size: clamp(0.72rem, 4.64cqi, 1.32rem);
-  font-weight: 750;
-  letter-spacing: -0.025em;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.metric-overview-label {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 0.61rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1.1;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.metric-overview-sublabel {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 0.52rem;
-  font-weight: 600;
-  letter-spacing: 0.025em;
-  line-height: 1.05;
-  opacity: 0.82;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .metric-overview-status-list {
   gap: 0.3rem;
